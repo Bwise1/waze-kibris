@@ -13,9 +13,9 @@ abstract class AppException with EquatableMixin implements Exception {
 }
 
 class ServerException extends AppException {
-  final String msg;
 
   ServerException(this.msg);
+  final String msg;
 
   @override
   String get message => msg;
@@ -37,9 +37,9 @@ class InvalidArgOrDataException extends AppException {
 }
 
 class UnexpectedException extends AppException {
-  final String msg;
 
   UnexpectedException(this.msg);
+  final String msg;
 
   @override
   String get message => msg;
@@ -56,11 +56,11 @@ class CachePutException extends AppException {
 }
 
 class Failure extends Equatable {
-  final AppException exception;
 
   const Failure(this.exception);
 
   factory Failure.fromStr(String msg) => Failure(UnexpectedException(msg));
+  final AppException exception;
 
   String get message => exception.message;
 

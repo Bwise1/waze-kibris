@@ -13,9 +13,9 @@ enum PageStateType {
 
 @immutable
 abstract class _AbstractBzState extends Equatable {
-  final PageStateType type;
 
   const _AbstractBzState({required this.type});
+  final PageStateType type;
 
   bool get isError => type == PageStateType.error;
 
@@ -42,9 +42,9 @@ abstract class _AbstractBzState extends Equatable {
 }
 
 class BlocState extends _AbstractBzState {
-  final BlocError? error;
 
   const BlocState({super.type = PageStateType.loading, this.error});
+  final BlocError? error;
 
   @override
   BlocState copy({PageStateType? type, BlocError? error}) {

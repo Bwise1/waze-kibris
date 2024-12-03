@@ -14,7 +14,7 @@ extension SizedContext on BuildContext {
   double get heightPx => sizePx.height;
 
   double get diagonalPx {
-    final Size s = sizePx;
+    final s = sizePx;
     return sqrt((s.width * s.width) + (s.height * s.height));
   }
 

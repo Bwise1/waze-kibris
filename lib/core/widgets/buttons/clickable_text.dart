@@ -3,8 +3,7 @@ import 'package:waze_kibris/common.dart';
 
 class CustomClickableText extends StatelessWidget {
   const CustomClickableText({
-    super.key,
-    required this.text,
+    required this.text, super.key,
     this.onTap,
     this.padding,
     this.color,
@@ -16,8 +15,7 @@ class CustomClickableText extends StatelessWidget {
         widget = null;
 
   const CustomClickableText.widget({
-    super.key,
-    required this.widget,
+    required this.widget, super.key,
     this.onTap,
     this.padding,
     this.color,
@@ -45,7 +43,7 @@ class CustomClickableText extends StatelessWidget {
       onPressed: () {
         FocusScope.of(context).requestFocus();
         if (onTap != null) {
-          onTap!();
+          onTap?.call();
         }
       },
       style: TextButton.styleFrom(

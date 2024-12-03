@@ -3,14 +3,14 @@ import 'package:waze_kibris/common.dart';
 
 class CustomBadge extends StatelessWidget {
   const CustomBadge(
-      this.value, {
-        super.key,
-        this.width,
-        this.color,
-        this.radius,
-        this.bordered = false,
-        this.borderColor,
-      });
+    this.value, {
+    super.key,
+    this.width,
+    this.color,
+    this.radius,
+    this.bordered = false,
+    this.borderColor,
+  });
   final String value;
   final double? width;
   final Color? color;
@@ -43,7 +43,7 @@ class CustomBadge extends StatelessWidget {
                 .textColor(borderColor ?? styles.theme.white)
                 .medium
                 .textHeight(0),
-          )
+          ),
         ],
       ),
     );

@@ -3,9 +3,9 @@ import 'package:waze_kibris/common.dart';
 
 class EmptyPlaceholder extends StatelessWidget {
   const EmptyPlaceholder({
-    super.key,
     required this.headline,
     required this.tag,
+    super.key,
     this.icon,
   });
 
@@ -17,11 +17,12 @@ class EmptyPlaceholder extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
-      mainAxisSize: MainAxisSize.max,
-      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        AppIcon(icon ?? Assets.icons.regular.chat,
-            color: styles.theme.grey, size: 28),
+        AppIcon(
+          icon ?? 'Assets.icons.regular.chat',
+          color: styles.theme.grey,
+          size: 28,
+        ),
         Gap(styles.insets.sm),
         Text(headline, style: styles.typography.h4.semiBold),
         Gap(styles.insets.xxs),

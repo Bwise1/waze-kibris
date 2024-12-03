@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 
 class AuthHeader extends StatelessWidget {
-  const AuthHeader({super.key, required this.header, required this.subHeader});
+  const AuthHeader({required this.header, required this.subHeader, super.key});
   final String header;
   final String subHeader;
 

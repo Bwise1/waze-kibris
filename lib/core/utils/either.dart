@@ -28,9 +28,9 @@ abstract class Either<L, R> extends Equatable {
 }
 
 class Left<L, R> extends Either<L, R> {
-  final L value;
 
   const Left(this.value);
+  final L value;
 
   @override
   E fold<E>(E Function(L value) ifLeft, E Function(R value) ifRight) =>
@@ -41,9 +41,9 @@ class Left<L, R> extends Either<L, R> {
 }
 
 class Right<L, R> extends Either<L, R> {
-  final R value;
 
   const Right(this.value);
+  final R value;
 
   @override
   E fold<E>(E Function(L value) ifLeft, E Function(R value) ifRight) =>

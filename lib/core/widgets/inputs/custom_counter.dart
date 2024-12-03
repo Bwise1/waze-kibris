@@ -51,7 +51,7 @@ class _CustomCounterState extends State<CustomCounter> {
             children: [
               IconButton(
                 icon: AppIcon(
-                  Assets.icons.regular.minus,
+                  'Assets.icons.regular.minus',
                   color: styles.theme.grey,
                 ),
                 onPressed: () {
@@ -83,7 +83,7 @@ class _CustomCounterState extends State<CustomCounter> {
               ),
               IconButton(
                 icon: AppIcon(
-                  Assets.icons.regular.plus,
+                  'Assets.icons.regular.plus',
                   color: styles.theme.grey,
                 ),
                 onPressed: () {

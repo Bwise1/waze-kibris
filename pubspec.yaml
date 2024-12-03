@@ -36,6 +36,7 @@ dependencies:
   internet_connection_checker: ^1.0.0+1
   collection: ^1.18.0
   flutter_local_notifications: ^17.2.1+2
+  modal_bottom_sheet: ^3.0.0
 
 dev_dependencies:
   bloc_test: ^9.1.7

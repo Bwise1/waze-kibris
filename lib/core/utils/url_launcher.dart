@@ -17,18 +17,18 @@ class UrlLauncher {
               : LaunchMode.externalApplication,
         );
         if (callback != null) {
-          callback();
+          callback.call();
         }
       } else {
-        throw "Could not launch $url";
+        throw Exception('Could not launch $url');
       }
     }
   }
 
   static Future<void> call(String number) async {
     if (number.isNotEmpty == true) {
-      final String fixedNumber = number.replaceAll(RegExp('[^0-9|+]'), '');
-      final Uri tel = Uri(
+      final fixedNumber = number.replaceAll(RegExp('[^0-9|+]'), '');
+      final tel = Uri(
         scheme: 'tel',
         path: fixedNumber,
       );
@@ -36,21 +36,21 @@ class UrlLauncher {
       if (await canLaunchUrl(tel)) {
         await launchUrl(tel);
       } else {
-        throw "Could not launch $tel";
+        throw Exception('Could not launch $tel');
       }
     }
   }
 
   static Future<void> sendEmail(String emailAddress) async {
-    String url = 'mailto:$emailAddress';
+    var url = 'mailto:$emailAddress';
 
     url = Uri.encodeFull(url);
-    final Uri parsedUrl = Uri.parse(url);
+    final parsedUrl = Uri.parse(url);
 
     if (await canLaunchUrl(parsedUrl)) {
       await launchUrl(parsedUrl);
     } else {
-      throw "Could not launch $parsedUrl";
+      throw Exception('Could not launch $parsedUrl');
     }
   }
 }

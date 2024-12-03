@@ -9,11 +9,10 @@ enum SnackBarType {
 }
 
 class SnackBarFactory {
+  SnackBarFactory._({required this.snackbarType, this.duration, this.message});
   final String? message;
   final SnackBarType snackbarType;
   final int? duration;
-
-  SnackBarFactory._({required this.snackbarType, this.duration, this.message});
 
   void show(BuildContext context) {
     if (message == null) {
@@ -30,14 +29,16 @@ class SnackBarFactory {
       case SnackBarType.success:
         backgroundColor = styles.theme.secondary;
     }
-    context.showToast(
+    context.showToast<T>(
       Text(message!, style: styles.typography.t2.textColor(styles.theme.white)),
       backgroundColor: backgroundColor,
       elevation: 0.5,
-      alignment: const Alignment(0.0, -0.9),
+      alignment: const Alignment(0, -0.9),
     );
   }
 }
+
+class T {}
 
 class RSnackBar {
   RSnackBar._();

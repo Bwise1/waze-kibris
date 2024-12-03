@@ -4,9 +4,9 @@ import 'package:waze_kibris/common.dart';
 
 class BaBlocBuilder<B extends BaBloc<S>, S extends BlocState>
     extends StatefulWidget {
-
   const BaBlocBuilder({
-    required this.builder, super.key,
+    required this.builder,
+    super.key,
     this.errorBuilder,
     this.bloc,
     this.buildWhen,

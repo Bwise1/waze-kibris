@@ -2,8 +2,6 @@ import 'package:equatable/equatable.dart';
 import 'package:waze_kibris/common.dart';
 
 class BlocError extends Equatable implements Exception {
-  final String message;
-  final bool showOnUI, showOnSnackBar;
 
   const BlocError({
     required this.message,
@@ -22,6 +20,9 @@ class BlocError extends Equatable implements Exception {
       showOnSnackBar: showOnSnackBar,
     );
   }
+  final String message;
+  final bool showOnUI;
+  final bool showOnSnackBar;
 
   @override
   List<Object> get props => [message, showOnUI];

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:waze_kibris/common.dart';
 import 'package:styled_widget/styled_widget.dart';
+import 'package:waze_kibris/common.dart';
 
 class CustomSwitch extends StatefulWidget {
-  const CustomSwitch({super.key, required this.onChanged, required this.value});
+  const CustomSwitch({required this.onChanged, required this.value, super.key});
   final ValueChanged<bool> onChanged;
   final bool value;
 
@@ -52,8 +52,10 @@ class _CustomSwitchState extends State<CustomSwitch> {
         .scale(all: tapState ? 0.95 : 1, animate: true);
   }
 
-  Widget _styledOuterCircle(
-      {required Widget child, required bool toggleState}) {
+  Widget _styledOuterCircle({
+    required Widget child,
+    required bool toggleState,
+  }) {
     return child
         .decorated(
           color: Colors.white,
@@ -81,10 +83,17 @@ class _CustomSwitchState extends State<CustomSwitch> {
   @override
   Widget build(BuildContext context) {
     return _styledInnerCircle(toggleState: toggleState)
-        .parent(({required Widget child}) =>
-            _styledOuterCircle(child: child, toggleState: toggleState))
-        .parent(({required Widget child}) => _styledBox(
-            child: child, tapState: onTapState, toggleState: toggleState))
+        .parent(
+          ({required Widget child}) =>
+              _styledOuterCircle(child: child, toggleState: toggleState),
+        )
+        .parent(
+          ({required Widget child}) => _styledBox(
+            child: child,
+            tapState: onTapState,
+            toggleState: toggleState,
+          ),
+        )
         .gestures(onTapChange: _handleTap, onTap: _handleToggle)
         .animate(const Duration(milliseconds: 300), Curves.easeOut);
   }

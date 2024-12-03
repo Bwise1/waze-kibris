@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 class MeasurableWidget extends SingleChildRenderObjectWidget {
-  const MeasurableWidget(
-      {super.key, required this.onChange, required Widget super.child});
+  const MeasurableWidget({
+    required this.onChange, required Widget super.child, super.key,
+  });
   final void Function(Size size) onChange;
   @override
   RenderObject createRenderObject(BuildContext context) =>
@@ -20,7 +21,7 @@ class MeasureSizeRenderObject extends RenderProxyBox {
   @override
   void performLayout() {
     super.performLayout();
-    Size newSize = child?.size ?? Size.zero;
+    final newSize = child?.size ?? Size.zero;
     if (_prevSize == newSize) return;
     _prevSize = newSize;
     scheduleMicrotask(() => onChange(newSize));

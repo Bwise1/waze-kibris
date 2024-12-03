@@ -4,11 +4,6 @@ import 'package:waze_kibris/common.dart';
 enum LoaderType { spinner, text }
 
 class CustomLoader extends StatelessWidget {
-  final LoaderType type;
-  final EdgeInsets padding;
-  final Color? color;
-  final double? value;
-
   const CustomLoader({
     this.type = LoaderType.spinner,
     this.padding = EdgeInsets.zero,
@@ -16,12 +11,17 @@ class CustomLoader extends StatelessWidget {
     this.value,
     super.key,
   });
+  final LoaderType type;
+  final EdgeInsets padding;
+  final Color? color;
+  final double? value;
 
   static bool isAndroid = PlatformInfo.isAndroid;
 
   @override
   Widget build(BuildContext context) {
-    Color bColor = isAndroid == true ? styles.theme.white : styles.theme.primary;
+    final bColor =
+        isAndroid == true ? styles.theme.white : styles.theme.primary;
     switch (type) {
       case LoaderType.spinner:
         return Center(

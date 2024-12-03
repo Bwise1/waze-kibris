@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 
 class ModalHeader extends StatelessWidget {
-  const ModalHeader({super.key, required this.title});
+  const ModalHeader({required this.title, super.key});
   final String title;
 
   @override
@@ -17,11 +17,11 @@ class ModalHeader extends StatelessWidget {
                 children: [
                   Gap(styles.insets.md * styles.scale),
                   Text(title, style: styles.typography.h3),
-                  Spacer(),
+                  const Spacer(),
                   IconButton(
                     onPressed: () => context.pop(),
                     icon: AppIcon(
-                      Assets.icons.regular.close,
+                      'Assets.icons.regular.close',
                       color: styles.theme.black,
                       size: 24 * styles.scale,
                     ),

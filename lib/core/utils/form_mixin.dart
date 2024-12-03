@@ -10,7 +10,7 @@ mixin FormMixin<T extends StatefulWidget> on State<T> {
 
   void validateForm(VoidCallback? callback) {
     final formState = _formKey.currentState;
-    if (formState?.validate() == true) {
+    if (formState?.validate() ?? false) {
       formState?.save();
       callback?.call();
     } else {

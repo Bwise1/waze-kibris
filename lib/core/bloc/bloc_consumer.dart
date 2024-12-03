@@ -3,6 +3,17 @@ import 'package:waze_kibris/common.dart';
 
 class BaBlocConsumer<B extends BaBloc<S>, S extends BlocState>
     extends StatefulWidget {
+  const BaBlocConsumer({
+    required this.builder,
+    required this.listener,
+    super.key,
+    this.errorBuilder,
+    this.bloc,
+    this.buildWhen,
+    this.listenWhen,
+    this.showLoading,
+    this.showError,
+  });
   final B? bloc;
   final BlocWidgetBuilder<S> builder;
   final BlocBuilderCondition<S>? buildWhen;
@@ -11,18 +22,6 @@ class BaBlocConsumer<B extends BaBloc<S>, S extends BlocState>
   final BlocWidgetBuilder<S>? errorBuilder;
   final bool Function(BuildContext, S)? showLoading;
   final bool Function(BuildContext, S)? showError;
-
-  const BaBlocConsumer({
-    super.key,
-    required this.builder,
-    this.errorBuilder,
-    this.bloc,
-    this.buildWhen,
-    this.listenWhen,
-    this.showLoading,
-    this.showError,
-    required this.listener,
-  });
 
   @override
   State<BaBlocConsumer<B, S>> createState() => _BaBlocConsumerState<B, S>();

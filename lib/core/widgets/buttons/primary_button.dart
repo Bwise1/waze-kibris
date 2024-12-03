@@ -19,10 +19,10 @@ class PrimaryButton extends StatelessWidget {
       child: AppBtn(
         padding: EdgeInsets.all(styles.insets.sm),
         onPressed: onPressed,
-        minimumSize: Size(900, 50),
+        minimumSize: const Size(900, 50),
         semanticLabel: 'primary-button-text',
         child: isLoading
-            ? SizedBox(height: 18, width: 18, child: const CustomLoader())
+            ? const SizedBox(height: 18, width: 18, child: CustomLoader())
             : Text(
                 text ?? '',
                 style: styles.typography.btn.textColor(styles.theme.grey),

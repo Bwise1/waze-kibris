@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 class SeparatedFlex extends StatelessWidget {
   const SeparatedFlex({
-    super.key,
     required this.children,
     required this.direction,
     required this.separatorBuilder,
+    super.key,
     this.mainAxisAlignment = MainAxisAlignment.start,
     this.crossAxisAlignment = CrossAxisAlignment.center,
     this.mainAxisSize = MainAxisSize.max,
@@ -30,11 +30,11 @@ class SeparatedFlex extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    List<Widget> c = List.of(children);
+    final c = List<Widget>.of(children);
     for (var i = c.length; i-- > 0;) {
       if (i > 0) c.insert(i, separatorBuilder());
     }
-    Widget row = Flex(
+    final Widget row = Flex(
       direction: direction,
       mainAxisAlignment: mainAxisAlignment,
       crossAxisAlignment: crossAxisAlignment,
@@ -50,9 +50,9 @@ class SeparatedFlex extends StatelessWidget {
 
 class SeparatedRow extends StatelessWidget {
   const SeparatedRow({
-    super.key,
     required this.children,
     required this.separatorBuilder,
+    super.key,
     this.mainAxisAlignment = MainAxisAlignment.start,
     this.crossAxisAlignment = CrossAxisAlignment.center,
     this.mainAxisSize = MainAxisSize.max,
@@ -90,6 +90,18 @@ class SeparatedRow extends StatelessWidget {
 }
 
 class SeparatedColumn extends StatelessWidget {
+  const SeparatedColumn({
+    required this.children,
+    required this.separatorBuilder,
+    super.key,
+    this.mainAxisAlignment = MainAxisAlignment.start,
+    this.crossAxisAlignment = CrossAxisAlignment.center,
+    this.mainAxisSize = MainAxisSize.max,
+    this.verticalDirection = VerticalDirection.down,
+    this.textBaseline = TextBaseline.alphabetic,
+    this.textDirection = TextDirection.ltr,
+    this.padding = EdgeInsets.zero,
+  });
   final List<Widget> children;
   final Widget Function() separatorBuilder;
   final MainAxisAlignment mainAxisAlignment;
@@ -99,19 +111,6 @@ class SeparatedColumn extends StatelessWidget {
   final TextDirection textDirection;
   final VerticalDirection verticalDirection;
   final EdgeInsets padding;
-
-  const SeparatedColumn({
-    super.key,
-    required this.children,
-    required this.separatorBuilder,
-    this.mainAxisAlignment = MainAxisAlignment.start,
-    this.crossAxisAlignment = CrossAxisAlignment.center,
-    this.mainAxisSize = MainAxisSize.max,
-    this.verticalDirection = VerticalDirection.down,
-    this.textBaseline = TextBaseline.alphabetic,
-    this.textDirection = TextDirection.ltr,
-    this.padding = EdgeInsets.zero,
-  });
 
   @override
   Widget build(BuildContext context) => SeparatedFlex(

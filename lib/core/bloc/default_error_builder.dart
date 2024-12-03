@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 
 class DefaultBlocErrorUI<B extends BaBloc> extends StatelessWidget {
-  final B bloc;
-
   const DefaultBlocErrorUI({
     required this.bloc,
     super.key,
   });
+  final B bloc;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +25,6 @@ class DefaultBlocErrorUI<B extends BaBloc> extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               Gap(styles.insets.sm),
-              //todo:
               // BaActionButton(
               //   title: 'Retry',
               //   onPressed: () {

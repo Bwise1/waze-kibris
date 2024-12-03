@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 class CustomHorizontalScroll extends StatefulWidget {
-  final Widget child;
-  final ScrollPhysics? physics;
 
   const CustomHorizontalScroll({required this.child, super.key, this.physics});
+  final Widget child;
+  final ScrollPhysics? physics;
 
   @override
   State createState() => _CustomHorizontalScrollState();

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:waze_kibris/common.dart';
 import 'package:uuid/uuid.dart';
+import 'package:waze_kibris/common.dart';
 
 Widget _buildIcon(
   BuildContext context,
@@ -20,9 +20,9 @@ Widget _buildIcon(
 class AppBtn extends StatelessWidget {
   // ignore: prefer_const_constructors_in_immutables
   AppBtn({
-    super.key,
     required this.onPressed,
     required this.semanticLabel,
+    super.key,
     this.enableFeedback = true,
     this.pressEffect = true,
     this.child,
@@ -36,8 +36,8 @@ class AppBtn extends StatelessWidget {
   }) : _builder = null;
 
   AppBtn.from({
-    super.key,
     required this.onPressed,
+    super.key,
     this.enableFeedback = true,
     this.pressEffect = true,
     this.padding,
@@ -54,21 +54,28 @@ class AppBtn extends StatelessWidget {
   })  : child = null,
         circular = false {
     if (semanticLabel == null && text == null) {
-      throw ('AppBtn.from must include either text or semanticLabel');
+      throw Exception('AppBtn.from must include either text or semanticLabel');
     }
     this.semanticLabel = semanticLabel ?? text ?? '';
     _builder = (context) {
-      if (text == null && icon == null) return SizedBox.shrink();
-      Text? txt = text == null
+      if (text == null && icon == null) return const SizedBox.shrink();
+      final txt = text == null
           ? null
-          : Text(text,
+          : Text(
+              text,
               style: styles.typography.btn,
               textHeightBehavior:
-                  TextHeightBehavior(applyHeightToFirstAscent: false));
-      Widget? icn = icon == null
+                  const TextHeightBehavior(applyHeightToFirstAscent: false),
+            );
+      final icn = icon == null
           ? null
-          : _buildIcon(context, icon,
-              isSecondary: isSecondary, size: iconSize, iconColor: iconColor);
+          : _buildIcon(
+              context,
+              icon,
+              isSecondary: isSecondary,
+              size: iconSize,
+              iconColor: iconColor,
+            );
       if (txt != null && icn != null) {
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -83,9 +90,9 @@ class AppBtn extends StatelessWidget {
 
   // ignore: prefer_const_constructors_in_immutables
   AppBtn.basic({
-    super.key,
     required this.onPressed,
     required this.semanticLabel,
+    super.key,
     this.enableFeedback = true,
     this.pressEffect = true,
     this.child,
@@ -121,30 +128,34 @@ class AppBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color defaultColor =
+    final defaultColor =
         isSecondary ? styles.theme.white : styles.theme.primary;
-    Color textColor = styles.theme.text;
-    BorderSide side = border ?? BorderSide.none;
+    final textColor = styles.theme.text;
+    final side = border ?? BorderSide.none;
 
-    Widget content = _builder?.call(context) ?? child ?? SizedBox.shrink();
+    var content = _builder?.call(context) ?? child ?? const SizedBox.shrink();
     if (expand) content = Center(child: content);
 
-    OutlinedBorder shape = circular
+    final shape = circular
         ? CircleBorder(side: side)
         : RoundedRectangleBorder(
-            side: side, borderRadius: BorderRadius.circular(styles.corners.md));
+            side: side,
+            borderRadius: BorderRadius.circular(styles.corners.md),
+          );
 
-    ButtonStyle style = ButtonStyle(
+    final style = ButtonStyle(
       minimumSize: ButtonStyleButton.allOrNull<Size>(minimumSize ?? Size.zero),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       splashFactory: NoSplash.splashFactory,
       backgroundColor:
           ButtonStyleButton.allOrNull<Color>(bgColor ?? defaultColor),
       overlayColor: ButtonStyleButton.allOrNull<Color>(
-          Colors.transparent), // disable default press effect
+        Colors.transparent,
+      ), // disable default press effect
       shape: ButtonStyleButton.allOrNull<OutlinedBorder>(shape),
       padding: ButtonStyleButton.allOrNull<EdgeInsetsGeometry>(
-          padding ?? EdgeInsets.all(styles.insets.md)),
+        padding ?? EdgeInsets.all(styles.insets.md),
+      ),
       enableFeedback: enableFeedback,
     );
 
@@ -174,17 +185,17 @@ class AppBtn extends StatelessWidget {
                   ),
                 ),
               ),
-            )
+            ),
         ],
       ),
-      key: ValueKey(Uuid().v8()),
+      key: ValueKey(const Uuid().v8()),
     );
 
     // add press effect:
     if (pressEffect) {
       button = _ButtonPressEffect(
         button,
-        key: ValueKey(Uuid().v8()),
+        key: ValueKey(const Uuid().v8()),
       );
     }
 
@@ -216,7 +227,8 @@ class _ButtonPressEffectState extends State<_ButtonPressEffect> {
       excludeFromSemantics: true,
       onTapDown: (_) => setState(() => _isDown = true),
       onTapUp: (_) => setState(
-          () => _isDown = false), // not called, TextButton swallows this.
+        () => _isDown = false,
+      ), // not called, TextButton swallows this.
       onTapCancel: () => setState(() => _isDown = false),
       behavior: HitTestBehavior.translucent,
       child: Opacity(
@@ -228,7 +240,7 @@ class _ButtonPressEffectState extends State<_ButtonPressEffect> {
 }
 
 class _CustomFocusBuilder extends StatefulWidget {
-  const _CustomFocusBuilder({super.key, required this.builder});
+  const _CustomFocusBuilder({required this.builder, super.key});
   final Widget Function(BuildContext context, FocusNode focus) builder;
 
   @override
@@ -253,13 +265,13 @@ class _CustomFocusBuilderState extends State<_CustomFocusBuilder> {
 
 class CircleBtn extends StatelessWidget {
   const CircleBtn({
-    super.key,
     required this.child,
     required this.onPressed,
+    required this.semanticLabel,
+    super.key,
     this.border,
     this.bgColor,
     this.size,
-    required this.semanticLabel,
   });
 
   static double defaultSize = 45;
@@ -273,7 +285,7 @@ class CircleBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    double sz = size ?? defaultSize;
+    final sz = size ?? defaultSize;
     return AppBtn(
       onPressed: onPressed,
       semanticLabel: semanticLabel,
@@ -289,15 +301,15 @@ class CircleBtn extends StatelessWidget {
 
 class CircleIconBtn extends StatelessWidget {
   const CircleIconBtn({
-    super.key,
     required this.icon,
     required this.onPressed,
+    required this.semanticLabel,
+    super.key,
     this.border,
     this.bgColor,
     this.color,
     this.size,
     this.iconSize,
-    required this.semanticLabel,
   });
 
   static double defaultSize = 28;
@@ -313,8 +325,8 @@ class CircleIconBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color defaultColor = styles.theme.ash;
-    Color iconColor = color ?? styles.theme.ash;
+    final defaultColor = styles.theme.ash;
+    final iconColor = color ?? styles.theme.ash;
     return CircleBtn(
       onPressed: onPressed,
       border: border,
@@ -338,21 +350,25 @@ class BackBtn extends StatelessWidget {
     this.iconColor,
   });
 
+  const BackBtn.close({
+    Key? key,
+    VoidCallback? onPressed,
+    Color? bgColor,
+    Color? iconColor,
+  }) : this(
+          key: key,
+          icon: 'Assets.icons.regular.remove',
+          onPressed: onPressed,
+          semanticLabel: '',
+          bgColor: bgColor ?? Colors.transparent,
+          iconColor: iconColor,
+        );
+
   final Color? bgColor;
   final Color? iconColor;
   final String icon;
   final VoidCallback? onPressed;
   final String? semanticLabel;
-
-  BackBtn.close(
-      {Key? key, VoidCallback? onPressed, Color? bgColor, Color? iconColor})
-      : this(
-            key: key,
-            icon: Assets.icons.regular.remove,
-            onPressed: onPressed,
-            semanticLabel: '',
-            bgColor: bgColor ?? Colors.transparent,
-            iconColor: iconColor);
   @override
   Widget build(BuildContext context) {
     return CircleIconBtn(

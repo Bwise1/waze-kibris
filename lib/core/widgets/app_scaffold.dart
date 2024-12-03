@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:waze_kibris/common.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:waze_kibris/common.dart';
 
 class AppScaffold extends StatelessWidget {
-  const AppScaffold({super.key, required this.child});
+  const AppScaffold({required this.child, super.key});
   final Widget child;
   static AppStyle get style => _style;
   static AppStyle _style = AppStyle();

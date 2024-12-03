@@ -24,7 +24,7 @@ class AppHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final icon = backIcon ?? Assets.icons.regular.chevronLeft;
+    final icon = backIcon ?? 'Assets.icons.regular.chevronLeft';
 
     return ColoredBox(
       color: isTransparent ? Colors.transparent : styles.theme.white,
@@ -36,7 +36,6 @@ class AppHeader extends StatelessWidget {
             border: Border(
               bottom: BorderSide(
                 color: styles.theme.grey.withOpacity(0.1),
-                width: 1,
               ),
             ),
           ),
@@ -44,20 +43,22 @@ class AppHeader extends StatelessWidget {
             children: [
               Positioned.fill(
                 child: Center(
-                  child: Row(children: [
-                    if (showBackBtn) ...[
-                      BackBtn(
-                        onPressed: onBack,
-                        icon: icon,
-                        semanticLabel: backBtnSemantics,
-                        bgColor: Colors.transparent,
-                        iconColor: styles.theme.grey,
-                      ),
+                  child: Row(
+                    children: [
+                      if (showBackBtn) ...[
+                        BackBtn(
+                          onPressed: onBack,
+                          icon: icon,
+                          semanticLabel: backBtnSemantics,
+                          bgColor: Colors.transparent,
+                          iconColor: styles.theme.grey,
+                        ),
+                      ],
+                      const Spacer(),
+                      if (trailing != null) trailing!.call(context),
+                      Gap(styles.insets.sm),
                     ],
-                    Spacer(),
-                    if (trailing != null) trailing!.call(context),
-                    Gap(styles.insets.sm),
-                  ]),
+                  ),
                 ),
               ),
               MergeSemantics(
@@ -69,13 +70,15 @@ class AppHeader extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          mainAxisAlignment: showBackBtn ? MainAxisAlignment.center : MainAxisAlignment.start,
+                          mainAxisAlignment: showBackBtn
+                              ? MainAxisAlignment.center
+                              : MainAxisAlignment.start,
                           children: [
                             Gap(styles.insets.md),
                             if (title != null)
                               Text(
                                 title!,
-                                textHeightBehavior: TextHeightBehavior(
+                                textHeightBehavior: const TextHeightBehavior(
                                   applyHeightToFirstAscent: false,
                                 ),
                                 style: styles.typography.h3
@@ -87,8 +90,9 @@ class AppHeader extends StatelessWidget {
                         if (subtitle != null)
                           Text(
                             subtitle!.toUpperCase(),
-                            textHeightBehavior: TextHeightBehavior(
-                                applyHeightToFirstAscent: false),
+                            textHeightBehavior: const TextHeightBehavior(
+                              applyHeightToFirstAscent: false,
+                            ),
                             style: styles.typography.t1
                                 .copyWith(color: styles.theme.primary),
                           ),
@@ -96,7 +100,7 @@ class AppHeader extends StatelessWidget {
                     ),
                   ),
                 ),
-              )
+              ),
             ],
           ),
         ),

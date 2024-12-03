@@ -7,27 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:waze_kibris/common.dart';
 
 class CustomTextField extends StatefulWidget {
-  final TextEditingController? controller;
-  final String hintText;
-  final bool obscureText;
-  final int maxLines;
-  final TextInputType keyboardType;
-  final TextInputAction textInputAction;
-  final void Function(String)? onChanged;
-  final String? Function(String?)? validator;
-  final void Function(String?)? onFieldSubmitted;
-  final List<TextInputFormatter>? inputFormatters;
-  final Widget? suffix;
-  final Widget? prefix;
-
-  final bool? password;
-  final bool shouldHideError;
-  final FocusNode? focusNode;
-  final String? initialValue;
-  final bool enabled;
-  final void Function()? onTap;
-  final int? maxLength;
-  final int? minLength;
 
   const CustomTextField({
     required this.hintText,
@@ -52,6 +31,27 @@ class CustomTextField extends StatefulWidget {
     this.maxLength,
     this.minLength,
   });
+  final TextEditingController? controller;
+  final String hintText;
+  final bool obscureText;
+  final int maxLines;
+  final TextInputType keyboardType;
+  final TextInputAction textInputAction;
+  final void Function(String)? onChanged;
+  final String? Function(String?)? validator;
+  final void Function(String?)? onFieldSubmitted;
+  final List<TextInputFormatter>? inputFormatters;
+  final Widget? suffix;
+  final Widget? prefix;
+
+  final bool? password;
+  final bool shouldHideError;
+  final FocusNode? focusNode;
+  final String? initialValue;
+  final bool enabled;
+  final void Function()? onTap;
+  final int? maxLength;
+  final int? minLength;
 
   @override
   State<CustomTextField> createState() => _CustomTextFieldState();
@@ -82,12 +82,14 @@ class _CustomTextFieldState extends State<CustomTextField> {
             .textColor(styles.theme.nu1)
             .textHeight(0)
             .regular,
-        suffixIcon: widget.password == true
+        suffixIcon: widget.password ?? false
             ? IconButton(
                 onPressed: () => setState(() => _obscureText = !_obscureText),
-                icon: AppIcon(_obscureText
-                    ? Assets.icons.regular.eye
-                    : Assets.icons.regular.eyeDisable),
+                icon: AppIcon(
+                  _obscureText
+                      ? 'Assets.icons.regular.eye'
+                      : 'Assets.icons.regular.eyeDisable',
+                ),
               )
             : widget.suffix,
         prefixIcon: widget.prefix,
@@ -109,28 +111,6 @@ class _CustomTextFieldState extends State<CustomTextField> {
 }
 
 class CustomTextFieldWithTitle extends StatefulWidget {
-  final TextEditingController? controller;
-  final String title;
-  final String hintText;
-  final bool obscureText;
-  final int maxLines;
-  final TextInputType keyboardType;
-  final TextInputAction textInputAction;
-  final void Function(String)? onChanged;
-  final String? Function(String?)? validator;
-  final void Function(String?)? onFieldSubmitted;
-  final List<TextInputFormatter>? inputFormatters;
-  final Widget? info;
-  final bool isPassword;
-  final Widget? suffix;
-  final FocusNode? focusNode;
-  final bool isRequired;
-  final String initialValue;
-  final bool enabled;
-  final Widget? prefix;
-  final bool showOptionalText;
-  final int? maxLength;
-  final int? minLength;
 
   const CustomTextFieldWithTitle({
     required this.title,
@@ -157,6 +137,28 @@ class CustomTextFieldWithTitle extends StatefulWidget {
     this.maxLength,
     this.minLength,
   });
+  final TextEditingController? controller;
+  final String title;
+  final String hintText;
+  final bool obscureText;
+  final int maxLines;
+  final TextInputType keyboardType;
+  final TextInputAction textInputAction;
+  final void Function(String)? onChanged;
+  final String? Function(String?)? validator;
+  final void Function(String?)? onFieldSubmitted;
+  final List<TextInputFormatter>? inputFormatters;
+  final Widget? info;
+  final bool isPassword;
+  final Widget? suffix;
+  final FocusNode? focusNode;
+  final bool isRequired;
+  final String initialValue;
+  final bool enabled;
+  final Widget? prefix;
+  final bool showOptionalText;
+  final int? maxLength;
+  final int? minLength;
 
   @override
   State<CustomTextFieldWithTitle> createState() =>
@@ -198,7 +200,7 @@ class _CustomTextFieldWithTitleState extends State<CustomTextFieldWithTitle> {
                     .medium,
               ),
               Text(
-                ' ${widget.isRequired ? '\u2055' : widget.showOptionalText ? '(Optional)' : ''}',
+                ' ${widget.isRequired ? '\u2055' : widget.showOptionalText ? "(Optional)" : ''}',
                 style: styles.typography.t1
                     .textColor(
                       widget.showOptionalText
@@ -241,6 +243,21 @@ class _CustomTextFieldWithTitleState extends State<CustomTextFieldWithTitle> {
 }
 
 class CustomTextFieldWithIcon extends StatelessWidget {
+
+  const CustomTextFieldWithIcon({
+    required this.labelText, this.hintText,
+    super.key,
+    this.controller,
+    this.obscureText = false,
+    this.prefixIcon,
+    this.suffixIcon,
+    this.maxLines = 1,
+    this.keyboardType = TextInputType.text,
+    this.textInputAction = TextInputAction.done,
+    this.onChanged,
+    this.validator,
+    this.inputFormatters,
+  });
   final TextEditingController? controller;
   final String? hintText;
   final bool obscureText;
@@ -254,22 +271,6 @@ class CustomTextFieldWithIcon extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final String labelText;
 
-  const CustomTextFieldWithIcon({
-    this.hintText,
-    required this.labelText,
-    super.key,
-    this.controller,
-    this.obscureText = false,
-    this.prefixIcon,
-    this.suffixIcon,
-    this.maxLines = 1,
-    this.keyboardType = TextInputType.text,
-    this.textInputAction = TextInputAction.done,
-    this.onChanged,
-    this.validator,
-    this.inputFormatters,
-  });
-
   @override
   Widget build(BuildContext context) {
     return TextFormField(
@@ -281,7 +282,6 @@ class CustomTextFieldWithIcon extends StatelessWidget {
       onChanged: onChanged,
       inputFormatters: inputFormatters,
       decoration: InputDecoration(
-        enabled: true,
         hintText: hintText,
         prefixIcon: prefixIcon,
         suffixIcon: suffixIcon,
@@ -293,7 +293,7 @@ class CustomTextFieldWithIcon extends StatelessWidget {
       style: styles.typography.btn,
       validator: validator ??
           (val) {
-            if (val!.isEmpty) return 'Field can\'t be empty';
+            if (val!.isEmpty) return "Field can't be empty";
             return null;
           },
     );

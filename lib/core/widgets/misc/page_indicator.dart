@@ -17,7 +17,8 @@ class CustomPageIndicator extends StatelessWidget {
 
   final bool isActive;
 
-  final Color? inActiveColor, activeColor;
+  final Color? inActiveColor;
+  final Color? activeColor;
 
   @override
   Widget build(BuildContext context) {
