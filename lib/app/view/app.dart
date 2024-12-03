@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:waze_kibris/counter/counter.dart';
+import 'package:waze_kibris/app/counter/counter.dart';
 import 'package:waze_kibris/l10n/l10n.dart';
 
 class App extends StatelessWidget {

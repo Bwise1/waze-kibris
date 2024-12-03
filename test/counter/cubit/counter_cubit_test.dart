@@ -1,7 +1,6 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:waze_kibris/counter/counter.dart';
+import 'package:waze_kibris/app/counter/cubit/counter_cubit.dart';
 
 void main() {
   group('CounterCubit', () {
