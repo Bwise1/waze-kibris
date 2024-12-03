@@ -3,18 +3,17 @@ import 'package:waze_kibris/common.dart';
 
 class BaBlocListener<B extends BaBloc<S>, S extends BlocState>
     extends StatelessWidget {
-  final B? bloc;
-  final BlocWidgetListener<S>? listener;
-  final BlocBuilderCondition<S>? listenWhen;
-  final Widget? child;
-
   const BaBlocListener({
-    super.key,
     required this.listener,
+    super.key,
     this.bloc,
     this.listenWhen,
     this.child,
   });
+  final B? bloc;
+  final BlocWidgetListener<S>? listener;
+  final BlocBuilderCondition<S>? listenWhen;
+  final Widget? child;
 
   @override
   Widget build(BuildContext context) {

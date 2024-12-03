@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 class RouteWrapper extends GoRoute {
-  RouteWrapper(String path, Widget Function(GoRouterState s) builder,
-      {List<GoRoute> routes = const [], this.useFade = true})
-      : super(
+  RouteWrapper(
+    String path,
+    Widget Function(GoRouterState s) builder, {
+    List<GoRoute> routes = const [],
+    this.useFade = true,
+  }) : super(
           path: path,
           routes: routes,
           pageBuilder: (context, state) {

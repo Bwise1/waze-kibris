@@ -16,9 +16,8 @@ class StepBar extends StatelessWidget {
           color: styles.theme.nu3,
         ),
         Row(
-          mainAxisSize: MainAxisSize.max,
           children: List.generate(7, (index) {
-            double widthFactor = (page + 1) / 7;
+            final widthFactor = (page + 1) / 7;
             Color stepColor;
             if (index == 0) {
               stepColor = styles.theme.red;
