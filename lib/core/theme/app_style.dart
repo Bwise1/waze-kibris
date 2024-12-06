@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
-
+import 'package:google_fonts/google_fonts.dart';
 part 'app_theme.dart';
 part 'style/_corner.dart';
 part 'style/_insets.dart';

@@ -6,8 +6,7 @@ class Typography {
   final double _scale;
 
   final f = const TextStyle(fontFamily: 'Poppins');
-
-  late final TextStyle dropCase = _font(f, sz: 56, h: 20);
+   late final TextStyle dropCase = _font(f, sz: 56, h: 20);
 
   late final TextStyle headline = _font(f, sz: 64, h: 56);
 
