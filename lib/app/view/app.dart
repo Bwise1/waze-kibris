@@ -1,5 +1,6 @@
+import 'package:flash/flash_helper.dart';
 import 'package:flutter/material.dart';
-import 'package:waze_kibris/app/counter/counter.dart';
+import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/l10n/l10n.dart';
 
 class App extends StatelessWidget {
@@ -7,16 +8,30 @@ class App extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      theme: ThemeData(
-        appBarTheme: AppBarTheme(
-          backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        ),
-        useMaterial3: true,
-      ),
+    return MaterialApp.router(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: const CounterPage(),
+      theme: styles.theme.data(),
+      routerConfig: appRouter,
+      builder: (context, child) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            return GestureDetector(
+              behavior: HitTestBehavior.deferToChild,
+              onTap: () {
+                final focus = FocusScope.of(context);
+                if (!focus.hasPrimaryFocus) {
+                  focus.focusedChild?.unfocus();
+                }
+              },
+              child: Toast(
+                navigatorKey: navigatorKey,
+                child: child ?? const SizedBox(),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
