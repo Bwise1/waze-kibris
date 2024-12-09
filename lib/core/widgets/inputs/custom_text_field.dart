@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:waze_kibris/common.dart';
 
 class CustomTextField extends StatefulWidget {
-
   const CustomTextField({
     required this.hintText,
     super.key,
@@ -111,7 +110,6 @@ class _CustomTextFieldState extends State<CustomTextField> {
 }
 
 class CustomTextFieldWithTitle extends StatefulWidget {
-
   const CustomTextFieldWithTitle({
     required this.title,
     required this.hintText,
@@ -200,7 +198,11 @@ class _CustomTextFieldWithTitleState extends State<CustomTextFieldWithTitle> {
                     .medium,
               ),
               Text(
-                ' ${widget.isRequired ? '\u2055' : widget.showOptionalText ? "(Optional)" : ''}',
+                widget.isRequired
+                    ? '\u2055'
+                    : widget.showOptionalText
+                        ? '(Optional)'
+                        : '',
                 style: styles.typography.t1
                     .textColor(
                       widget.showOptionalText
@@ -243,9 +245,9 @@ class _CustomTextFieldWithTitleState extends State<CustomTextFieldWithTitle> {
 }
 
 class CustomTextFieldWithIcon extends StatelessWidget {
-
   const CustomTextFieldWithIcon({
-    required this.labelText, this.hintText,
+    required this.labelText,
+    this.hintText,
     super.key,
     this.controller,
     this.obscureText = false,
