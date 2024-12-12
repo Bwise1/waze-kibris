@@ -34,7 +34,7 @@ dependencies:
   timeago: ^3.7.0
   url_launcher: ^6.3.0
   internet_connection_checker: ^1.0.0+1
-  collection: ^1.18.0
+  collection: ^1.19.0
   flutter_local_notifications: ^18.0.1
   modal_bottom_sheet: ^3.0.0
 
