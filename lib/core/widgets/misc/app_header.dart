@@ -27,7 +27,7 @@ class AppHeader extends StatelessWidget {
     final icon = backIcon ?? 'Assets.icons.regular.chevronLeft';
 
     return ColoredBox(
-      color: isTransparent ? Colors.transparent : styles.theme.white,
+      color: isTransparent ? Colors.transparent : styles.theme.background,
       child: SafeArea(
         bottom: false,
         child: Container(
