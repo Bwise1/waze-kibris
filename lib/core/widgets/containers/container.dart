@@ -40,7 +40,7 @@ class CustomContainer extends StatelessWidget {
       duration: duration ??styles.times.med,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: color ?? styles.theme.primary,
+        color: color ?? styles.theme.nu1,
         borderRadius: borderRadius,
         boxShadow: shadows,
         border: border,
