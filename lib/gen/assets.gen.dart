@@ -39,9 +39,6 @@ class $AssetsIconsGen {
   /// File path: assets/icons/coordinate.svg
   String get coordinate => 'assets/icons/coordinate.svg';
 
-  /// File path: assets/icons/dark_mode_button.svg
-  String get darkModeButton => 'assets/icons/dark_mode_button.svg';
-
   /// File path: assets/icons/double_arrow.svg
   String get doubleArrow => 'assets/icons/double_arrow.svg';
 
@@ -60,11 +57,17 @@ class $AssetsIconsGen {
   /// File path: assets/icons/home_smile.svg
   String get homeSmile => 'assets/icons/home_smile.svg';
 
+  /// File path: assets/icons/light.svg
+  String get light => 'assets/icons/light.svg';
+
   /// File path: assets/icons/location.svg
   String get location => 'assets/icons/location.svg';
 
   /// File path: assets/icons/map_marker.svg
   String get mapMarker => 'assets/icons/map_marker.svg';
+
+  /// File path: assets/icons/moon.svg
+  String get moon => 'assets/icons/moon.svg';
 
   /// File path: assets/icons/person.svg
   String get person => 'assets/icons/person.svg';
@@ -80,6 +83,9 @@ class $AssetsIconsGen {
 
   /// File path: assets/icons/route_logo.svg
   String get routeLogo => 'assets/icons/route_logo.svg';
+
+  /// File path: assets/icons/route_logo_text.svg
+  String get routeLogoText => 'assets/icons/route_logo_text.svg';
 
   /// File path: assets/icons/search_glass.svg
   String get searchGlass => 'assets/icons/search_glass.svg';
@@ -104,20 +110,22 @@ class $AssetsIconsGen {
         chat,
         close,
         coordinate,
-        darkModeButton,
         doubleArrow,
         flagMarker,
         globe,
         google,
         home,
         homeSmile,
+        light,
         location,
         mapMarker,
+        moon,
         person,
         plus,
         police,
         profile,
         routeLogo,
+        routeLogoText,
         searchGlass,
         sending,
         shieldZap,
@@ -136,8 +144,12 @@ class $AssetsImagesGen {
   AssetGenImage get route3d =>
       const AssetGenImage('assets/images/route_3d.png');
 
+  /// File path: assets/images/splash_background.png
+  AssetGenImage get splashBackground =>
+      const AssetGenImage('assets/images/splash_background.png');
+
   /// List of all assets
-  List<AssetGenImage> get values => [frame2023, route3d];
+  List<AssetGenImage> get values => [frame2023, route3d, splashBackground];
 }
 
 class Assets {
