@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/routes/intro/onboard_screen.dart';
+import 'package:waze_kibris/core/routes/intro/splash_screen.dart';
 
 class ScreenPaths {
   static String home = '/';
@@ -12,7 +14,7 @@ final appRouter = GoRouter(
   routes: <RouteBase>[
     RouteWrapper(
       ScreenPaths.home,
-      (state) => const CounterPage(),
+      (state) => const OnboardScreen(),
       name: 'home',
     ),
   ],
