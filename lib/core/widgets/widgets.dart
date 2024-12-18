@@ -3,6 +3,7 @@ export 'auth_header.dart';
 export 'buttons/app_button.dart';
 export 'buttons/clickable_text.dart';
 export 'buttons/primary_button.dart';
+export 'containers/container.dart';
 export 'containers/lazy_indexed_stack.dart';
 export 'containers/measurable_widget.dart';
 export 'icons/app_icons.dart';

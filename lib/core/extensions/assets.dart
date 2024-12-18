@@ -1,6 +1,3 @@
-library image_extension;
-
-
 extension AssetsExtension on String {
   //Icons
   String get svg => 'assets/icons/$this.svg';
