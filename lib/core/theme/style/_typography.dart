@@ -25,7 +25,7 @@ class Typography {
   late final TextStyle caption = _font(f, sz: 14, h: 20, w: FontWeight.w500)
       .copyWith(fontStyle: FontStyle.italic);
 
-  late final TextStyle hairline = _font(f, sz: 14, h: 20, w: FontWeight.w500);
+  late final TextStyle hairline = _font(f, sz: 12, h: 20, w: FontWeight.w400);
 
   late final TextStyle callout = _font(f, sz: 16, h: 26, w: FontWeight.w600)
       .copyWith(fontStyle: FontStyle.italic);

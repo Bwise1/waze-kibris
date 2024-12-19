@@ -140,7 +140,7 @@ class AppBtn extends StatelessWidget {
         ? CircleBorder(side: side)
         : RoundedRectangleBorder(
             side: side,
-            borderRadius: BorderRadius.circular(styles.corners.md),
+            borderRadius: BorderRadius.circular(styles.corners.lg),
           );
 
     final style = ButtonStyle(
