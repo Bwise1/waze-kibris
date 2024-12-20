@@ -140,6 +140,7 @@ class $AssetsImagesGen {
   AssetGenImage get frame2023 =>
       const AssetGenImage('assets/images/Frame 2023.png');
 
+ 
   /// File path: assets/images/route_3d.png
   AssetGenImage get route3d =>
       const AssetGenImage('assets/images/route_3d.png');
@@ -149,7 +150,8 @@ class $AssetsImagesGen {
       const AssetGenImage('assets/images/splash_background.png');
 
   /// List of all assets
-  List<AssetGenImage> get values => [frame2023, route3d, splashBackground];
+   List<AssetGenImage> get values => [frame2023, route3d, splashBackground];
+ 
 }
 
 class Assets {

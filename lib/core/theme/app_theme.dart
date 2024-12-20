@@ -2,7 +2,8 @@ part of 'app_style.dart';
 
 class AppTheme {
   final Color primary = const Color(0xFFFF0000);
-  final Color secondary = const Color(0xFFFFDBDB);
+   final Color secondary = const Color(0xFFFFDBDB);
+ 
   final Color background = const Color(0xFFF5F5F5);
 
   final Color caption = const Color(0xFF7D7873);

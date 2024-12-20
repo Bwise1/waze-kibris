@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 
 class CustomContainer extends StatelessWidget {
+ 
   final Color? color;
   final BorderRadiusGeometry? borderRadius;
   final List<BoxShadow>? shadows;
@@ -14,7 +15,7 @@ class CustomContainer extends StatelessWidget {
   final BoxBorder? border;
   final EdgeInsets? padding;
 
-  const CustomContainer(
+   const CustomContainer(
       {Key? key,
       this.color,
       this.borderRadius,
@@ -29,16 +30,18 @@ class CustomContainer extends StatelessWidget {
       this.border})
       : super(key: key);
 
+  
   @override
-  Widget build(BuildContext context ) {
-     return AnimatedContainer(
-      width: width,
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+       width: width,
       height: height,
       margin: margin,
       alignment: align,
       padding: padding,
-      duration: duration ??styles.times.med,
-      clipBehavior: Clip.antiAlias,
+ 
+      duration: duration ?? styles.times.med,
+       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: color ?? styles.theme.nu1,
         borderRadius: borderRadius,

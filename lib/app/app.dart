@@ -1,2 +1,3 @@
-export 'counter/counter.dart';
-export 'view/app.dart';
+  
+export 'intro/intro.dart';
+ export 'view/app.dart';

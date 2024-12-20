@@ -12,6 +12,7 @@ class AppHeader extends StatelessWidget {
     this.trailing,
     this.backIcon,
     this.backBtnSemantics,
+    this.bordered = false,
   });
   final String? title;
   final String? subtitle;
@@ -21,6 +22,7 @@ class AppHeader extends StatelessWidget {
   final bool isTransparent;
   final VoidCallback? onBack;
   final Widget Function(BuildContext context)? trailing;
+  final bool bordered;
 
   @override
   Widget build(BuildContext context) {
@@ -33,11 +35,11 @@ class AppHeader extends StatelessWidget {
         child: Container(
           height: 64 * styles.scale,
           decoration: BoxDecoration(
-            border: Border(
+            border: bordered ?  Border(
               bottom: BorderSide(
                 color: styles.theme.grey.withOpacity(0.1),
               ),
-            ),
+            ) : null,
           ),
           child: Stack(
             children: [

@@ -33,6 +33,7 @@ class AppBtn extends StatelessWidget {
     this.minimumSize,
     this.bgColor,
     this.border,
+    this.corner,
   }) : _builder = null;
 
   AppBtn.from({
@@ -51,6 +52,7 @@ class AppBtn extends StatelessWidget {
     String? icon,
     double? iconSize,
     Color? iconColor,
+    this.corner,
   })  : child = null,
         circular = false {
     if (semanticLabel == null && text == null) {
@@ -63,7 +65,9 @@ class AppBtn extends StatelessWidget {
           ? null
           : Text(
               text,
-              style: styles.typography.btn,
+              style: styles.typography.btn.textColor(
+                iconColor ?? styles.theme.text,
+              ),
               textHeightBehavior:
                   const TextHeightBehavior(applyHeightToFirstAscent: false),
             );
@@ -100,6 +104,7 @@ class AppBtn extends StatelessWidget {
     this.isSecondary = false,
     this.circular = false,
     this.minimumSize,
+    this.corner,
   })  : expand = false,
         bgColor = Colors.transparent,
         border = null,
@@ -119,6 +124,7 @@ class AppBtn extends StatelessWidget {
   final bool expand;
   final bool circular;
   final Size? minimumSize;
+  final double? corner;
 
   // style:
   final bool isSecondary;
@@ -140,8 +146,9 @@ class AppBtn extends StatelessWidget {
         ? CircleBorder(side: side)
         : RoundedRectangleBorder(
             side: side,
-            borderRadius: BorderRadius.circular(styles.corners.lg),
-          );
+ 
+            borderRadius: BorderRadius.circular(corner ?? styles.corners.md),
+           );
 
     final style = ButtonStyle(
       minimumSize: ButtonStyleButton.allOrNull<Size>(minimumSize ?? Size.zero),
@@ -338,6 +345,46 @@ class CircleIconBtn extends StatelessWidget {
   }
 
   Widget safe() => _SafeAreaWithPadding(child: this);
+}
+
+class IconBtn extends StatelessWidget {
+  const IconBtn({
+    required this.icon,
+    required this.onPressed,
+    required this.semanticLabel,
+    super.key,
+    this.border,
+    this.bgColor,
+    this.size,
+    this.color,
+    this.iconSize = 18,
+  });
+
+  static double defaultSize = 44;
+
+  final VoidCallback onPressed;
+  final Color? bgColor;
+  final BorderSide? border;
+  final String icon;
+  final double? size;
+  final String semanticLabel;
+  final double iconSize;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final sz = size ?? defaultSize;
+    return AppBtn(
+      onPressed: onPressed,
+      semanticLabel: semanticLabel,
+      minimumSize: Size(sz, sz),
+      padding: EdgeInsets.zero,
+      bgColor: bgColor,
+      border: border,
+      corner: styles.corners.sm,
+      child: AppIcon(icon, size: iconSize, color: color),
+    );
+  }
 }
 
 class BackBtn extends StatelessWidget {
