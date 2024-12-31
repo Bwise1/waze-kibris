@@ -21,6 +21,9 @@ class $AssetsIconsGen {
   /// File path: assets/icons/arrow_forward.svg
   String get arrowForward => 'assets/icons/arrow_forward.svg';
 
+  /// File path: assets/icons/at.svg
+  String get at => 'assets/icons/at.svg';
+
   /// File path: assets/icons/back_arrow.svg
   String get backArrow => 'assets/icons/back_arrow.svg';
 
@@ -104,6 +107,7 @@ class $AssetsIconsGen {
         accident,
         apple,
         arrowForward,
+        at,
         backArrow,
         bin,
         briefcase,
@@ -140,18 +144,34 @@ class $AssetsImagesGen {
   AssetGenImage get frame2023 =>
       const AssetGenImage('assets/images/Frame 2023.png');
 
- 
+  /// File path: assets/images/intro-gradient.png
+  AssetGenImage get introGradientPng =>
+      const AssetGenImage('assets/images/intro-gradient.png');
+
+  /// File path: assets/images/intro-gradient.svg
+  String get introGradientSvg => 'assets/images/intro-gradient.svg';
+
   /// File path: assets/images/route_3d.png
   AssetGenImage get route3d =>
       const AssetGenImage('assets/images/route_3d.png');
+
+  /// File path: assets/images/routemap_3d.png
+  AssetGenImage get routemap3d =>
+      const AssetGenImage('assets/images/routemap_3d.png');
 
   /// File path: assets/images/splash_background.png
   AssetGenImage get splashBackground =>
       const AssetGenImage('assets/images/splash_background.png');
 
   /// List of all assets
-   List<AssetGenImage> get values => [frame2023, route3d, splashBackground];
- 
+  List<dynamic> get values => [
+        frame2023,
+        introGradientPng,
+        introGradientSvg,
+        route3d,
+        routemap3d,
+        splashBackground
+      ];
 }
 
 class Assets {

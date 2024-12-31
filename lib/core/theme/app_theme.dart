@@ -14,6 +14,7 @@ class AppTheme {
   final Color nu1 = const Color(0xFFABB3BB);
   final Color nu2 = const Color(0xFFD0D0D0);
   final Color nu3 = const Color(0xffF4F2F3);
+  final Color divider = const Color(0xffD7D7D7);
 
   final Color white = Colors.white;
   final Color black = const Color(0xFF1E1B18);
