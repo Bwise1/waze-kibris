@@ -9,10 +9,15 @@ class MainDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
-
-
-        child: LazyIndexedStack(children: [
-          ProfileMainScreen()
-          ,Text("data",style: styles.typography.h1.textColor(styles.theme.text),)],));
+      child: LazyIndexedStack(
+        children: [
+          const ProfileMainScreen(),
+          Text(
+            'data',
+            style: styles.typography.h1.textColor(styles.theme.text),
+          ),
+        ],
+      ),
+    );
   }
 }
