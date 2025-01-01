@@ -24,6 +24,8 @@ class ProfileMainScreen extends StatelessWidget {
 
               CustomContainer(
                 width: context.widthPx,
+                padding: EdgeInsets.symmetric(horizontal: styles.insets.lg),
+
                 borderRadius: BorderRadius.only(bottomLeft:  Radius.circular(styles.corners.md),bottomRight: Radius.circular(styles.corners.lg),),
                 color: styles.theme.background,child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -37,17 +39,48 @@ class ProfileMainScreen extends StatelessWidget {
                   'Grace Opata',
                   style: styles.typography.h3.textColor(styles.theme.text),
                 ),
-                  const Gap(24),
+                  Gap(styles.insets.md),
 
-                  // Row(children: [Assets.icons.profile.],)
+                  ProfileActionItemButton(icon: Assets.icons.profile, title: "Personal Information", semanticLabel: 'profile-action-btn',),
 
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Divider(color: styles.theme.secondary,),
+                  ),
+                  ProfileActionItemButton(icon: Assets.icons.shieldZap, title: "Login and Privacy", semanticLabel: 'profile-action-btn',),
+  Gap(styles.insets.md),
+              ],),),
+              Gap(styles.insets.xs),
+
+
+              CustomContainer(
+                width: context.widthPx,
+                padding: EdgeInsets.symmetric(horizontal: styles.insets.lg),
+
+                borderRadius: BorderRadius.only(bottomLeft:  Radius.circular(styles.corners.md),bottomRight: Radius.circular(styles.corners.lg),),
+                color: styles.theme.background,child: Column(
+
+                children: [
+
+                  Gap(styles.insets.md),
+                Text(
+                  'Saved Locations',
+                  style: styles.typography.h5.textColor(styles.theme.text),
+                ),
+                  Gap(styles.insets.md),
+
+                  ProfileActionItemButton(icon: Assets.icons.profile, title: "Personal Information", semanticLabel: 'profile-action-btn',),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Divider(color: styles.theme.secondary,),
+                  ),
+                  ProfileActionItemButton(icon: Assets.icons.shieldZap, title: "Login and Privacy", semanticLabel: 'profile-action-btn',),
+  Gap(styles.insets.md),
               ],),),
 
 
-              AppBtn.basic(onPressed: (){},
-                  child: Text("Having troubles logging in?",style: styles.typography.hairline.textColor(styles.theme.primary).underline(styles.theme.primary),),
-                  semanticLabel: "log-in-trouble"
-              )
+
             ],
           ),
         ),
@@ -59,4 +92,25 @@ class ProfileMainScreen extends StatelessWidget {
 
     )
 ;  }
+}
+
+class ProfileActionItemButton extends StatelessWidget {
+  const ProfileActionItemButton({
+    super.key, required this.icon, required this.title, this.onPressed, required this.semanticLabel,
+  });
+final String icon;
+final String title;
+  // interaction:
+  final VoidCallback? onPressed;
+   final String semanticLabel;
+  @override
+  Widget build(BuildContext context) {
+    return AppBtn.basic(
+      onPressed:onPressed,
+      semanticLabel: semanticLabel,
+      child: Row(
+        children: [SvgPicture.asset(icon,height: 24,width: 24,),Gap(16),
+          Text(title, style: styles.typography.caption.copyWith(color: styles.theme.text,fontStyle: FontStyle.normal),),],),
+    );
+  }
 }
