@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:styled_widget/styled_widget.dart';
 import 'package:waze_kibris/common.dart';
 
 class ProfileMainScreen extends StatelessWidget {
@@ -33,7 +34,14 @@ class ProfileMainScreen extends StatelessWidget {
                 children: [
 
                 Gap(54*styles.scale),
-                ClipOval(child: Assets.images.profilePic.image(height: 88, width:84,fit: BoxFit.cover))
+                CircleAvatar(
+                  radius: 47,
+                  backgroundColor: styles.theme.secondary,
+
+                  child: ClipOval(
+                    child: Assets.images.profilePic.image(height: 88, width:84,fit: BoxFit.cover),
+                  ),
+                )
                 ,              const Gap(1),
                 Text(
                   'Grace Opata',
@@ -60,7 +68,8 @@ class ProfileMainScreen extends StatelessWidget {
                 borderRadius: BorderRadius.only(bottomLeft:  Radius.circular(styles.corners.md),bottomRight: Radius.circular(styles.corners.lg),),
                 color: styles.theme.background,child: Column(
 
-                children: [
+                crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
 
                   Gap(styles.insets.md),
                 Text(
