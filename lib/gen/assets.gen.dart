@@ -151,6 +151,10 @@ class $AssetsImagesGen {
   /// File path: assets/images/intro-gradient.svg
   String get introGradientSvg => 'assets/images/intro-gradient.svg';
 
+  /// File path: assets/images/profile_pic.png
+  AssetGenImage get profilePic =>
+      const AssetGenImage('assets/images/profile_pic.png');
+
   /// File path: assets/images/route_3d.png
   AssetGenImage get route3d =>
       const AssetGenImage('assets/images/route_3d.png');
@@ -168,6 +172,7 @@ class $AssetsImagesGen {
         frame2023,
         introGradientPng,
         introGradientSvg,
+        profilePic,
         route3d,
         routemap3d,
         splashBackground

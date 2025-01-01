@@ -41,15 +41,17 @@ class _SignInScreenState extends State<SignInScreen> {
           ),
 
 
-          Padding(
+          SingleChildScrollView(
             padding: EdgeInsets.symmetric(horizontal: styles.insets.lg),
+
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                 Gap(120*styles.scale),
                 Assets.images.frame2023.image(height: 88, width:160,),
                 const Gap(16),
                 Text(
-                  'Hey, Welcome back!',
+                  'Hey,  Welcome back!',
                   style: styles.typography.h3.textColor(styles.theme.text),
                 ),
 
@@ -70,7 +72,7 @@ class _SignInScreenState extends State<SignInScreen> {
                 Gap(styles.insets.sm),
                 AppBtn.from(
                   onPressed: () {
-                    context.push(ScreenPaths.verifyEmail);
+                    context.push(ScreenPaths.dashBoard);
 
                   },
                   semanticLabel: '',
@@ -145,7 +147,7 @@ class _SignInScreenState extends State<SignInScreen> {
                 ),
                 Gap(styles.insets.offset),
                 AppBtn.basic(onPressed: (){},
-                    child: Text("Having troubles logging in?",style: styles.typography.btn.textColor(styles.theme.primary).underline(styles.theme.primary),),
+                    child: Text("Having troubles logging in?",style: styles.typography.hairline.textColor(styles.theme.primary).underline(styles.theme.primary),),
                     semanticLabel: "log-in-trouble"
                 )
               ],
