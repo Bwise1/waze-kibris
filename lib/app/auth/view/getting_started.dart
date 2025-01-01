@@ -2,7 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 
-import '../../../core/widgets/buttons/social_media_button.dart';
+import 'package:waze_kibris/core/widgets/buttons/social_media_button.dart';
 
 class GettingStarted extends StatefulWidget {
   const GettingStarted({super.key});
@@ -66,7 +66,10 @@ class _GettingStartedState extends State<GettingStarted> {
                 ),),
                 Gap(styles.insets.sm),
                 AppBtn.from(
-                  onPressed: () {},
+                  onPressed: () {
+                    context.push(ScreenPaths.verifyEmail);
+
+                  },
                   semanticLabel: '',
                   expand: true,
                   corner: styles.corners.x24,

@@ -49,7 +49,7 @@ class AppTheme {
 
     return ThemeData.from(textTheme: textTheme, colorScheme: scheme).copyWith(
       textSelectionTheme: TextSelectionThemeData(cursorColor: primary),
-      scaffoldBackgroundColor: white,
+      scaffoldBackgroundColor: background,
       highlightColor: primary,
       inputDecorationTheme: InputDecorationTheme(
         outlineBorder: const BorderSide(),

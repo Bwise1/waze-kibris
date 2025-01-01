@@ -2,9 +2,18 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 
-class OnboardScreen extends StatelessWidget {
-  const OnboardScreen({super.key});
+import 'package:waze_kibris/core/widgets/buttons/social_media_button.dart';
 
+
+
+class SignInScreen extends StatefulWidget {
+  const SignInScreen({super.key});
+
+  @override
+  State<SignInScreen> createState() => _SignInScreenState();
+}
+
+class _SignInScreenState extends State<SignInScreen> {
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
@@ -15,68 +24,88 @@ class OnboardScreen extends StatelessWidget {
             width: context.widthPx,
             height: context.heightPx,
             child:
-      Assets.images.introGradientPng.image(fit: BoxFit.cover  ),
+            Assets.images.introGradientPng.image(fit: BoxFit.cover  ),
           ),
           AppHeader(
-            backIcon: Assets.icons.routeLogo,
-            trailing: (context) => IconBtn(
-              onPressed: () {},
-              semanticLabel: 'Skip',
-              icon: Assets.icons.moon,
+            backIcon: Assets.icons.backArrow,
+
+            trailing: (context) => BackBtn(
+              onPressed: (){},
+              icon: Assets.icons.routeLogo,
+              semanticLabel: 'backbtn',
+
               bgColor: Colors.transparent,
-              border: BorderSide(color: styles.theme.nu1),
-              color: styles.theme.grey,
+              iconColor: styles.theme.grey,
             ),
             isTransparent: true,
           ),
+
+
           Padding(
             padding: EdgeInsets.symmetric(horizontal: styles.insets.lg),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Assets.images.route3d.image(height: 216, width: 216,),
+                Assets.images.frame2023.image(height: 88, width:160,),
                 const Gap(16),
                 Text(
-                  'Avoid holdups and heavy traffic jams',
+                  'Hey, Welcome back!',
                   style: styles.typography.h3.textColor(styles.theme.text),
                 ),
-                const Gap(8),
-                Text(
-                  'We give you the best routes in real-time so you can get'
-                  ' to your location on time',
-                  style: styles.typography.body.textColor(styles.theme.caption),
-                  textAlign: TextAlign.center,
-                ),
-                const Gap(16),
-                const SlideIndicator(),
-                Gap(styles.insets.lg),
+
+
+                Gap(styles.insets.sm),
+                CustomTextField(hintText: 'Email address',
+
+
+                  prefix: Row(
+                    children: [
+                      IconBtn(icon: Assets.icons.at,bgColor: Colors.transparent, color:styles.theme.text,onPressed: (){}, semanticLabel: "at"),
+
+                      Text('|',style: styles.typography.h4
+                          .textColor(styles.theme.ash)
+                        ,)
+                    ],
+                  ),),
+                Gap(styles.insets.sm),
                 AppBtn.from(
                   onPressed: () {
-                    context.push(ScreenPaths.getStarted);
+                    context.push(ScreenPaths.verifyEmail);
+
                   },
                   semanticLabel: '',
                   expand: true,
                   corner: styles.corners.x24,
-                  text: 'Get Started',
-                  iconColor: styles.theme.white,
-                  padding: EdgeInsets.symmetric(vertical: styles.insets.xs),
-                  minimumSize: const Size(0, 56),
-                ),
-                Gap(styles.insets.md),
-                AppBtn.from(
-                  onPressed: () {
-                    context.push(ScreenPaths.signIn);
-                  },
-                  semanticLabel: '',
-                  expand: true,
-                  corner: styles.corners.x24,
-                  text: 'Log in',
+                  text: 'Continue',
                   iconColor: styles.theme.primary,
+                  bgColor: styles.theme.secondary,
                   padding: EdgeInsets.symmetric(vertical: styles.insets.xs),
                   minimumSize: const Size(0, 56),
-                  bgColor: styles.theme.primary.withOpacity(.1),
                 ),
-                Gap(styles.insets.md),
+                Gap(styles.insets.sm),
+                SizedBox(
+                    height: 40,
+                    width: context.widthPx,
+                    child: Row(
+                      mainAxisSize:MainAxisSize.min,children: [
+                      Flexible(child: Divider(color: styles.theme.divider,thickness: 1,)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                        child: Text('OR',style: styles.typography.caption.textColor(styles.theme.ash),),
+                      ),Divider(color: styles.theme.grey,),
+                      Flexible(child: Divider(color: styles.theme.divider,thickness: 1,)),
+                    ],
+                    )
+                ),
+                Gap(styles.insets.lg),
+                SocialMediaBtn(
+                  onPressed: (){},
+                  title: 'Continue with Google',socialIcon: Assets.icons.google,),
+                Gap(styles.insets.sm),
+                SocialMediaBtn(
+                  onPressed: (){},
+                  title: 'Continue with Apple',socialIcon: Assets.icons.apple,),
+                Gap(styles.insets.xl),
                 RichText(
                   textAlign: TextAlign.center,
                   text: TextSpan(
@@ -114,33 +143,15 @@ class OnboardScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+                Gap(styles.insets.offset),
+                AppBtn.basic(onPressed: (){},
+                    child: Text("Having troubles logging in?",style: styles.typography.btn.textColor(styles.theme.primary).underline(styles.theme.primary),),
+                    semanticLabel: "log-in-trouble"
+                )
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class SlideIndicator extends StatelessWidget {
-  const SlideIndicator({super.key, this.numOfIndicator = 1});
-
-  final int numOfIndicator;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(
-        numOfIndicator,
-        (context) => CustomContainer(
-          width: 40,
-          height: 2,
-          margin: EdgeInsets.only(right: styles.corners.md),
-          color: styles.theme.primary,
-          borderRadius: BorderRadius.circular(styles.corners.md),
-        ),
       ),
     );
   }

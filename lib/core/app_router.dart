@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:waze_kibris/app/auth/views/getting_started.dart';
+import 'package:waze_kibris/app/auth/auth.dart';
 import 'package:waze_kibris/common.dart';
 
 class ScreenPaths {
   static String home = '/';
   static String getStarted = '/getStarted';
+  static String verifyEmail = '/verifyEmail';
+  static String signIn = '/signIn';
 }
 
 final navigatorKey = GlobalKey<NavigatorState>();
@@ -16,10 +18,23 @@ final appRouter = GoRouter(
       ScreenPaths.home,
       (state) => const OnboardScreen(),
       name: 'home',
-    ),RouteWrapper(
+    )
+    ,RouteWrapper(
       ScreenPaths.getStarted,
       (state) => const GettingStarted(),
       name: 'getStarted',
+    ),
+
+    RouteWrapper(
+      ScreenPaths.verifyEmail,
+      (state) => const EmailVerification(),
+      name: 'verifyEmail',
+    ),
+
+    RouteWrapper(
+      ScreenPaths.signIn,
+      (state) => const SignInScreen(),
+      name: 'signIn',
     ),
   ],
 );

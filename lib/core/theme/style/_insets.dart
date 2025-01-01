@@ -14,5 +14,6 @@ class Insets {
   late final double xl = 48 * _scale;
   late final double xxl = 56 * _scale;
   late final double xl2 = 64 * _scale;
+  late final double xl3 = 156 * _scale;
   late final double offset = 80 * _scale;
 }
