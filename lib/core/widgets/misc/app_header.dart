@@ -48,12 +48,15 @@ class AppHeader extends StatelessWidget {
                   child: Row(
                     children: [
                       if (showBackBtn) ...[
+                        Gap(styles.insets.sm),
                         BackBtn(
                           onPressed: onBack,
-                          icon: icon,
+                          icon: icon,iconSize: 21,
                           semanticLabel: backBtnSemantics,
                           bgColor: Colors.transparent,
                           iconColor: styles.theme.grey,
+                          borderSide: BorderSide(color: styles.theme.border),
+
                         ),
                       ],
                       const Spacer(),

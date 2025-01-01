@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/l10n/l10n.dart';
 
+import '../cubit/counter_cubit.dart';
+
 class CounterPage extends StatelessWidget {
   const CounterPage({super.key});
 

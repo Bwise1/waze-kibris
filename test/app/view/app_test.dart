@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:waze_kibris/app/app.dart';
+import 'package:waze_kibris/app/counter/view/counter_page.dart';
 
 void main() {
   group('App', () {

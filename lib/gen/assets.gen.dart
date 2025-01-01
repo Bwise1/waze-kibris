@@ -21,6 +21,9 @@ class $AssetsIconsGen {
   /// File path: assets/icons/arrow_forward.svg
   String get arrowForward => 'assets/icons/arrow_forward.svg';
 
+  /// File path: assets/icons/at.svg
+  String get at => 'assets/icons/at.svg';
+
   /// File path: assets/icons/back_arrow.svg
   String get backArrow => 'assets/icons/back_arrow.svg';
 
@@ -104,6 +107,7 @@ class $AssetsIconsGen {
         accident,
         apple,
         arrowForward,
+        at,
         backArrow,
         bin,
         briefcase,
@@ -147,9 +151,17 @@ class $AssetsImagesGen {
   /// File path: assets/images/intro-gradient.svg
   String get introGradientSvg => 'assets/images/intro-gradient.svg';
 
+  /// File path: assets/images/profile_pic.png
+  AssetGenImage get profilePic =>
+      const AssetGenImage('assets/images/profile_pic.png');
+
   /// File path: assets/images/route_3d.png
   AssetGenImage get route3d =>
       const AssetGenImage('assets/images/route_3d.png');
+
+  /// File path: assets/images/routemap_3d.png
+  AssetGenImage get routemap3d =>
+      const AssetGenImage('assets/images/routemap_3d.png');
 
   /// File path: assets/images/splash_background.png
   AssetGenImage get splashBackground =>
@@ -160,7 +172,9 @@ class $AssetsImagesGen {
         frame2023,
         introGradientPng,
         introGradientSvg,
+        profilePic,
         route3d,
+        routemap3d,
         splashBackground
       ];
 }

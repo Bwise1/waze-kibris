@@ -5,8 +5,9 @@ class Typography {
   Typography(this._scale);
   final double _scale;
 
+ 
   final f =  GoogleFonts.poppins();
-   late final TextStyle dropCase = _font(f, sz: 56, h: 20);
+    late final TextStyle dropCase = _font(f, sz: 56, h: 20);
 
   late final TextStyle headline = _font(f, sz: 64, h: 56);
 
@@ -25,7 +26,7 @@ class Typography {
   late final TextStyle caption = _font(f, sz: 14, h: 20, w: FontWeight.w500)
       .copyWith(fontStyle: FontStyle.italic);
 
-  late final TextStyle hairline = _font(f, sz: 14, h: 20, w: FontWeight.w500);
+  late final TextStyle hairline = _font(f, sz: 12, h: 20, w: FontWeight.w400);
 
   late final TextStyle overline = _font(f, sz: 12, h: 16, w: FontWeight.w500);
 
