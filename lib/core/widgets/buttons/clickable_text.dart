@@ -54,7 +54,7 @@ class CustomClickableText extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: radius ?? BorderRadius.circular(styles.corners.sm),
         ),
-        overlayColor: (overlay ?? color)?.withOpacity(.1),
+        overlayColor: (overlay ?? color)?.withValues(alpha: .1),
       ),
       child: _isText
           ? Text(

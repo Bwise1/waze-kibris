@@ -34,7 +34,8 @@ class _BaBlocConsumerState<B extends BaBloc<S>, S extends BlocState>
   bool? currentStateIsError;
 
   bool get shouldShowError =>
-      previousStateIsError == false && currentStateIsError == true;
+      (previousStateIsError ?? false) == false &&
+      (currentStateIsError ?? false) == true;
 
   @override
   Widget build(BuildContext context) {
@@ -61,8 +62,8 @@ class _BaBlocConsumerState<B extends BaBloc<S>, S extends BlocState>
 
         if (shouldShowError &&
             state.isError &&
-            state.error?.showOnSnackBar == true &&
-            widget.showError?.call(context, state) == true) {
+            (state.error?.showOnSnackBar ?? false) == true &&
+            (widget.showError?.call(context, state) ?? false) == true) {
           RSnackBar.error(state.error?.message).show(context);
         }
         widget.listener?.call(context, state);
@@ -70,8 +71,8 @@ class _BaBlocConsumerState<B extends BaBloc<S>, S extends BlocState>
       builder: (context, state) {
         if (shouldShowError &&
             state.isError &&
-            state.error?.showOnUI == true &&
-            widget.showError?.call(context, state) == true) {
+           ( state.error?.showOnUI ?? false) == true &&
+            (widget.showError?.call(context, state) ?? false)== true) {
           return widget.errorBuilder?.call(context, state) ??
               DefaultBlocErrorUI<B>(
                 bloc: widget.bloc ?? context.read<B>(),
@@ -79,7 +80,7 @@ class _BaBlocConsumerState<B extends BaBloc<S>, S extends BlocState>
         }
 
         if (state.isLoading &&
-            widget.showLoading?.call(context, state) == true) {
+            (widget.showLoading?.call(context, state) ?? false) == true) {
           return const Center(
             child: CustomLoader(),
           );

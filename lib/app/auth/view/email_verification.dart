@@ -83,10 +83,13 @@ class _EmailVerificationState extends State<EmailVerification> {
                         ),
                         decoration: BoxDecoration(
                           color: styles.theme.secondary,
-                          border:
-                              Border.all(color: styles.theme.primary, width: 2),
-                          borderRadius:
-                              BorderRadius.circular(styles.corners.sm),
+                          border: Border.all(
+                            color: styles.theme.primary,
+                            width: 2,
+                          ),
+                          borderRadius: BorderRadius.circular(
+                            styles.corners.sm,
+                          ),
                         ),
                       ),
                       focusedPinTheme: PinTheme(
@@ -99,10 +102,13 @@ class _EmailVerificationState extends State<EmailVerification> {
                         ),
                         decoration: BoxDecoration(
                           color: styles.theme.secondary,
-                          border:
-                              Border.all(color: styles.theme.primary, width: 2),
-                          borderRadius:
-                              BorderRadius.circular(styles.corners.sm),
+                          border: Border.all(
+                            color: styles.theme.primary,
+                            width: 2,
+                          ),
+                          borderRadius: BorderRadius.circular(
+                            styles.corners.sm,
+                          ),
                         ),
                       ),
                       followingPinTheme: PinTheme(

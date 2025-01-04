@@ -74,7 +74,7 @@ class OnboardScreen extends StatelessWidget {
                   iconColor: styles.theme.primary,
                   padding: EdgeInsets.symmetric(vertical: styles.insets.xs),
                   minimumSize: const Size(0, 56),
-                  bgColor: styles.theme.primary.withOpacity(.1),
+                  bgColor: styles.theme.primary.withValues(alpha: .1),
                 ),
                 Gap(styles.insets.md),
                 RichText(

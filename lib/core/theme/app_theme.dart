@@ -29,7 +29,7 @@ class AppTheme {
         (isDark ? ThemeData.dark() : ThemeData.light()).textTheme;
     final InputBorder inputBorder = OutlineInputBorder(
       borderSide: BorderSide(color: nu2, width: .9),
-      borderRadius: BorderRadius.circular(styles.corners.md),
+      borderRadius: BorderRadius.circular(styles.corners.sm),
     );
 
     final txtColor = text;

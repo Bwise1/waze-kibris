@@ -1,7 +1,6 @@
 import 'package:flutter/cupertino.dart';
+import 'package:waze_kibris/app/profile/view/profile_main.dart';
 import 'package:waze_kibris/common.dart';
-
-import '../../profile/view/profile_main.dart';
 
 class MainDashboard extends StatelessWidget {
   const MainDashboard({super.key});

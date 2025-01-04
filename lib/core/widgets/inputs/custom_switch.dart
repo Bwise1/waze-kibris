@@ -42,7 +42,7 @@ class _CustomSwitchState extends State<CustomSwitch> {
     return child
         .padding(all: 5)
         .constrained(height: 25, width: 50)
-        .ripple(splashColor: Colors.white.withOpacity(0.1))
+        .ripple(splashColor: Colors.white.withValues(alpha: 0.1))
         .clipRRect(all: 25)
         .decorated(
           color: toggleState ? colorGreen : colorRed,
