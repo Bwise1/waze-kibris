@@ -36,6 +36,9 @@ class $AssetsIconsGen {
   /// File path: assets/icons/chat.svg
   String get chat => 'assets/icons/chat.svg';
 
+  /// File path: assets/icons/chevron-left.svg
+  String get chevronLeft => 'assets/icons/chevron-left.svg';
+
   /// File path: assets/icons/close.svg
   String get close => 'assets/icons/close.svg';
 
@@ -112,6 +115,7 @@ class $AssetsIconsGen {
         bin,
         briefcase,
         chat,
+        chevronLeft,
         close,
         coordinate,
         doubleArrow,

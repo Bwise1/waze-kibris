@@ -22,7 +22,7 @@ class BaBlocListener<B extends BaBloc<S>, S extends BlocState>
       listenWhen: listenWhen,
       key: key,
       listener: (context, state) {
-        if (state.isError && state.error?.showOnSnackBar == true) {
+        if (state.isError && (state.error?.showOnSnackBar ?? false) == true) {
           RSnackBar.error(state.error?.message).show(context);
         }
         listener?.call(context, state);

@@ -93,6 +93,8 @@ class _CustomTextFieldState extends State<CustomTextField> {
             : widget.suffix,
         prefixIcon: widget.prefix,
         errorStyle: styles.typography.t2.regular.textColor(styles.theme.red),
+        filled: true,
+        fillColor: styles.theme.white,
       ),
       maxLines: widget.maxLines,
       onFieldSubmitted: widget.onFieldSubmitted,

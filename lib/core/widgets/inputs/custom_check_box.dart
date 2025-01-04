@@ -73,7 +73,7 @@ class _CustomRoundedCheckState extends State<CustomRoundedCheck>
         width: widget.size,
         padding: EdgeInsets.all(styles.insets.xxs),
         decoration: BoxDecoration(
-          color: (widget.color ?? styles.theme.primary).withOpacity(.2),
+          color: (widget.color ?? styles.theme.primary).withValues(alpha: .2),
           borderRadius: BorderRadius.circular(widget.radius),
           border: Border.all(
             color: widget.color ?? styles.theme.primary,

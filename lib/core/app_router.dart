@@ -5,10 +5,10 @@ import 'package:waze_kibris/common.dart';
 
 class ScreenPaths {
   static String home = '/';
-  static String getStarted = '/getStarted';
-  static String verifyEmail = '/verifyEmail';
-  static String signIn = '/signIn';
-  static String dashBoard = '/dashBoard';
+  static String getStarted = '/get-started';
+  static String verifyEmail = '/verify-email';
+  static String signIn = '/sign-in';
+  static String dashBoard = '/dashboard';
 }
 
 final navigatorKey = GlobalKey<NavigatorState>();

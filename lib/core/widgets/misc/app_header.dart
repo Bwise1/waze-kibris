@@ -35,11 +35,13 @@ class AppHeader extends StatelessWidget {
         child: Container(
           height: 64 * styles.scale,
           decoration: BoxDecoration(
-            border: bordered ?  Border(
-              bottom: BorderSide(
-                color: styles.theme.grey.withOpacity(0.1),
-              ),
-            ) : null,
+            border: bordered
+                ? Border(
+                    bottom: BorderSide(
+                      color: styles.theme.grey.withValues(alpha: 0.1),
+                    ),
+                  )
+                : null,
           ),
           child: Stack(
             children: [
@@ -51,12 +53,12 @@ class AppHeader extends StatelessWidget {
                         Gap(styles.insets.sm),
                         BackBtn(
                           onPressed: onBack,
-                          icon: icon,iconSize: 21,
+                          icon: icon,
+                          iconSize: 24,
                           semanticLabel: backBtnSemantics,
                           bgColor: Colors.transparent,
                           iconColor: styles.theme.grey,
                           borderSide: BorderSide(color: styles.theme.border),
-
                         ),
                       ],
                       const Spacer(),

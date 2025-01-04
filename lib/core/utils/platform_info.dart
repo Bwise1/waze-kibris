@@ -33,6 +33,6 @@ class PlatformInfo {
   static bool get isIOS => defaultTargetPlatform == TargetPlatform.iOS;
 
   static Future<bool> get isConnected async =>
-      InternetConnectionChecker().hasConnection;
+      InternetConnectionChecker.instance.hasConnection;
   static Future<bool> get isDisconnected async => (await isConnected) == false;
 }
