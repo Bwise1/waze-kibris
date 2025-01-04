@@ -1,11 +1,8 @@
 
-
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:waze_kibris/common.dart';
 import 'package:pinput/pinput.dart';
-import 'package:waze_kibris/core/widgets/buttons/social_media_button.dart';
+import 'package:waze_kibris/common.dart';
 
 class EmailVerification extends StatefulWidget {
   const EmailVerification({super.key});
@@ -182,7 +179,7 @@ class _EmailVerificationState extends State<EmailVerification> {
 
                   ],),
 
-                  const Gap(195),
+                   Gap(195*styles.scale),
                   AppBtn.from(
                     onPressed: () {},
                     semanticLabel: '',

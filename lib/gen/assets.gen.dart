@@ -69,6 +69,9 @@ class $AssetsIconsGen {
   /// File path: assets/icons/map_marker.svg
   String get mapMarker => 'assets/icons/map_marker.svg';
 
+  /// File path: assets/icons/microphone.svg
+  String get microphone => 'assets/icons/microphone.svg';
+
   /// File path: assets/icons/moon.svg
   String get moon => 'assets/icons/moon.svg';
 
@@ -123,6 +126,7 @@ class $AssetsIconsGen {
         light,
         location,
         mapMarker,
+        microphone,
         moon,
         person,
         plus,
