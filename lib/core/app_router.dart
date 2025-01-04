@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/auth/auth.dart';
 import 'package:waze_kibris/app/dashboard/view/main_dashboard.dart';
-import 'package:waze_kibris/common.dart';
-
-import '../app/profile/view/personal_information.dart';
-import '../app/profile/view/sound_settings.dart';
-import '../app/profile/view/update_username.dart';
+import 'package:waze_kibris/app/profile/profile.dart';
+ import 'package:waze_kibris/common.dart';
 
 class ScreenPaths {
   static String home = '/';
@@ -16,6 +13,10 @@ class ScreenPaths {
   static String personalInformation = '/personalInformation';
   static String updateUserName = '/updateUserName';
   static String soundSettings = '/soundSettings';
+  static String helpAndFeedback= '/helpAndFeedback';
+  static String updateUsername= '/updateUsername';
+  static String addLocation= '/addLocation';
+  static String aboutUs= '/aboutUs';
 }
 
 final navigatorKey = GlobalKey<NavigatorState>();
@@ -68,6 +69,26 @@ final appRouter = GoRouter(
       ScreenPaths.soundSettings,
       (state) => const SoundSettingsScreen(),
       name: 'soundSettings',
+    )
+    ,RouteWrapper(
+      ScreenPaths.helpAndFeedback,
+      (state) => const HelpAndFeedbackScreen(),
+      name: 'helpAndFeedback',
+    ),RouteWrapper(
+      ScreenPaths.updateUsername,
+      (state) => const UpdateUsernameScreen(),
+      name: 'updateUsername',
+    )
+    ,RouteWrapper(
+      ScreenPaths.addLocation,
+      (state) => const AddLocationScreen(),
+      name: 'addLocation',
+    ),
+
+    RouteWrapper(
+      ScreenPaths.aboutUs,
+      (state) => const AboutUsScreen(),
+      name: 'aboutUs',
     ),
   ],
 );

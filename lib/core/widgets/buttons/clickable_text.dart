@@ -61,7 +61,7 @@ class CustomClickableText extends StatelessWidget {
               text,
               style: style ??
                   styles.typography.caption
-                      .textColor(textColor ?? styles.theme.grey),
+                      .textColor(textColor ?? styles.theme.text).style(FontStyle.normal),
             )
           : widget!,
     );

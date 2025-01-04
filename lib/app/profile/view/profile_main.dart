@@ -190,7 +190,41 @@ class ProfileMainScreen extends StatelessWidget {
                     child: Divider(color: styles.theme.secondary,),
                   ),
 
-  Gap(styles.insets.md),
+
+                   ProfileActionItemButton(
+
+                     onPressed: (){                     context.push(ScreenPaths.helpAndFeedback);
+                     },
+                     icon: Assets.icons.chat, title: "Help & Feedback", semanticLabel: 'help-action-btn',)
+
+
+                   ,
+
+                   Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Divider(color: styles.theme.secondary,),
+                  ),
+
+
+
+                   ProfileActionItemButton(
+
+                     onPressed: (){                     context.push(ScreenPaths.aboutUs);
+                     },
+                     icon: Assets.icons.chat, title: "About us", semanticLabel: 'about-action-btn',),
+                   Padding(
+                     padding: const EdgeInsets.symmetric(vertical: 8.0),
+                     child: Divider(color: styles.theme.secondary,),
+                   ),
+
+
+                   ProfileActionItemButton(
+
+                     onPressed: (){                     context.push(ScreenPaths.aboutUs);
+                     },
+                     icon: Assets.icons.chat, title: "Delete account", semanticLabel: 'delete-action-btn',)
+
+                   ,Gap(styles.insets.md),
               ],),),
 
 

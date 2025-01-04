@@ -35,7 +35,8 @@ class SoundSettingsScreen extends StatelessWidget {
                   Gap(8*styles.scale),
 
                   Text(
-                    ' Take full control of your voice and sound controls. All your sound settings are here ',
+                    ' Take full control of your voice and sound controls.'
+                        'All your sound settings are here ',
                     style: styles.typography.hairline.textColor(styles.theme.ash),
                   ).alignment(Alignment.bottomLeft),
 
@@ -48,29 +49,66 @@ class SoundSettingsScreen extends StatelessWidget {
                     )
 
                   ],),
-                  Gap(24*styles.scale),
 
-
-                  ProfileActionItemButton(
-
-                    onPressed: (){
-                      context.push(ScreenPaths.updateUserName);
-                    },
-                    icon: Assets.icons.profile, title: 'Grace Opata',
-                    semanticLabel: 'name-action-btn',
-                    trailing: Text('Edit', style: styles.typography.hairline.textColor(styles.theme.primary)),
-                  ),
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Divider(color: styles.theme.secondary,),
                   ),
+                  Gap(24*styles.scale),
+
 
                   ProfileActionItemButton(
-
                     onPressed: (){
-                      context.push(ScreenPaths.signIn);
+                      context.push(ScreenPaths.updateUserName);
                     },
-                    icon: Assets.icons.at, title: "fullname@gmail.com", semanticLabel: 'email-action-btn',trailing: Text("Edit", style: styles.typography.hairline.textColor(styles.theme.primary),),),
+                    icon: ' ',
+                    title: 'Voice Assistant',
+                    subTitle: 'English (United Kingdom) - Franklin',
+                    semanticLabel: 'voice-action-btn',
+                   ),
+                  CustomContainer(child: Column(children: [
+                    Text(
+                      'Voice Command',
+                      style: styles.typography.h5.textColor(styles.theme.ash),
+                    ).alignment(Alignment.bottomLeft),
+                    Gap(24*styles.scale),
+                    Text(
+                      'Reports',
+                      style: styles.typography.body.copyWith(color: styles.theme.text,fontWeight: FontWeight.w500),
+                    ).alignment(Alignment.bottomLeft),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Divider(color: styles.theme.secondary,thickness: 1,),
+
+
+                    ),
+
+                    ProfileActionItemButton(
+
+                      onPressed: (){
+                        context.push(ScreenPaths.signIn);
+                      },
+                      icon: Assets.icons.at, title: 'Google assistance',
+                      subTitle: 'Universal assistant', semanticLabel: 'google-action-btn',),
+
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Divider(color: styles.theme.secondary,thickness: 1,),
+
+                    ),
+
+                    ProfileActionItemButton(
+
+                      onPressed: (){
+                       },
+                      icon: Assets.icons.microphone, title: 'Voice typing',
+                      subTitle: 'English (United Kingdom)', semanticLabel: 'voice-action-btn',),
+
+                    Gap(24*styles.scale),
+                  ],),),
+
+
+
 
                 ],
               ),
