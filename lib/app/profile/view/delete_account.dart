@@ -1,25 +1,25 @@
-
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 
-
-class DeleteAccountScreen extends StatelessWidget {
+class DeleteAccountScreen extends StatefulWidget {
   const DeleteAccountScreen({super.key});
+
+  @override
+  State<DeleteAccountScreen> createState() => _DeleteAccountScreenState();
+}
+
+class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
+  late String whyDeleteAccount = '';
 
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
-
-      child:
-      Column(
+      child: Column(
         children: [
           AppHeader(
             backIcon: Assets.icons.backArrow,
-
-
             isTransparent: true,
           ),
-
           Padding(
             padding: EdgeInsets.symmetric(horizontal: styles.insets.lg),
             child: SingleChildScrollView(
@@ -27,69 +27,157 @@ class DeleteAccountScreen extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Gap(16*styles.scale),
+                  Gap(16 * styles.scale),
                   Text(
-                    'How can we help you today?',
+                    'Delete account',
                     style: styles.typography.h3.textColor(styles.theme.text),
-                  ) ,
-                  Gap(8*styles.scale),
-
+                  ),
+                  Gap(8 * styles.scale),
                   Text(
-                    'Having issues or questions? leave us a message or check from our frequently asked questions',
-                    style: styles.typography.hairline.textColor(styles.theme.ash),
-                  ) ,
-
-
-
-                  Gap(16*styles.scale),
-                  Stack(alignment: Alignment.center,
-                    children: [
-                      CustomContainer(
-                        color: Colors.transparent,
-                        width:160*styles.scale,height:160*styles.scale ,
-                        border: Border.all(width: 3,color: styles.theme.white),
-                        borderRadius: BorderRadius.circular(styles.corners.sm)
-                        ,child: ClipRRect(
-                        borderRadius: BorderRadius.circular(styles.corners.md),
-                        child: Assets.images.liveChatBackground.image(fit: BoxFit.cover),),),
-                      Positioned(
-                          left: 10,
-                          bottom: 15,
-                          child: Text("Live\nchat",style: styles.typography.h2.textColor(styles.theme.text).weight(FontWeight.w400).textHeight(0.9) ))
-                    ],
+                    "We’re so sorry to hear that you're considering "
+                    ' leaving us. '
+                    "You've been a great part of our community."
+                    " Could you please share what's"
+                    ' making you think about this decision?',
+                    style:
+                        styles.typography.hairline.textColor(styles.theme.ash),
                   ),
-                  Gap(16*styles.scale),
-
-                  CustomTextField(
-                    hintText: 'search language',
-                    initialValue: ' ',
-                    prefix: Row(
-                      children: [
-                        IconBtn(icon: Assets.icons.searchGlass,bgColor: Colors.transparent, color:styles.theme.text,onPressed: (){}, semanticLabel: "glass"),
-
-                        Text('|',style: styles.typography.h4
-                            .textColor(styles.theme.ash)
-                          ,)
-                      ],
+                  Gap(24 * styles.scale),
+                  DeleteAccountActionBtn(
+                    onTap: (String d) {
+                      whyDeleteAccount = d;
+                      setState(() {});
+                      return '';
+                    },
+                    title: 'I don’t use the account anymore',
+                    selectedOption: whyDeleteAccount,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Divider(
+                      color: styles.theme.secondary,
                     ),
-
                   ),
-
-                  Gap(16*styles.scale),
-                  CustomClickableText(
-                    text:   'Frequently asked questions',
-                    style: styles.typography.t3.textColor(styles.theme.text).weight(FontWeight.w500),
-                  ) ,
-
-
-
-
+                  DeleteAccountActionBtn(
+                    onTap: (String d) {
+                      whyDeleteAccount = d;
+                      setState(() {});
+                      return '';
+                    },
+                    title: 'I am making a device change',
+                    selectedOption: whyDeleteAccount,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Divider(
+                      color: styles.theme.secondary,
+                    ),
+                  ),
+                  DeleteAccountActionBtn(
+                    onTap: (String d) {
+                      whyDeleteAccount = d;
+                      setState(() {});
+                      return '';
+                    },
+                    title: 'I don’t understand how to use the service',
+                    selectedOption: whyDeleteAccount,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Divider(
+                      color: styles.theme.secondary,
+                    ),
+                  ),
+                  DeleteAccountActionBtn(
+                    onTap: (String d) {
+                      whyDeleteAccount = d;
+                      setState(() {});
+                      return '';
+                    },
+                    title: 'The services are not available in my city',
+                    selectedOption: whyDeleteAccount,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Divider(
+                      color: styles.theme.secondary,
+                    ),
+                  ),
+                  DeleteAccountActionBtn(
+                    onTap: (String d) {
+                      whyDeleteAccount = d;
+                      setState(() {});
+                      return '';
+                    },
+                    title: 'Others',
+                    selectedOption: whyDeleteAccount,
+                  ),
+                  Gap(154 * styles.scale),
+                  AppBtn.from(
+                    onPressed: () {},
+                    semanticLabel: '',
+                    expand: true,
+                    corner: styles.corners.x24,
+                    text: 'Delete account',
+                    iconColor: styles.theme.primary,
+                    bgColor: styles.theme.secondary,
+                    padding: EdgeInsets.symmetric(vertical: styles.insets.xs),
+                    minimumSize: const Size(0, 56),
+                  ),
                 ],
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class DeleteAccountActionBtn extends StatefulWidget {
+  const DeleteAccountActionBtn({
+    required this.title,
+    required this.selectedOption,
+    super.key,
+    this.onTap,
+  });
+
+  final String title;
+  final String selectedOption;
+  // interaction:
+  final String Function(String val)? onTap;
+
+  @override
+  State<DeleteAccountActionBtn> createState() => _DeleteAccountActionBtnState();
+}
+
+class _DeleteAccountActionBtnState extends State<DeleteAccountActionBtn> {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: widget.key,
+      children: [
+        AbsorbPointer(
+          child: CustomRoundedCheck(
+            value: (widget.selectedOption == widget.title) || false,
+            onChanged: (v) {},
+            color: styles.theme.green,
+          ),
+        ),
+        Gap(
+          14 * styles.scale,
+        ),
+        CustomClickableText(
+          onTap: () {
+            widget.onTap!(widget.title);
+            setState(() {});
+          }, //
+          text: widget.title,
+          style: styles.typography.hairline
+              .textColor(styles.theme.text)
+              .weight(FontWeight.w500),
+        ),
+      ],
     );
   }
 }

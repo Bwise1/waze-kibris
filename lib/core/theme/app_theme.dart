@@ -19,6 +19,7 @@ class AppTheme {
   final Color white = Colors.white;
   final Color black = const Color(0xFF1E1B18);
   final Color red = const Color(0xffF05A5A);
+  final Color green = const Color(0xff00CF00);
   final Color text = const Color(0xFF000000);
   final Color textPrimary = const Color(0xFF092C4C);
 

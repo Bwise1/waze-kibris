@@ -7,3 +7,4 @@ export 'view/profile_main.dart';
 export 'view/sound_settings.dart ';
 export 'view/update_username.dart';
 export 'view/about_us.dart';
+export 'view/delete_account.dart';

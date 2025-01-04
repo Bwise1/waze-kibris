@@ -17,6 +17,7 @@ class ScreenPaths {
   static String updateUsername= '/updateUsername';
   static String addLocation= '/addLocation';
   static String aboutUs= '/aboutUs';
+  static String deleteAccount= '/deleteAccount';
 }
 
 final navigatorKey = GlobalKey<NavigatorState>();
@@ -89,6 +90,12 @@ final appRouter = GoRouter(
       ScreenPaths.aboutUs,
       (state) => const AboutUsScreen(),
       name: 'aboutUs',
+    )
+
+    ,RouteWrapper(
+      ScreenPaths.deleteAccount,
+      (state) => const DeleteAccountScreen(),
+      name: 'deleteAccount',
     ),
   ],
 );
