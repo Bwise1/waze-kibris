@@ -57,6 +57,9 @@ class $AssetsIconsGen {
   /// File path: assets/icons/google.svg
   String get google => 'assets/icons/google.svg';
 
+  /// File path: assets/icons/google_voice.svg
+  String get googleVoice => 'assets/icons/google_voice.svg';
+
   /// File path: assets/icons/home.svg
   String get home => 'assets/icons/home.svg';
 
@@ -71,6 +74,9 @@ class $AssetsIconsGen {
 
   /// File path: assets/icons/map_marker.svg
   String get mapMarker => 'assets/icons/map_marker.svg';
+
+  /// File path: assets/icons/microphone.svg
+  String get microphone => 'assets/icons/microphone.svg';
 
   /// File path: assets/icons/moon.svg
   String get moon => 'assets/icons/moon.svg';
@@ -122,11 +128,13 @@ class $AssetsIconsGen {
         flagMarker,
         globe,
         google,
+        googleVoice,
         home,
         homeSmile,
         light,
         location,
         mapMarker,
+        microphone,
         moon,
         person,
         plus,
@@ -148,12 +156,20 @@ class $AssetsImagesGen {
   AssetGenImage get frame2023 =>
       const AssetGenImage('assets/images/Frame 2023.png');
 
+  /// File path: assets/images/friends_with_puzzel.png
+  AssetGenImage get friendsWithPuzzel =>
+      const AssetGenImage('assets/images/friends_with_puzzel.png');
+
   /// File path: assets/images/intro-gradient.png
   AssetGenImage get introGradientPng =>
       const AssetGenImage('assets/images/intro-gradient.png');
 
   /// File path: assets/images/intro-gradient.svg
   String get introGradientSvg => 'assets/images/intro-gradient.svg';
+
+  /// File path: assets/images/live_chat_background.png
+  AssetGenImage get liveChatBackground =>
+      const AssetGenImage('assets/images/live_chat_background.png');
 
   /// File path: assets/images/profile_pic.png
   AssetGenImage get profilePic =>
@@ -174,8 +190,10 @@ class $AssetsImagesGen {
   /// List of all assets
   List<dynamic> get values => [
         frame2023,
+        friendsWithPuzzel,
         introGradientPng,
         introGradientSvg,
+        liveChatBackground,
         profilePic,
         route3d,
         routemap3d,

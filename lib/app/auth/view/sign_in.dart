@@ -1,7 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
-
 import 'package:waze_kibris/core/widgets/buttons/social_media_button.dart';
 
 class SignInScreen extends StatefulWidget {
