@@ -46,7 +46,7 @@ class AboutUsScreen extends StatelessWidget {
                                 gradient: LinearGradient(
                                   colors: [
                                     Colors.white,
-                                    Colors.white.withOpacity(0.7),
+                                    Colors.white.withValues(alpha: .7),
                                   ],
                                   stops: const [0, 0.8],
                                 ),
@@ -64,8 +64,8 @@ class AboutUsScreen extends StatelessWidget {
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [
-                                    Colors.white.withOpacity(0.7),
-                                    Colors.white.withOpacity(0.15),
+                                    Colors.white.withValues(alpha: 0.7),
+                                    Colors.white.withValues(alpha: 0.15),
                                   ],
                                   stops: const [0, 0.2],
                                 ),

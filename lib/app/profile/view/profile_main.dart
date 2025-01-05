@@ -90,85 +90,85 @@ class ProfileMainScreen extends StatelessWidget {
                       ProfileActionItemButton(
                         onPressed: () {
                           CustomDialog.openBottomSheet(
-                              context,
-                              Column(
-                                children: [
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          SvgPicture.asset(
-                                            Assets.icons.homeSmile,
-                                            height: 24,
-                                            width: 24,
-                                          ),
-                                          const Gap(8),
-                                          Text(
-                                            'Home',
-                                            style:
-                                                styles.typography.t3.copyWith(
-                                              color: styles.theme.text,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const Gap(8),
-                                      Text('Address',
+                            context,
+                            Column(
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        SvgPicture.asset(
+                                          Assets.icons.homeSmile,
+                                          height: 24,
+                                          width: 24,
+                                        ),
+                                        const Gap(8),
+                                        Text(
+                                          'Home',
                                           style: styles.typography.t3.copyWith(
-                                              color: styles.theme.ash,
-                                              fontWeight: FontWeight.w400))
-                                    ],
-                                  ),
-
-                                  const Gap(32),
-                                  Row(
-                                    children: [
-                                      SvgPicture.asset(
-                                        Assets.icons.flagMarker,
-                                        height: 34,
-                                        width: 34,
-                                        color: styles.theme.ash,
-                                      ),
-                                      const Gap(16),
-                                      Text(
-                                        'Edit this location',
-                                        style: styles.typography.caption
-                                            .copyWith(
-                                                color: styles.theme.ash,
-                                                fontStyle: FontStyle.normal),
-                                      ),
-                                    ],
-                                  ), //
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 17),
-                                    child: Divider(
-                                      color: styles.theme.secondary,
+                                            color: styles.theme.text,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
+                                    const Gap(8),
+                                    Text(
+                                      'Address',
+                                      style: styles.typography.t3
+                                          .textColor(styles.theme.ash)
+                                          .medium,
+                                    ),
+                                  ],
+                                ),
 
-                                  Row(
-                                    children: [
-                                      SvgPicture.asset(
-                                        Assets.icons.bin,
-                                        height: 34,
-                                        width: 34,
-                                        color: styles.theme.primary,
+                                const Gap(32),
+                                Row(
+                                  children: [
+                                    AppIcon(
+                                      Assets.icons.flagMarker,
+                                      size: 34,
+                                      color: styles.theme.ash,
+                                    ),
+                                    const Gap(16),
+                                    Text(
+                                      'Edit this location',
+                                      style: styles.typography.caption.copyWith(
+                                        color: styles.theme.ash,
+                                        fontStyle: FontStyle.normal,
                                       ),
-                                      const Gap(16),
-                                      Text(
-                                        'Remove location',
-                                        style: styles.typography.caption
-                                            .copyWith(
-                                                color: styles.theme.primary,
-                                                fontStyle: FontStyle.normal),
-                                      ),
-                                    ],
+                                    ),
+                                  ],
+                                ), //
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 17,
                                   ),
-                                ],
-                              ));
+                                  child: Divider(
+                                    color: styles.theme.secondary,
+                                  ),
+                                ),
+
+                                Row(
+                                  children: [
+                                    AppIcon(
+                                      Assets.icons.bin,
+                                      size: 34,
+                                      color: styles.theme.primary,
+                                    ),
+                                    const Gap(16),
+                                    Text(
+                                      'Remove location',
+                                      style: styles.typography.caption.copyWith(
+                                        color: styles.theme.primary,
+                                        fontStyle: FontStyle.normal,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
                         },
                         icon: Assets.icons.homeSmile,
                         title: 'Home',
@@ -224,7 +224,6 @@ class ProfileMainScreen extends StatelessWidget {
                       Gap(styles.insets.md),
                       ProfileActionItemButton(
                         onPressed: () {
-                          context.push(ScreenPaths.signIn);
                           context.push(ScreenPaths.soundSettings);
                         },
                         icon: Assets.icons.microphone,
@@ -290,7 +289,7 @@ class ProfileMainScreen extends StatelessWidget {
                       Gap(styles.insets.md),
                       const ModalHeader(
                         title: 'Hello',
-                      )
+                      ),
                     ],
                   ),
                 ),
@@ -334,10 +333,9 @@ class ProfileActionItemButton extends StatelessWidget {
         children: [
           Row(
             children: [
-              SvgPicture.asset(
+              AppIcon(
                 icon,
-                height: 24,
-                width: 24,
+                size: 24,
               ),
               const Gap(16),
               Column(
@@ -351,10 +349,13 @@ class ProfileActionItemButton extends StatelessWidget {
                         ),
                   ),
                   if (subTitle != '') ...[
-                    Text(subTitle,
-                        style: styles.typography.caption.copyWith(
-                            color: styles.theme.ash,
-                            fontStyle: FontStyle.normal)),
+                    Text(
+                      subTitle,
+                      style: styles.typography.caption.copyWith(
+                        color: styles.theme.ash,
+                        fontStyle: FontStyle.normal,
+                      ),
+                    ),
                   ],
                 ],
               ),
