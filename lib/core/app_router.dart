@@ -17,7 +17,6 @@ class ScreenPaths {
   static String updateUserName = '/update-username';
   static String soundSettings = '/sound-settings';
   static String helpAndFeedback = '/help-and-feedback';
-  static String updateUsername = '/update-username';
   static String addLocation = '/add-location';
   static String aboutUs = '/about-us';
   static String deleteAccount = '/delete-account';
@@ -72,11 +71,6 @@ final appRouter = GoRouter(
       ScreenPaths.helpAndFeedback,
       (state) => const HelpAndFeedbackScreen(),
       name: 'help-and-feedback',
-    ),
-    RouteWrapper(
-      ScreenPaths.updateUsername,
-      (state) => const UpdateUsernameScreen(),
-      name: 'update-username',
     ),
     RouteWrapper(
       ScreenPaths.addLocation,
