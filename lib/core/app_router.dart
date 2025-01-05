@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/auth/auth.dart';
 import 'package:waze_kibris/app/dashboard/view/main_dashboard.dart';
 import 'package:waze_kibris/app/profile/profile.dart';
+import 'package:waze_kibris/app/profile/view/help_screen.dart';
+import 'package:waze_kibris/app/profile/view/sound_settings.dart';
 import 'package:waze_kibris/common.dart';
 
 class ScreenPaths {

@@ -1,10 +1,7 @@
+export 'view/about_us.dart';
 export 'view/add_location.dart';
+export 'view/delete_account.dart';
 export 'view/driving_preference.dart';
-export 'view/help_screen.dart ';
-export 'view/notification_setting.dart ';
 export 'view/personal_information.dart';
 export 'view/profile_main.dart';
-export 'view/sound_settings.dart ';
 export 'view/update_username.dart';
-export 'view/about_us.dart';
-export 'view/delete_account.dart';
