@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
-import 'package:waze_kibris/res/strings.dart';
+import 'package:waze_kibris/core/res/strings.dart';
 
 class AboutUsScreen extends StatelessWidget {
   const AboutUsScreen({super.key});
