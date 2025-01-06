@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/widgets/buttons/social_media_button.dart';
 
@@ -13,25 +14,37 @@ class SignInScreen extends StatefulWidget {
 class _SignInScreenState extends State<SignInScreen> {
   @override
   Widget build(BuildContext context) {
-    return AppScaffold(
-      child: Stack(
-        children: [
-          SizedBox(
-            width: context.widthPx,
-            height: context.heightPx,
-            child: Assets.images.introGradientPng.image(fit: BoxFit.cover),
-          ),
-          AppHeader(
-            backIcon: Assets.icons.backArrow,
-            trailing: (context) => BackBtn(
-              onPressed: () {},
-              icon: Assets.icons.routeLogo,
-              semanticLabel: 'Logo',
-              bgColor: Colors.transparent,
-              iconColor: styles.theme.grey,
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leadingWidth: 50 + styles.insets.sm,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        leading: Padding(
+          padding: EdgeInsets.only(left: styles.insets.sm, top: 4),
+          child: BackBtn(
+            onPressed: () => context.pop(),
+            semanticLabel: '',
+            bgColor: Colors.transparent,
+            iconColor: styles.theme.grey,
+            borderSide: BorderSide(
+              color: styles.theme.nu1,
             ),
-            isTransparent: true,
           ),
+        ),
+        actions: [
+          AppIcon(
+            Assets.icons.routeLogo,
+            color: styles.theme.grey,
+            size: 45,
+          ),
+          Gap(styles.insets.sm),
+        ],
+      ),
+      body: Stack(
+        children: [
+          const GradientBG(),
           SingleChildScrollView(
             padding: EdgeInsets.symmetric(horizontal: styles.insets.lg),
             child: Column(
@@ -52,12 +65,14 @@ class _SignInScreenState extends State<SignInScreen> {
                   hintText: 'Email address',
                   prefix: Row(
                     children: [
-                      IconBtn(
-                        icon: Assets.icons.at,
-                        bgColor: Colors.transparent,
-                        color: styles.theme.text,
-                        onPressed: () {},
-                        semanticLabel: 'at',
+                      SizedBox(
+                        height: 45,
+                        width: 45,
+                        child: AppIcon(
+                          Assets.icons.at,
+                          color: styles.theme.grey,
+                          size: 18,
+                        ),
                       ),
                       Text(
                         '|',
@@ -69,7 +84,7 @@ class _SignInScreenState extends State<SignInScreen> {
                 Gap(styles.insets.sm),
                 AppBtn.from(
                   onPressed: () {
-                    context.push(ScreenPaths.dashBoard);
+                    context.go(ScreenPaths.dashBoard);
                   },
                   semanticLabel: '',
                   expand: true,
@@ -164,15 +179,11 @@ class _SignInScreenState extends State<SignInScreen> {
                   ),
                 ),
                 Gap(styles.insets.offset),
-                AppBtn.basic(
-                  onPressed: () {},
-                  semanticLabel: 'log-in-trouble',
-                  child: Text(
-                    'Having troubles logging in?',
-                    style: styles.typography.hairline
-                        .textColor(styles.theme.primary)
-                        .underline(styles.theme.primary),
-                  ),
+                CustomClickableText(
+                  text: 'Having troubles logging in?',
+                  style: styles.typography.body
+                      .textColor(styles.theme.primary)
+                      .underline(styles.theme.primary),
                 ),
               ],
             ),

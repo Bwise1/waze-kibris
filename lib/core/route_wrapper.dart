@@ -16,7 +16,8 @@ class RouteWrapper extends GoRoute {
           pageBuilder: (context, state) {
             final pageContent = Scaffold(
               body: builder(state),
-              resizeToAvoidBottomInset: true,
+              resizeToAvoidBottomInset: false,
+              extendBody: true,
             );
             if (useFade) {
               return CustomTransitionPage(

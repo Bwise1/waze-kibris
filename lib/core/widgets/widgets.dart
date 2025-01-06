@@ -1,4 +1,5 @@
 export 'app_scaffold.dart';
+export 'auth_bg.dart';
 export 'auth_header.dart';
 export 'buttons/app_button.dart';
 export 'buttons/clickable_text.dart';

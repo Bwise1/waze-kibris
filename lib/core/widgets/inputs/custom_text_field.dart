@@ -78,7 +78,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
         enabled: widget.enabled,
         hintText: widget.hintText,
         hintStyle: styles.typography.t2
-            .textColor(styles.theme.nu1)
+            .textColor(styles.theme.grey)
             .textHeight(0)
             .regular,
         suffixIcon: widget.password ?? false
@@ -94,16 +94,15 @@ class _CustomTextFieldState extends State<CustomTextField> {
         prefixIcon: widget.prefix,
         errorStyle: styles.typography.t2.regular.textColor(styles.theme.red),
         filled: true,
-        fillColor: styles.theme.white,
+        fillColor: const Color(0xffF5F5F5),
       ),
       maxLines: widget.maxLines,
       onFieldSubmitted: widget.onFieldSubmitted,
-      style: styles.typography.t2.regular.textColor(styles.theme.textPrimary),
+      style: styles.typography.t2.regular.textColor(styles.theme.grey),
       keyboardType: widget.keyboardType,
       textInputAction: widget.textInputAction,
       inputFormatters: widget.inputFormatters,
       onChanged: widget.onChanged,
-      cursorOpacityAnimates: true,
       validator: widget.validator,
       maxLength: widget.maxLength,
       minLines: widget.minLength,

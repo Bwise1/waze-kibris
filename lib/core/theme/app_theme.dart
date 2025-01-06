@@ -2,8 +2,8 @@ part of 'app_style.dart';
 
 class AppTheme {
   final Color primary = const Color(0xFFFF0000);
-   final Color secondary = const Color(0xFFFFDBDB);
- 
+  final Color secondary = const Color(0xFFFFDBDB);
+
   final Color background = const Color(0xFFF5F5F5);
 
   final Color caption = const Color(0xFF7D7873);
@@ -20,16 +20,17 @@ class AppTheme {
   final Color black = const Color(0xFF1E1B18);
   final Color red = const Color(0xffF05A5A);
   final Color green = const Color(0xff00CF00);
+  final Color yellow = const Color(0xffFFC300);
   final Color text = const Color(0xFF000000);
   final Color textPrimary = const Color(0xFF092C4C);
+  final Color transparent = Colors.transparent;
 
   final bool isDark = false;
 
   ThemeData data() {
-    final textTheme =
-        (isDark ? ThemeData.dark() : ThemeData.light()).textTheme;
+    final textTheme = (isDark ? ThemeData.dark() : ThemeData.light()).textTheme;
     final InputBorder inputBorder = OutlineInputBorder(
-      borderSide: BorderSide(color: nu2, width: .9),
+      borderSide: BorderSide(color: white, width: .9),
       borderRadius: BorderRadius.circular(styles.corners.sm),
     );
 
@@ -56,13 +57,9 @@ class AppTheme {
         outlineBorder: const BorderSide(),
         border: inputBorder,
         enabledBorder: inputBorder,
-        focusedBorder: inputBorder.copyWith(
-          borderSide: BorderSide(color: textPrimary, width: .9),
-        ),
-        errorBorder:
-            inputBorder.copyWith(borderSide: BorderSide(color: red, width: .9)),
-        focusedErrorBorder:
-            inputBorder.copyWith(borderSide: BorderSide(color: red, width: .9)),
+        focusedBorder: inputBorder,
+        errorBorder: inputBorder,
+        focusedErrorBorder: inputBorder,
         disabledBorder: inputBorder,
         fillColor: scheme.surface,
         hoverColor: scheme.surface,

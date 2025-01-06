@@ -22,15 +22,15 @@ class _EmailVerificationState extends State<EmailVerification> {
             child: Assets.images.introGradientPng.image(fit: BoxFit.cover),
           ),
           AppHeader(
+            isTransparent: true,
             backIcon: Assets.icons.backArrow,
             trailing: (context) => BackBtn(
-              onPressed: () {},
               icon: Assets.icons.routeLogo,
               semanticLabel: 'Back Button',
               bgColor: Colors.transparent,
               iconColor: styles.theme.grey,
             ),
-            isTransparent: true,
+            onBack: ()=> context.pop(),
           ),
           Padding(
             padding: EdgeInsets.symmetric(horizontal: styles.insets.lg),
@@ -179,7 +179,7 @@ class _EmailVerificationState extends State<EmailVerification> {
                   ),
                   const Gap(195),
                   AppBtn.from(
-                    onPressed: () => context.push(ScreenPaths.dashBoard),
+                    onPressed: () => context.go(ScreenPaths.dashBoard),
                     semanticLabel: '',
                     expand: true,
                     corner: styles.corners.x24,

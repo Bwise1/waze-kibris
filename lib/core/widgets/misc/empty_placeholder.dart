@@ -24,7 +24,7 @@ class EmptyPlaceholder extends StatelessWidget {
           size: 28,
         ),
         Gap(styles.insets.sm),
-        Text(headline, style: styles.typography.h4.semiBold),
+        Text(headline, style: styles.typography.h4.semi),
         Gap(styles.insets.xxs),
         Text(
           tag,

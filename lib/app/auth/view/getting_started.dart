@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:waze_kibris/common.dart';
 
 import 'package:waze_kibris/core/widgets/buttons/social_media_button.dart';
@@ -14,30 +15,43 @@ class GettingStarted extends StatefulWidget {
 class _GettingStartedState extends State<GettingStarted> {
   @override
   Widget build(BuildContext context) {
-    return AppScaffold(
-      child: Stack(
-        children: [
-          SizedBox(
-            width: context.widthPx,
-            height: context.heightPx,
-            child: Assets.images.introGradientPng.image(fit: BoxFit.cover),
-          ),
-          AppHeader(
-            backIcon: Assets.icons.backArrow,
-            trailing: (context) => BackBtn(
-              onPressed: () {},
-              icon: Assets.icons.routeLogo,
-              semanticLabel: 'backbtn',
-              bgColor: Colors.transparent,
-              iconColor: styles.theme.grey,
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: styles.theme.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        elevation: 0,
+        leading: Padding(
+          padding: EdgeInsets.only(left: styles.insets.sm, top: 4),
+          child: BackBtn(
+            onPressed: ()=> context.pop(),
+            semanticLabel: '',
+            bgColor: Colors.transparent,
+            iconColor: styles.theme.grey,
+            borderSide: BorderSide(
+              color: styles.theme.nu1,
             ),
-            isTransparent: true,
           ),
-          Padding(
+        ),
+        leadingWidth: 50 + styles.insets.sm,
+        actions: [
+          AppIcon(
+            Assets.icons.routeLogo,
+            color: styles.theme.grey,
+            size: 45,
+          ),
+          Gap(styles.insets.sm),
+        ],
+      ),
+      body: Stack(
+        children: [
+          const GradientBG(),
+          SingleChildScrollView(
             padding: EdgeInsets.symmetric(horizontal: styles.insets.lg),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                Gap(278 * styles.scale),
                 Text(
                   'Enter your email',
                   style: styles.typography.h3.textColor(styles.theme.text),
@@ -47,12 +61,14 @@ class _GettingStartedState extends State<GettingStarted> {
                   hintText: 'Email address',
                   prefix: Row(
                     children: [
-                      IconBtn(
-                        icon: Assets.icons.at,
-                        bgColor: Colors.transparent,
-                        color: styles.theme.text,
-                        onPressed: () {},
-                        semanticLabel: 'at',
+                      SizedBox(
+                        height: 45,
+                        width: 45,
+                        child: AppIcon(
+                          Assets.icons.at,
+                          color: styles.theme.grey,
+                          size: 18,
+                        ),
                       ),
                       Text(
                         '|',
@@ -92,7 +108,7 @@ class _GettingStartedState extends State<GettingStarted> {
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         child: Text(
                           'OR',
-                          style: styles.typography.caption
+                          style: styles.typography.t3
                               .textColor(styles.theme.ash),
                         ),
                       ),

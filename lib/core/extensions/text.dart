@@ -11,7 +11,7 @@ extension TextStyleExtension on TextStyle {
 
   TextStyle get regular => weight(FontWeight.w400);
   TextStyle get medium => weight(FontWeight.w500);
-  TextStyle get semiBold => weight(FontWeight.w600);
+  TextStyle get semi => weight(FontWeight.w600);
   TextStyle get bold => weight(FontWeight.w700);
   TextStyle get italic => style(FontStyle.italic);
 

@@ -12,8 +12,18 @@ import 'package:flutter/widgets.dart';
 class $AssetsIconsGen {
   const $AssetsIconsGen();
 
+  /// File path: assets/icons/Spotify.png
+  AssetGenImage get spotifyPng =>
+      const AssetGenImage('assets/icons/Spotify.png');
+
+  /// File path: assets/icons/Spotify.svg
+  String get spotifySvg => 'assets/icons/Spotify.svg';
+
   /// File path: assets/icons/accident.svg
   String get accident => 'assets/icons/accident.svg';
+
+  /// File path: assets/icons/alert-triangle.svg
+  String get alertTriangle => 'assets/icons/alert-triangle.svg';
 
   /// File path: assets/icons/apple.svg
   String get apple => 'assets/icons/apple.svg';
@@ -59,6 +69,12 @@ class $AssetsIconsGen {
 
   /// File path: assets/icons/google_voice.svg
   String get googleVoice => 'assets/icons/google_voice.svg';
+
+  /// File path: assets/icons/home-line-regular.svg
+  String get homeLineRegular => 'assets/icons/home-line-regular.svg';
+
+  /// File path: assets/icons/home-line.svg
+  String get homeLine => 'assets/icons/home-line.svg';
 
   /// File path: assets/icons/home.svg
   String get home => 'assets/icons/home.svg';
@@ -111,9 +127,15 @@ class $AssetsIconsGen {
   /// File path: assets/icons/traffic.svg
   String get traffic => 'assets/icons/traffic.svg';
 
+  /// File path: assets/icons/user-02.svg
+  String get user02 => 'assets/icons/user-02.svg';
+
   /// List of all assets
-  List<String> get values => [
+  List<dynamic> get values => [
+        spotifyPng,
+        spotifySvg,
         accident,
+        alertTriangle,
         apple,
         arrowForward,
         at,
@@ -129,6 +151,8 @@ class $AssetsIconsGen {
         globe,
         google,
         googleVoice,
+        homeLineRegular,
+        homeLine,
         home,
         homeSmile,
         light,
@@ -145,7 +169,8 @@ class $AssetsIconsGen {
         searchGlass,
         sending,
         shieldZap,
-        traffic
+        traffic,
+        user02
       ];
 }
 
