@@ -21,5 +21,6 @@ export 'misc/flex.dart';
 export 'misc/logo.dart';
 export 'misc/modal_header.dart';
 export 'misc/page_indicator.dart';
+export 'misc/segmented_tab.dart';
 export 'misc/step_bar.dart';
 export 'scrollable/custom_horizontal_scroll.dart';

@@ -29,6 +29,7 @@ class CustomTextField extends StatefulWidget {
     this.onTap,
     this.maxLength,
     this.minLength,
+    this.fillColor,
   });
   final TextEditingController? controller;
   final String hintText;
@@ -42,6 +43,7 @@ class CustomTextField extends StatefulWidget {
   final List<TextInputFormatter>? inputFormatters;
   final Widget? suffix;
   final Widget? prefix;
+  final Color? fillColor;
 
   final bool? password;
   final bool shouldHideError;
@@ -94,7 +96,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
         prefixIcon: widget.prefix,
         errorStyle: styles.typography.t2.regular.textColor(styles.theme.red),
         filled: true,
-        fillColor: const Color(0xffF5F5F5),
+        fillColor: widget.fillColor ?? const Color(0xffF5F5F5),
       ),
       maxLines: widget.maxLines,
       onFieldSubmitted: widget.onFieldSubmitted,
