@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:styled_widget/styled_widget.dart';
-import 'package:waze_kibris/app/profile/view/profile_main.dart';
 import 'package:waze_kibris/common.dart';
 
 class PersonalInformationScreen extends StatelessWidget {

@@ -26,7 +26,7 @@ class AppHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final icon = backIcon ?? 'Assets.icons.regular.chevronLeft';
+    final icon = backIcon ?? Assets.icons.chevronLeft;
 
     return ColoredBox(
       color: isTransparent ? Colors.transparent : styles.theme.background,
@@ -54,7 +54,7 @@ class AppHeader extends StatelessWidget {
                         BackBtn(
                           onPressed: onBack,
                           icon: icon,
-                          iconSize: 24,
+                          iconSize: 14,
                           semanticLabel: backBtnSemantics,
                           bgColor: Colors.transparent,
                           iconColor: styles.theme.grey,

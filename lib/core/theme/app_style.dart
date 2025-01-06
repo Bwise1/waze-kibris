@@ -8,6 +8,7 @@ part 'style/_insets.dart';
 part 'style/_sizes.dart';
 part 'style/_times.dart';
 part 'style/_typography.dart';
+part 'style/_shadow.dart';
 
 @immutable
 class AppStyle {
@@ -48,4 +49,6 @@ class AppStyle {
   final Times times = Times();
 
   final Sizes sizes = Sizes();
+
+  final Shadows shadows = Shadows();
 }

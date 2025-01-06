@@ -14,7 +14,7 @@ class SplashScreen extends StatelessWidget {
           color: Colors.red,
           image: DecorationImage(
             fit: BoxFit.cover,
-            image: AssetImage(Assets.images.splashBackground.keyName),
+            image: AssetImage(Assets.images.splashBackground.path),
           ),
         ),
         child: AppIcon(

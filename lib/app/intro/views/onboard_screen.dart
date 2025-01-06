@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:waze_kibris/common.dart';
 
 class OnboardScreen extends StatelessWidget {
@@ -7,34 +8,48 @@ class OnboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppScaffold(
-      child:
-      Stack(
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: Padding(
+          padding: EdgeInsets.only(left: styles.insets.sm),
+          child: AppIcon(
+            Assets.icons.routeLogo,
+            color: styles.theme.grey,
+            size: 50,
+          ),
+        ),
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        actions: [
+          IconBtn(
+            onPressed: () {},
+            semanticLabel: 'Theme',
+            icon: Assets.icons.moon,
+            bgColor: Colors.transparent,
+            border: BorderSide(color: styles.theme.nu1),
+            color: styles.theme.grey,
+          ),
+          Gap(styles.insets.sm),
+        ],
+      ),
+      body: Stack(
         children: [
           SizedBox(
             width: context.widthPx,
             height: context.heightPx,
-            child:
-      Assets.images.introGradientPng.image(fit: BoxFit.cover  ),
-          ),
-          AppHeader(
-            backIcon: Assets.icons.routeLogo,
-            trailing: (context) => IconBtn(
-              onPressed: () {},
-              semanticLabel: 'Skip',
-              icon: Assets.icons.moon,
-              bgColor: Colors.transparent,
-              border: BorderSide(color: styles.theme.nu1),
-              color: styles.theme.grey,
-            ),
-            isTransparent: true,
+            child: Assets.images.introGradientPng.image(fit: BoxFit.cover),
           ),
           Padding(
             padding: EdgeInsets.symmetric(horizontal: styles.insets.lg),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Assets.images.route3d.image(height: 216, width: 216,),
+                Assets.images.route3d.image(
+                  height: 216,
+                  width: 216,
+                ),
                 const Gap(16),
                 Text(
                   'Avoid holdups and heavy traffic jams',

@@ -146,9 +146,8 @@ class AppBtn extends StatelessWidget {
         ? CircleBorder(side: side)
         : RoundedRectangleBorder(
             side: side,
- 
             borderRadius: BorderRadius.circular(corner ?? styles.corners.md),
-           );
+          );
 
     final style = ButtonStyle(
       minimumSize: ButtonStyleButton.allOrNull<Size>(minimumSize ?? Size.zero),
@@ -217,8 +216,6 @@ class AppBtn extends StatelessWidget {
   }
 }
 
-
-
 class _ButtonPressEffect extends StatefulWidget {
   const _ButtonPressEffect(this.child, {super.key});
   final Widget child;
@@ -265,8 +262,6 @@ class _CustomFocusBuilderState extends State<_CustomFocusBuilder> {
   }
 }
 
-
-
 /// //////////////////////////////////////////////////
 /// CircleBtn
 /// RectangleBtn
@@ -309,83 +304,6 @@ class CircleBtn extends StatelessWidget {
       child: child,
     );
   }
-}
-
-
-class RectangleBtn extends StatelessWidget {
-  const RectangleBtn({
-    required this.child,
-    required this.onPressed,
-    required this.semanticLabel,
-    super.key,
-    this.border,
-    this.bgColor,
-    this.size,
-  });
-
-  static double defaultSize = 45;
-
-  final VoidCallback onPressed;
-  final Color? bgColor;
-  final BorderSide? border;
-  final Widget child;
-  final double? size;
-  final String semanticLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final sz = size ?? defaultSize;
-    return AppBtn(
-      onPressed: onPressed,
-      semanticLabel: semanticLabel,
-      minimumSize: Size(sz, sz),
-      padding: EdgeInsets.zero,
-      bgColor: bgColor,
-      border: border,
-      child: child,
-    );
-  }
-}
-
-class RectangleIconBtn extends StatelessWidget {
-  const RectangleIconBtn({
-    required this.icon,
-    required this.onPressed,
-    required this.semanticLabel,
-    super.key,
-    this.border,
-    this.bgColor,
-    this.color,
-    this.size,
-    this.iconSize,
-  });
-
-  static double defaultSize = 28;
-
-  final String icon;
-  final VoidCallback onPressed;
-  final BorderSide? border;
-  final Color? bgColor;
-  final Color? color;
-  final String semanticLabel;
-  final double? size;
-  final double? iconSize;
-
-  @override
-  Widget build(BuildContext context) {
-    final defaultColor = styles.theme.ash;
-    final iconColor = color ?? styles.theme.ash;
-    return RectangleBtn(
-      onPressed: onPressed,
-      border: border,
-      size: size,
-      bgColor: bgColor ?? defaultColor,
-      semanticLabel: semanticLabel,
-      child: AppIcon(icon, size: iconSize ?? defaultSize, color: iconColor),
-    );
-  }
-
-  Widget safe() => _SafeAreaWithPadding(child: this);
 }
 
 class CircleIconBtn extends StatelessWidget {
@@ -472,42 +390,49 @@ class IconBtn extends StatelessWidget {
 class BackBtn extends StatelessWidget {
   const BackBtn({
     super.key,
-    this.icon = '',
+    this.icon,
     this.onPressed,
     this.semanticLabel,
     this.bgColor,
-    this.iconColor, this.iconSize, this.borderSide,
+    this.iconColor,
+    this.iconSize,
+    this.borderSide,
   });
 
-  const BackBtn.close({
+  BackBtn.close({
     Key? key,
     VoidCallback? onPressed,
     Color? bgColor,
     Color? iconColor,
   }) : this(
           key: key,
-          icon: 'Assets.icons.regular.remove',
+          icon: Assets.icons.close,
           onPressed: onPressed,
           semanticLabel: '',
           bgColor: bgColor ?? Colors.transparent,
-          iconColor: iconColor,
+          iconColor: iconColor ?? styles.theme.grey,
+          borderSide: BorderSide(
+            color: styles.theme.nu1,
+          ),
         );
 
   final Color? bgColor;
   final Color? iconColor;
-  final String icon;
+  final String? icon;
   final VoidCallback? onPressed;
   final String? semanticLabel;
   final double? iconSize;
   final BorderSide? borderSide;
   @override
   Widget build(BuildContext context) {
-    return RectangleIconBtn(
-      icon: icon,iconSize:iconSize ,
-      bgColor: bgColor,
+    final defaultIcon = icon ?? Assets.icons.chevronLeft;
 
+    return IconBtn(
+      icon: defaultIcon,
+      bgColor: bgColor,
       color: iconColor,
-      onPressed: onPressed ?? () => Navigator.pop(context),
+      iconSize: iconSize ?? 24,
+      onPressed: onPressed ?? () => context.pop(),
       semanticLabel: semanticLabel ?? '',
       border: borderSide,
     );
