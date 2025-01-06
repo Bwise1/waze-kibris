@@ -68,9 +68,10 @@ class _MapAppBarState extends State<MapAppBar> {
   bool scrolled = false;
   @override
   void initState() {
-    WidgetsBinding.instance.addPostFrameCallback((Duration timeStamp) {
-      widget.controller.position.scrollController.addListener(() {
-        if (widget.controller.position.scrollController.position.pixels > 60) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.controller.animation.addListener(() {
+        final animationValue = widget.controller.animation.value;
+        if (animationValue > 0.3) {
           setState(() {
             scrolled = true;
           });
@@ -87,65 +88,77 @@ class _MapAppBarState extends State<MapAppBar> {
 
   @override
   Widget build(BuildContext context) {
-    return !scrolled
-        ? AnimatedBuilder(
-            animation: widget.controller.animation,
-            builder: (BuildContext context, Widget? child) {
-              final sheetBar = widget.controller.animation.value > 0.98;
-              return TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 0, end: sheetBar ? 1 : 0),
-                duration: const Duration(milliseconds: 200),
-                builder: (BuildContext context, double t, Widget? child) {
-                  return AnimatedOpacity(
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, -1), // Start outside the top of the screen
+            end: Offset.zero, // Slide into position
+          ).animate(animation),
+          child: FadeTransition(
+            opacity: animation,
+            child: child,
+          ),
+        );
+      },
+      child: scrolled
+          ? AppBar(
+              key: const ValueKey('scrolled'),
+              elevation: 1,
+              systemOverlayStyle: SystemUiOverlayStyle.dark,
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
+              automaticallyImplyLeading: false,
+              leadingWidth: 50 + styles.insets.sm,
+              leading: BackBtn.close(
+                onPressed: () async {
+                  await widget.controller.relativeAnimateTo(
+                    0.3,
                     duration: const Duration(milliseconds: 200),
-                    opacity: 1,
-                    child: Container(
-                      margin: EdgeInsets.only(
-                        top: MediaQuery.of(context).padding.top,
-                      ),
-                      height: kToolbarHeight,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Assets.icons.spotifyPng.image(),
-                          IconBtn(
-                            icon: Assets.icons.alertTriangle,
-                            onPressed: () {},
-                            semanticLabel: '',
-                            bgColor: styles.theme.yellow,
-                            color: styles.theme.black,
-                          ),
-                        ],
-                      ),
-                    ),
+                    curve: Curves.easeOut,
                   );
                 },
-              );
-            },
-          )
-        : AppBar(
-            elevation: 1,
-            systemOverlayStyle: SystemUiOverlayStyle.dark,
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
-            automaticallyImplyLeading: false,
-            leadingWidth: 50 + styles.insets.sm,
-            leading: BackBtn.close(
-              onPressed: () async {
-                await widget.controller.position.scrollController.animateTo(
-                  0,
+              ).padding(left: 16, top: 4),
+            )
+          : AnimatedBuilder(
+              key: const ValueKey('nonScrolled'),
+              animation: widget.controller.animation,
+              builder: (BuildContext context, Widget? child) {
+                final sheetBar = widget.controller.animation.value > 0.98;
+                return TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0, end: sheetBar ? 1 : 0),
                   duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeIn,
-                );
-                await widget.controller.relativeAnimateTo(
-                  0.3,
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOut,
+                  builder: (BuildContext context, double t, Widget? child) {
+                    return AnimatedOpacity(
+                      duration: const Duration(milliseconds: 200),
+                      opacity: 1,
+                      child: Container(
+                        margin: EdgeInsets.only(
+                          top: context.mq.padding.top,
+                        ),
+                        height: kToolbarHeight,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Assets.icons.spotifyPng.image(),
+                            IconBtn(
+                              icon: Assets.icons.alertTriangle,
+                              onPressed: () {},
+                              semanticLabel: '',
+                              bgColor: styles.theme.yellow,
+                              color: styles.theme.black,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 );
               },
-            ).padding(left: 16, top: 4),
-          );
+            ),
+    );
   }
 }
 

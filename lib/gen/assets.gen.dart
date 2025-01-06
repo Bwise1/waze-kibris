@@ -64,6 +64,10 @@ class $AssetsIconsGen {
   /// File path: assets/icons/globe.svg
   String get globe => 'assets/icons/globe.svg';
 
+  /// File path: assets/icons/google-assistant.png
+  AssetGenImage get googleAssistant =>
+      const AssetGenImage('assets/icons/google-assistant.png');
+
   /// File path: assets/icons/google.svg
   String get google => 'assets/icons/google.svg';
 
@@ -149,6 +153,7 @@ class $AssetsIconsGen {
         doubleArrow,
         flagMarker,
         globe,
+        googleAssistant,
         google,
         googleVoice,
         homeLineRegular,
