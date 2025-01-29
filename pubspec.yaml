@@ -28,7 +28,7 @@ dependencies:
   flutter_animate: ^4.5.0
   flash: ^3.1.1
   json_annotation: ^4.9.0
-  dio: ^5.7.0
+  dio: ^5.8.0+1
   uuid: ^4.5.1
   rxdart: ^0.28.0
   timeago: ^3.7.0
