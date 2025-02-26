@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sheet/sheet.dart';
 import 'package:styled_widget/styled_widget.dart';
+import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
 import 'package:waze_kibris/common.dart';
 
 class MainDashboard extends StatefulWidget {
@@ -145,7 +146,11 @@ class _MapAppBarState extends State<MapAppBar> {
                             Assets.icons.spotifyPng.image(),
                             IconBtn(
                               icon: Assets.icons.alertTriangle,
-                              onPressed: () {},
+                              onPressed: () =>
+                                  CustomDialogRoutes.showBottomSheet<bool>(
+                                context,
+                                const ReportEventModal(),
+                              ),
                               semanticLabel: '',
                               bgColor: styles.theme.yellow,
                               color: styles.theme.black,
@@ -340,6 +345,7 @@ class MapSheet extends StatelessWidget {
                                   CustomTextField(
                                     hintText: 'Email address',
                                     prefix: Row(
+                                      mainAxisSize: MainAxisSize.min,
                                       children: [
                                         SizedBox(
                                           height: 45,
@@ -361,6 +367,7 @@ class MapSheet extends StatelessWidget {
                                   CustomTextField(
                                     hintText: 'Email new destination',
                                     prefix: Row(
+                                      mainAxisSize: MainAxisSize.min,
                                       children: [
                                         SizedBox(
                                           height: 45,

@@ -19,14 +19,18 @@ class $AssetsIconsGen {
   /// File path: assets/icons/Spotify.svg
   String get spotifySvg => 'assets/icons/Spotify.svg';
 
-  /// File path: assets/icons/accident.svg
-  String get accident => 'assets/icons/accident.svg';
+  /// File path: assets/icons/accident.png
+  AssetGenImage get accident =>
+      const AssetGenImage('assets/icons/accident.png');
 
   /// File path: assets/icons/alert-triangle.svg
   String get alertTriangle => 'assets/icons/alert-triangle.svg';
 
   /// File path: assets/icons/apple.svg
   String get apple => 'assets/icons/apple.svg';
+
+  /// File path: assets/icons/arrow.png
+  AssetGenImage get arrow => const AssetGenImage('assets/icons/arrow.png');
 
   /// File path: assets/icons/arrow_forward.svg
   String get arrowForward => 'assets/icons/arrow_forward.svg';
@@ -43,8 +47,8 @@ class $AssetsIconsGen {
   /// File path: assets/icons/briefcase.svg
   String get briefcase => 'assets/icons/briefcase.svg';
 
-  /// File path: assets/icons/chat.svg
-  String get chat => 'assets/icons/chat.svg';
+  /// File path: assets/icons/chat.png
+  AssetGenImage get chat => const AssetGenImage('assets/icons/chat.png');
 
   /// File path: assets/icons/chevron-left.svg
   String get chevronLeft => 'assets/icons/chevron-left.svg';
@@ -54,9 +58,6 @@ class $AssetsIconsGen {
 
   /// File path: assets/icons/coordinate.svg
   String get coordinate => 'assets/icons/coordinate.svg';
-
-  /// File path: assets/icons/double_arrow.svg
-  String get doubleArrow => 'assets/icons/double_arrow.svg';
 
   /// File path: assets/icons/flag_marker.svg
   String get flagMarker => 'assets/icons/flag_marker.svg';
@@ -70,9 +71,6 @@ class $AssetsIconsGen {
 
   /// File path: assets/icons/google.svg
   String get google => 'assets/icons/google.svg';
-
-  /// File path: assets/icons/google_voice.svg
-  String get googleVoice => 'assets/icons/google_voice.svg';
 
   /// File path: assets/icons/home-line-regular.svg
   String get homeLineRegular => 'assets/icons/home-line-regular.svg';
@@ -92,8 +90,9 @@ class $AssetsIconsGen {
   /// File path: assets/icons/location.svg
   String get location => 'assets/icons/location.svg';
 
-  /// File path: assets/icons/map_marker.svg
-  String get mapMarker => 'assets/icons/map_marker.svg';
+  /// File path: assets/icons/map-marker.png
+  AssetGenImage get mapMarker =>
+      const AssetGenImage('assets/icons/map-marker.png');
 
   /// File path: assets/icons/microphone.svg
   String get microphone => 'assets/icons/microphone.svg';
@@ -107,8 +106,12 @@ class $AssetsIconsGen {
   /// File path: assets/icons/plus.svg
   String get plus => 'assets/icons/plus.svg';
 
-  /// File path: assets/icons/police.svg
-  String get police => 'assets/icons/police.svg';
+  /// File path: assets/icons/police-car.png
+  AssetGenImage get policeCar =>
+      const AssetGenImage('assets/icons/police-car.png');
+
+  /// File path: assets/icons/police.png
+  AssetGenImage get police => const AssetGenImage('assets/icons/police.png');
 
   /// File path: assets/icons/profile.svg
   String get profile => 'assets/icons/profile.svg';
@@ -122,17 +125,19 @@ class $AssetsIconsGen {
   /// File path: assets/icons/search_glass.svg
   String get searchGlass => 'assets/icons/search_glass.svg';
 
-  /// File path: assets/icons/sending.svg
-  String get sending => 'assets/icons/sending.svg';
+  /// File path: assets/icons/sending-ill.png
+  AssetGenImage get sendingIll =>
+      const AssetGenImage('assets/icons/sending-ill.png');
 
   /// File path: assets/icons/shield_zap.svg
   String get shieldZap => 'assets/icons/shield_zap.svg';
 
-  /// File path: assets/icons/traffic.svg
-  String get traffic => 'assets/icons/traffic.svg';
-
   /// File path: assets/icons/user-02.svg
   String get user02 => 'assets/icons/user-02.svg';
+
+  /// File path: assets/icons/warning-cars.png
+  AssetGenImage get warningCars =>
+      const AssetGenImage('assets/icons/warning-cars.png');
 
   /// List of all assets
   List<dynamic> get values => [
@@ -141,6 +146,7 @@ class $AssetsIconsGen {
         accident,
         alertTriangle,
         apple,
+        arrow,
         arrowForward,
         at,
         backArrow,
@@ -150,12 +156,10 @@ class $AssetsIconsGen {
         chevronLeft,
         close,
         coordinate,
-        doubleArrow,
         flagMarker,
         globe,
         googleAssistant,
         google,
-        googleVoice,
         homeLineRegular,
         homeLine,
         home,
@@ -167,15 +171,16 @@ class $AssetsIconsGen {
         moon,
         person,
         plus,
+        policeCar,
         police,
         profile,
         routeLogo,
         routeLogoText,
         searchGlass,
-        sending,
+        sendingIll,
         shieldZap,
-        traffic,
-        user02
+        user02,
+        warningCars
       ];
 }
 

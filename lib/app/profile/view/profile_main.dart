@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:waze_kibris/app/profile/modals/edit_location_modal.dart';
 import 'package:waze_kibris/common.dart';
-
-import 'package:waze_kibris/core/widgets/dialogs/custom_dialog.dart';
 
 class ProfileMainScreen extends StatelessWidget {
   const ProfileMainScreen({super.key});
@@ -84,88 +83,10 @@ class ProfileMainScreen extends StatelessWidget {
                       ),
                       Gap(styles.insets.md),
                       ProfileActionItemButton(
-                        onPressed: () {
-                          CustomDialog.openBottomSheet(
-                            context,
-                            Column(
-                              children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        SvgPicture.asset(
-                                          Assets.icons.homeSmile,
-                                          height: 24,
-                                          width: 24,
-                                        ),
-                                        const Gap(8),
-                                        Text(
-                                          'Home',
-                                          style: styles.typography.t3.copyWith(
-                                            color: styles.theme.text,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const Gap(8),
-                                    Text(
-                                      'Address',
-                                      style: styles.typography.t3
-                                          .textColor(styles.theme.ash)
-                                          .medium,
-                                    ),
-                                  ],
-                                ),
-
-                                const Gap(32),
-                                Row(
-                                  children: [
-                                    AppIcon(
-                                      Assets.icons.flagMarker,
-                                      size: 34,
-                                      color: styles.theme.ash,
-                                    ),
-                                    const Gap(16),
-                                    Text(
-                                      'Edit this location',
-                                      style: styles.typography.caption.copyWith(
-                                        color: styles.theme.ash,
-                                        fontStyle: FontStyle.normal,
-                                      ),
-                                    ),
-                                  ],
-                                ), //
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 17,
-                                  ),
-                                  child: Divider(
-                                    color: styles.theme.secondary,
-                                  ),
-                                ),
-
-                                Row(
-                                  children: [
-                                    AppIcon(
-                                      Assets.icons.bin,
-                                      size: 34,
-                                      color: styles.theme.primary,
-                                    ),
-                                    const Gap(16),
-                                    Text(
-                                      'Remove location',
-                                      style: styles.typography.caption.copyWith(
-                                        color: styles.theme.primary,
-                                        fontStyle: FontStyle.normal,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                        onPressed: () => CustomDialogRoutes.openBottomSheet(
+                          context,
+                          const EditLocationModal(),
+                        ),
                         icon: Assets.icons.homeSmile,
                         title: 'Home',
                         subTitle: 'Address',
