@@ -157,7 +157,7 @@ class ProfileMainScreen extends StatelessWidget {
                         onPressed: () {
                           context.push(ScreenPaths.helpAndFeedback);
                         },
-                        icon: Assets.icons.chat,
+                        icon: 'Assets.icons.chat',
                         title: 'Help & Feedback',
                         semanticLabel: 'help-action-btn',
                       ),
@@ -171,7 +171,7 @@ class ProfileMainScreen extends StatelessWidget {
                         onPressed: () {
                           context.push(ScreenPaths.aboutUs);
                         },
-                        icon: Assets.icons.chat,
+                        icon: 'Assets.icons.chat',
                         title: 'About us',
                         semanticLabel: 'about-action-btn',
                       ),
