@@ -42,6 +42,7 @@ Have a new location you want to save? add a new location here and in a minute'''
                     hintText: 'find new location',
                     initialValue: ' ',
                     prefix: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         IconBtn(
                           icon: Assets.icons.searchGlass,
@@ -57,13 +58,7 @@ Have a new location you want to save? add a new location here and in a minute'''
                         ),
                       ],
                     ),
-                    suffix: IconBtn(
-                      icon: Assets.icons.mapMarker,
-                      bgColor: Colors.transparent,
-                      color: styles.theme.text,
-                      onPressed: () {},
-                      semanticLabel: 'Map',
-                    ),
+                    suffix: Assets.icons.mapMarker.image(height: 24, width: 24),
                   ),
                 ],
               ),

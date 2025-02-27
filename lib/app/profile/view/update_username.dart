@@ -42,6 +42,7 @@ What do you want us to call you by? Enter your full name below''',
                   hintText: 'Enter your first name',
                   initialValue: 'Enter your first name',
                   prefix: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       IconBtn(
                         icon: Assets.icons.profile,
@@ -68,6 +69,7 @@ What do you want us to call you by? Enter your full name below''',
                   fillColor: styles.theme.white,
                   hintText: 'Enter your first name',
                   prefix: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       IconBtn(
                         icon: Assets.icons.profile,

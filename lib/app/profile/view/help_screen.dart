@@ -67,6 +67,7 @@ Having issues or questions? leave us a message or check from our frequently aske
                     hintText: 'search language',
                     initialValue: ' ',
                     prefix: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         IconBtn(
                           icon: Assets.icons.searchGlass,

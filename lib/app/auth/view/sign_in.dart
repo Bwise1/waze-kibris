@@ -64,6 +64,7 @@ class _SignInScreenState extends State<SignInScreen> {
                 CustomTextField(
                   hintText: 'Email address',
                   prefix: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       SizedBox(
                         height: 45,
@@ -112,7 +113,7 @@ class _SignInScreenState extends State<SignInScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         child: Text(
                           'OR',
-                          style: styles.typography.caption
+                          style: styles.typography.body
                               .textColor(styles.theme.ash),
                         ),
                       ),

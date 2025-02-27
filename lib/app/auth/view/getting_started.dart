@@ -60,6 +60,7 @@ class _GettingStartedState extends State<GettingStarted> {
                 CustomTextField(
                   hintText: 'Email address',
                   prefix: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       SizedBox(
                         height: 45,
