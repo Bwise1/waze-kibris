@@ -9,7 +9,7 @@ part of 'auth_response.dart';
 AuthResponse _$AuthResponseFromJson(Map<String, dynamic> json) => AuthResponse(
       message: json['message'] as String,
       status: json['status'] as String,
-      statusCode: (json['statusCode'] as num).toInt(),
+      statusCode: (json['status_code'] as num).toInt(),
       data: json['data'] == null
           ? null
           : AuthData.fromJson(json['data'] as Map<String, dynamic>),
@@ -19,7 +19,7 @@ Map<String, dynamic> _$AuthResponseToJson(AuthResponse instance) =>
     <String, dynamic>{
       'message': instance.message,
       'status': instance.status,
-      'statusCode': instance.statusCode,
+      'status_code': instance.statusCode,
       'data': instance.data,
     };
 
@@ -42,13 +42,23 @@ Map<String, dynamic> _$AuthDataToJson(AuthData instance) => <String, dynamic>{
 User _$UserFromJson(Map<String, dynamic> json) => User(
       id: json['id'] as String,
       email: json['email'] as String,
-      isVerified: json['isVerified'] as bool,
-      preferredLanguage: json['preferredLanguage'] as String,
+      isVerified: json['is_verified'] as bool,
+      preferredLanguage: json['preferred_language'] as String,
+      authProvider: json['auth_provider'] as String? ?? 'email',
+      createdAt: json['created_at'] == null
+          ? null
+          : DateTime.parse(json['created_at'] as String),
+      updatedAt: json['updated_at'] == null
+          ? null
+          : DateTime.parse(json['updated_at'] as String),
     );
 
 Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
       'id': instance.id,
       'email': instance.email,
-      'isVerified': instance.isVerified,
-      'preferredLanguage': instance.preferredLanguage,
+      'is_verified': instance.isVerified,
+      'preferred_language': instance.preferredLanguage,
+      'auth_provider': instance.authProvider,
+      'created_at': instance.createdAt?.toIso8601String(),
+      'updated_at': instance.updatedAt?.toIso8601String(),
     };
