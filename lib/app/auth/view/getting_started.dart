@@ -2,7 +2,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:waze_kibris/common.dart';
-
 import 'package:waze_kibris/core/widgets/buttons/social_media_button.dart';
 
 class GettingStarted extends StatefulWidget {
@@ -24,7 +23,7 @@ class _GettingStartedState extends State<GettingStarted> {
         leading: Padding(
           padding: EdgeInsets.only(left: styles.insets.sm, top: 4),
           child: BackBtn(
-            onPressed: ()=> context.pop(),
+            onPressed: () => context.pop(),
             semanticLabel: '',
             bgColor: Colors.transparent,
             iconColor: styles.theme.grey,
@@ -109,8 +108,8 @@ class _GettingStartedState extends State<GettingStarted> {
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         child: Text(
                           'OR',
-                          style: styles.typography.t3
-                              .textColor(styles.theme.ash),
+                          style:
+                              styles.typography.t3.textColor(styles.theme.ash),
                         ),
                       ),
                       Divider(
