@@ -25,12 +25,13 @@ class PrimaryButton extends StatelessWidget {
         minimumSize: const Size(900, 50),
         bgColor: bgColor,
         semanticLabel: 'primary-button-text',
+        corner: styles.corners.x24,
         child: isLoading
             ? const SizedBox(height: 18, width: 18, child: CustomLoader())
             : Text(
                 text ?? '',
                 style: styles.typography.btn
-                    .textColor(textColor ?? styles.theme.white),
+                    .textColor(textColor ?? styles.theme.primary),
               ),
       ),
     );

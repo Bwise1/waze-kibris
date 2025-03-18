@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
+import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/models/auth/auth_response.dart';
+import 'package:waze_kibris/core/res/store_keys.dart';
 
 abstract class AuthRepository {
   Future<AuthResponse> login(String email);
@@ -10,15 +12,18 @@ abstract class AuthRepository {
   Future<AuthResponse> getProfile();
 }
 
-class AuthRepositoryImpl implements AuthRepository {
-  AuthRepositoryImpl({required this.dio});
+class IAuthRepository implements AuthRepository {
+  IAuthRepository({Dio? dio, ILocalStorage? store})
+      : _dio = dio ?? getIt<Dio>(),
+        _store = store ?? getIt<ILocalStorage>();
 
-  final Dio dio;
+  final Dio _dio;
+  final ILocalStorage _store;
 
   @override
   Future<AuthResponse> login(String email) async {
     try {
-      final response = await dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<Map<String, dynamic>>(
         '/auth/login',
         data: {'email': email},
       );
@@ -31,10 +36,13 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<AuthResponse> register(String email) async {
     try {
-      final response = await dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<Map<String, dynamic>>(
         '/auth/register',
         data: {'email': email},
       );
+
+      safePrint('${response.data}::: Heloo');
+
       return AuthResponse.fromJson(response.data!);
     } on DioException catch (e) {
       throw _handleDioError(e);
@@ -44,7 +52,7 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<AuthResponse> verifyOtp(String email, String code, String type) async {
     try {
-      final response = await dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<Map<String, dynamic>>(
         '/auth/verify',
         data: {
           'email': email,
@@ -61,7 +69,7 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<AuthResponse> resendOtp(String email) async {
     try {
-      final response = await dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<Map<String, dynamic>>(
         '/auth/resend',
         data: {'email': email},
       );
@@ -74,7 +82,7 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<AuthResponse> googleAuth(String token) async {
     try {
-      final response = await dio.post<Map<String, dynamic>>(
+      final response = await _dio.post<Map<String, dynamic>>(
         '/auth/google',
         data: {'token': token},
       );
@@ -87,8 +95,14 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<AuthResponse> getProfile() async {
     try {
-      final response = await dio.get<Map<String, dynamic>>(
+      final response = await _dio.get<Map<String, dynamic>>(
         '/user/profile',
+        options: Options(
+          headers: {
+            'Authorization':
+                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
+          },
+        ),
       );
       return AuthResponse.fromJson(response.data!);
     } on DioException catch (e) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/profile/view/help_screen.dart';
 import 'package:waze_kibris/app/profile/view/sound_settings.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/res/store_keys.dart';
 
 class ScreenPaths {
   static String home = '/';
@@ -22,7 +23,11 @@ class ScreenPaths {
 final navigatorKey = GlobalKey<NavigatorState>();
 
 final appRouter = GoRouter(
-  initialLocation: ScreenPaths.home,
+  initialLocation:
+      isEmptyOrNull(getIt<ILocalStorage>().get<String>(StoreKeys.wazeToken))
+          ? ScreenPaths.home
+          : ScreenPaths.dashBoard,
+  navigatorKey: navigatorKey,
   routes: <RouteBase>[
     ShellRoute(
       builder: (context, state, child) {

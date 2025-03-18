@@ -7,6 +7,7 @@ export 'package:go_router/go_router.dart';
 
 export 'app/app.dart';
 export 'core/core.dart';
+export 'di.dart';
 export 'gen/assets.gen.dart';
 
 AppStyle get styles => AppScaffold.style;

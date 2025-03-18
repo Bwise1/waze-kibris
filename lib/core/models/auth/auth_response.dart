@@ -8,7 +8,7 @@ class AuthResponse extends Equatable {
   const AuthResponse({
     required this.message,
     required this.status,
-   required this.statusCode,
+    required this.statusCode,
     this.data,
   });
 
@@ -17,11 +17,9 @@ class AuthResponse extends Equatable {
 
   final String message;
   final String status;
-   @JsonKey(name: 'status_code') 
+  @JsonKey(name: 'status_code')
   final int statusCode;
   final AuthData? data;
-
-  
 
   Map<String, dynamic> toJson() => _$AuthResponseToJson(this);
 
@@ -46,8 +44,6 @@ class AuthData extends Equatable {
   final User? user;
   final String? token;
 
-  
-
   Map<String, dynamic> toJson() => _$AuthDataToJson(this);
 
   @override
@@ -63,24 +59,22 @@ class User extends Equatable {
     required this.preferredLanguage,
     this.authProvider = 'email',
     this.createdAt,
-     this.updatedAt,
+    this.updatedAt,
   });
   factory User.fromJson(Map<String, dynamic> json) => _$UserFromJson(json);
 
   final String id;
   final String email;
-  @JsonKey(name: 'is_verified') 
+  @JsonKey(name: 'is_verified')
   final bool isVerified;
-  @JsonKey(name: 'preferred_language') 
+  @JsonKey(name: 'preferred_language')
   final String preferredLanguage;
-   @JsonKey(name: 'auth_provider')
+  @JsonKey(name: 'auth_provider')
   final String authProvider;
-  @JsonKey(name: 'created_at') 
+  @JsonKey(name: 'created_at')
   final DateTime? createdAt;
   @JsonKey(name: 'updated_at')
   final DateTime? updatedAt;
-
-  
 
   Map<String, dynamic> toJson() => _$UserToJson(this);
 

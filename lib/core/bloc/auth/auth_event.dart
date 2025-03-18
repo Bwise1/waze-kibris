@@ -3,6 +3,34 @@ import 'package:equatable/equatable.dart';
 abstract class AuthEvent extends Equatable {
   const AuthEvent();
 
+  factory AuthEvent.loginRequested({required String email}) {
+    return LoginRequested(email: email);
+  }
+
+  factory AuthEvent.registerRequested({required String email}) {
+    return RegisterRequested(email: email);
+  }
+
+  factory AuthEvent.verifyOtpRequested({
+    required String email,
+    required String code,
+    required String type,
+  }) {
+    return VerifyOtpRequested(email: email, code: code, type: type);
+  }
+
+  factory AuthEvent.resendOtpRequested({required String email}) {
+    return ResendOtpRequested(email: email);
+  }
+
+  factory AuthEvent.googleAuthRequested({required String token}) {
+    return GoogleAuthRequested(token: token);
+  }
+
+  factory AuthEvent.getProfileRequested() {
+    return const GetProfileRequested();
+  }
+
   @override
   List<Object?> get props => [];
 }

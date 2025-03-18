@@ -12,7 +12,7 @@ void main() {
 
   setUp(() {
     mockDio = MockDio();
-    authRepository = AuthRepositoryImpl(dio: mockDio);
+    authRepository = IAuthRepository(dio: mockDio);
   });
 
   group('AuthRepository', () {

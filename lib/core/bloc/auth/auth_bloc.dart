@@ -1,11 +1,15 @@
-import 'package:bloc/bloc.dart';
+import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
+import 'package:waze_kibris/core/res/store_keys.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
-  AuthBloc({required AuthRepository authRepository})
-      : _authRepository = authRepository,
+  AuthBloc({
+    required AuthRepository authRepository,
+    ILocalStorage? localStorage,
+  })  : _authRepository = authRepository,
+        _localStorage = localStorage ?? getIt<ILocalStorage>(),
         super(const AuthInitial()) {
     on<LoginRequested>(_onLoginRequested);
     on<RegisterRequested>(_onRegisterRequested);
@@ -15,6 +19,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<GetProfileRequested>(_onGetProfileRequested);
     on<LogoutRequested>(_onLogoutRequested);
   }
+  final ILocalStorage _localStorage;
 
   final AuthRepository _authRepository;
 
@@ -57,10 +62,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         return;
       }
       emit(
-        OtpSent(
+        AuthRegisterSuccess(
           message: response.message,
-          userId: response.data?.id ?? '',
-          email: response.data?.email ?? '',
         ),
       );
     } catch (e) {
@@ -86,6 +89,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           token: response.data?.token,
         ),
       );
+
+      add(AuthEvent.getProfileRequested());
+
+      await _localStorage.save(StoreKeys.wazeToken, response.data?.token ?? '');
     } catch (e) {
       emit(AuthError(message: e.toString()));
     }

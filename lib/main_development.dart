@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:waze_kibris/app/app.dart';
 import 'package:waze_kibris/bootstrap.dart';
+import 'package:waze_kibris/common.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   Provider.debugCheckInvalidValueType = null;
-  bootstrap(() => const App());
+  await DI.initializeObjects(WazeEnv.dev);
+  await bootstrap(() => const App());
 }
