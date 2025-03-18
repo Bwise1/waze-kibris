@@ -145,6 +145,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     try {
+      if (isEmptyOrNull(
+        getIt<ILocalStorage>().get<String>(StoreKeys.wazeToken),
+      )) {
+        // don't call the get profile function if theres no token in the local store
+        return;
+      }
+
       emit(const AuthLoading());
       final response = await _authRepository.getProfile();
       emit(
