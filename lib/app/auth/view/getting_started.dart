@@ -5,7 +5,6 @@ import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
-
 import 'package:waze_kibris/core/widgets/buttons/social_media_button.dart';
 
 class GettingStarted extends StatefulWidget {
