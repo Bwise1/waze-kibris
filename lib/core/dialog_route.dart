@@ -105,7 +105,7 @@ class CustomDialogRoutes {
   static Future<void> openBottomSheet(
     BuildContext context,
     Widget child, {
-    double sizeFraction = 0.38,
+    double sizeFraction = 0.5,
     String title = '',
     bool addCloseIcon = false,
     bool showDragTopICon = false,

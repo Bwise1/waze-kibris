@@ -3,6 +3,51 @@ import 'package:equatable/equatable.dart';
 abstract class ReportsEvent extends Equatable {
   const ReportsEvent();
 
+  factory ReportsEvent.getReportByID({
+    required int reportID,
+  }) {
+    return GetReportByID(reportID: reportID);
+  }
+
+  factory ReportsEvent.getNearByReports({
+    required int radius,
+    required String lat,
+    required String long,
+  }) {
+    return GetNearByReports(radius: radius, lat: lat, long: long);
+  }
+
+  factory ReportsEvent.voteOnReport({
+    required String reportID,
+    required String reportType,
+  }) {
+    return VoteOnReport(reportID: reportID, reportType: reportType);
+  }
+
+  factory ReportsEvent.submitReportRequested({
+    required String longitude,
+    required String latitude,
+    required String type,
+  }) {
+    return SubmitReportRequested(
+      longitude: longitude,
+      latitude: latitude,
+      type: type,
+    );
+  }
+
+  factory ReportsEvent.getVotesOnReport({
+    required String reportID,
+  }) {
+    return GetVotesOnReport(
+      reportID: reportID,
+    );
+  }
+
+  factory ReportsEvent.clearExpiredToken() {
+    return const ClearExpiredToken();
+  }
+
   @override
   List<Object?> get props => [];
 }
@@ -33,19 +78,19 @@ class GetNearByReports extends ReportsEvent {
 
 class VoteOnReport extends ReportsEvent {
   const VoteOnReport({
-    required this.id,
+    required this.reportID,
     required this.reportType,
   });
 
-  final int id;
+  final String reportID;
   final String reportType;
 
   @override
-  List<Object?> get props => [reportType, id];
+  List<Object?> get props => [reportType, reportID];
 }
 
-class SubmitReport extends ReportsEvent {
-  const SubmitReport({
+class SubmitReportRequested extends ReportsEvent {
+  const SubmitReportRequested({
     required this.type,
     required this.longitude,
     required this.latitude,
@@ -61,4 +106,24 @@ class SubmitReport extends ReportsEvent {
         longitude,
         latitude,
       ];
+}
+
+class GetVotesOnReport extends ReportsEvent {
+  const GetVotesOnReport({
+    required this.reportID,
+  });
+
+  final String reportID;
+
+  @override
+  List<Object?> get props => [
+        reportID,
+      ];
+}
+
+class ClearExpiredToken extends ReportsEvent {
+  const ClearExpiredToken();
+
+  @override
+  List<Object?> get props => [];
 }

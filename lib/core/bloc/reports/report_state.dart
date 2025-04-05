@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:waze_kibris/core/models/reports/report_response.dart';
 
 abstract class ReportState extends Equatable {
   const ReportState();
@@ -9,6 +10,10 @@ abstract class ReportState extends Equatable {
 
 class InitialState extends ReportState {
   const InitialState();
+}
+
+class ReportInitial extends ReportState {
+  const ReportInitial();
 }
 
 class ReportLoading extends ReportState {
@@ -36,14 +41,30 @@ class SubmitReportSuccess extends ReportState {
     required this.data,
     required this.message,
     required this.status,
+  });
+
+  final String message;
+  final String status;
+
+  final String data;
+
+  @override
+  List<Object?> get props => [message, data, status];
+}
+
+class GetReportSuccess extends ReportState {
+  const GetReportSuccess({
+    required this.data,
+    required this.message,
+    required this.status,
     required this.statusCode,
   });
 
   final String message;
   final String status;
-  final String statusCode;
+  final int statusCode;
 
-  final String data;
+  final List<ReportData> data;
 
   @override
   List<Object?> get props => [message, data, status, statusCode];

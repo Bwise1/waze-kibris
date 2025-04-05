@@ -6,6 +6,8 @@ import 'package:sheet/sheet.dart';
 import 'package:styled_widget/styled_widget.dart';
 import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 
 class MainDashboard extends StatefulWidget {
   const MainDashboard({super.key});
@@ -20,6 +22,12 @@ class _MainDashboardState extends State<MainDashboard>
 
   @override
   void initState() {
+    context.read<AuthBloc>().add(
+          AuthEvent.getUserCoordinateRequested(context: context),
+        );
+
+    //call to get user coordinate
+
     controller = SheetController();
     super.initState();
   }

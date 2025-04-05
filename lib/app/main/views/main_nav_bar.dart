@@ -45,9 +45,7 @@ class _HomeBottomNavState extends State<HomeBottomNav> {
               height: 58,
               width: 53,
               decoration: BoxDecoration(
-                color: index == 0
-                    ? styles.theme.primary.withValues(alpha: .1)
-                    : Colors.transparent,
+                color: styles.theme.grey,
                 borderRadius: BorderRadius.circular(styles.corners.sm),
               ),
               child: Column(
@@ -76,23 +74,56 @@ class _HomeBottomNavState extends State<HomeBottomNav> {
               setState(() {
                 index = 1;
               });
-              widget.onChanged(1);
+              widget.onChanged(0);
             },
             child: Container(
               height: 58,
               width: 53,
               decoration: BoxDecoration(
-                color: index == 1
-                    ? styles.theme.primary.withValues(alpha: .1)
-                    : Colors.transparent,
+                color: styles.theme.grey,
                 borderRadius: BorderRadius.circular(styles.corners.sm),
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   AppIcon(
-                    index == 1 ? Assets.icons.user02 : Assets.icons.person,
-                    color: index == 1
+                    index == 1
+                        ? Assets.icons.homeLine
+                        : Assets.icons.homeLineRegular,
+                    color:
+                        index == 1 ? styles.theme.primary : styles.theme.grey,
+                    size: 24,
+                  ),
+                  Text(
+                    'Reports',
+                    style: styles.typography.t3.textColor(
+                      index == 1 ? styles.theme.primary : styles.theme.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                index = 2;
+              });
+              widget.onChanged(1);
+            },
+            child: Container(
+              height: 58,
+              width: 53,
+              decoration: BoxDecoration(
+                color: styles.theme.grey,
+                borderRadius: BorderRadius.circular(styles.corners.sm),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  AppIcon(
+                    index == 2 ? Assets.icons.user02 : Assets.icons.person,
+                    color: index == 2
                         ? styles.theme.primary
                         : styles.theme.grey.withValues(alpha: .5),
                     size: 24,
@@ -100,7 +131,7 @@ class _HomeBottomNavState extends State<HomeBottomNav> {
                   Text(
                     'Profile',
                     style: styles.typography.t3.textColor(
-                      index == 1
+                      index == 2
                           ? styles.theme.primary
                           : styles.theme.grey.withValues(alpha: .5),
                     ),

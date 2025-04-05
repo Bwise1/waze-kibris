@@ -59,23 +59,42 @@ android {
         multiDexEnabled = true
     }
 
+//    signingConfigs {
+//        if (System.getenv("ANDROID_KEYSTORE_PATH")) {
+//            release {
+//                storeFile file(System.getenv("ANDROID_KEYSTORE_PATH"))
+//                keyAlias System.getenv("ANDROID_KEYSTORE_ALIAS")
+//                keyPassword System.getenv("ANDROID_KEYSTORE_PRIVATE_KEY_PASSWORD")
+//                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+//            }
+//        } else {
+//            release {
+//                keyAlias keystoreProperties['keyAlias']
+//                keyPassword keystoreProperties['keyPassword']
+//                storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+//                storePassword keystoreProperties['storePassword']
+//            }
+//        }
+//    }
+
     signingConfigs {
-        if (System.getenv("ANDROID_KEYSTORE_PATH")) {
-            release {
-                storeFile file(System.getenv("ANDROID_KEYSTORE_PATH"))
-                keyAlias System.getenv("ANDROID_KEYSTORE_ALIAS")
-                keyPassword System.getenv("ANDROID_KEYSTORE_PRIVATE_KEY_PASSWORD")
-                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
-            }
-        } else {
-            release {
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
-                storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
-                storePassword keystoreProperties['storePassword']
-            }
+        release {
+            storeFile file('your_key_store_path')
+            storePassword 'your_store_password'
+            keyAlias = 'your_key_alias'
+            keyPassword 'your_key_password'
         }
     }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+
+//            signingConfig signingConfigs.release
+        }
+    }
+
+
 
     flavorDimensions "default"
     productFlavors { 
@@ -96,16 +115,16 @@ android {
         }
     }
 
-    buildTypes {
-        release {
-            signingConfig signingConfigs.release
-            minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt')
-        }
-        debug {
-            signingConfig signingConfigs.debug
-        }
-    }
+//    buildTypes {
+//        release {
+//            signingConfig signingConfigs.release
+//            minifyEnabled true
+//            proguardFiles getDefaultProguardFile('proguard-android.txt')
+//        }
+//        debug {
+//            signingConfig signingConfigs.debug
+//        }
+//    }
 }
 
 flutter {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/main/views/main_nav_bar.dart';
+import 'package:waze_kibris/app/report/view/report_screen.dart';
 import 'package:waze_kibris/common.dart';
 
 class MainScreen extends StatefulWidget {
@@ -29,6 +30,7 @@ class _MainScreenState extends State<MainScreen> {
         index: index,
         children: const [
           MainDashboard(),
+          ReportScreen(),
           ProfileMainScreen(),
         ],
       ),

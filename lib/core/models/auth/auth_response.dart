@@ -89,3 +89,43 @@ class User extends Equatable {
         updatedAt,
       ];
 }
+
+@JsonSerializable()
+class RefreshToken extends Equatable {
+  const RefreshToken({required this.refreshToken, required this.token});
+
+  factory RefreshToken.fromJson(Map<String, dynamic> json) =>
+      _$RefreshTokenFromJson(json);
+  @JsonKey(name: 'refresh_token')
+  final String refreshToken;
+  @JsonKey(name: 'access_token')
+  final String token;
+
+  Map<String, dynamic> toJson() => _$RefreshTokenToJson(this);
+
+  @override
+  List<Object?> get props => [token, refreshToken];
+}
+
+@JsonSerializable()
+class RefreshTokenResponse extends Equatable {
+  const RefreshTokenResponse({
+    required this.message,
+    required this.status,
+    required this.statusCode,
+    this.data,
+  });
+
+  factory RefreshTokenResponse.fromJson(Map<String, dynamic> json) =>
+      _$RefreshTokenResponseFromJson(json);
+
+  final String message;
+  final String status;
+  @JsonKey(name: 'status_code')
+  final int statusCode;
+  final RefreshToken? data;
+  Map<String, dynamic> toJson() => _$RefreshTokenResponseToJson(this);
+
+  @override
+  List<Object?> get props => [message, status, statusCode, data];
+}

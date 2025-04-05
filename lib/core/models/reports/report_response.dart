@@ -66,3 +66,93 @@ class SubmitReportData extends Equatable {
   @override
   List<Object?> get props => [radius, longitude, latitude];
 }
+
+@JsonSerializable()
+class ReportData extends Equatable {
+  const ReportData({
+    required this.id,
+    required this.userId,
+    required this.type,
+    required this.severity,
+    required this.active,
+    required this.resolved,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.expiresAt,
+    required this.reportSource,
+    required this.reportStatus,
+    required this.longitude,
+    required this.latitude,
+  });
+
+  factory ReportData.fromJson(Map<String, dynamic> json) =>
+      _$ReportDataFromJson(json);
+
+  final int id;
+  @JsonKey(name: 'user_id')
+  final String userId;
+  final String type;
+  final double latitude;
+  final double longitude;
+  final int severity;
+  final bool active;
+  final bool resolved;
+  @JsonKey(name: 'created_at')
+  final String createdAt;
+  @JsonKey(name: 'updated_at')
+  final String updatedAt;
+  @JsonKey(name: 'expires_at')
+  final String expiresAt;
+  @JsonKey(name: 'report_source')
+  final String reportSource;
+  @JsonKey(name: 'report_status')
+  final String reportStatus;
+
+  Map<String, dynamic> toJson() => _$ReportDataToJson(this);
+
+  @override
+  List<Object?> get props => [
+        id,
+        userId,
+        longitude,
+        latitude,
+        reportStatus,
+        reportSource,
+        resolved,
+        expiresAt,
+        updatedAt,
+        createdAt,
+        severity,
+        active,
+        type,
+      ];
+}
+
+@JsonSerializable()
+class GetReportsResponse extends Equatable {
+  const GetReportsResponse({
+    required this.message,
+    required this.statusCode,
+    required this.status,
+    required this.data,
+  });
+
+  factory GetReportsResponse.fromJson(Map<String, dynamic> json) =>
+      _$GetReportsResponseFromJson(json);
+
+  final String message;
+  final String status;
+  @JsonKey(name: 'status_code')
+  final int statusCode;
+  final List<ReportData> data;
+
+  Map<String, dynamic> toJson() => _$GetReportsResponseToJson(this);
+
+  @override
+  List<Object?> get props => [
+        message,
+        status,
+        statusCode,
+        data,
+      ];
+}

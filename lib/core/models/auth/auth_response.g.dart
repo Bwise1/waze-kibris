@@ -62,3 +62,34 @@ Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
       'created_at': instance.createdAt?.toIso8601String(),
       'updated_at': instance.updatedAt?.toIso8601String(),
     };
+
+RefreshToken _$RefreshTokenFromJson(Map<String, dynamic> json) => RefreshToken(
+      refreshToken: json['refresh_token'] as String,
+      token: json['access_token'] as String,
+    );
+
+Map<String, dynamic> _$RefreshTokenToJson(RefreshToken instance) =>
+    <String, dynamic>{
+      'refresh_token': instance.refreshToken,
+      'access_token': instance.token,
+    };
+
+RefreshTokenResponse _$RefreshTokenResponseFromJson(
+        Map<String, dynamic> json) =>
+    RefreshTokenResponse(
+      message: json['message'] as String,
+      status: json['status'] as String,
+      statusCode: (json['status_code'] as num).toInt(),
+      data: json['data'] == null
+          ? null
+          : RefreshToken.fromJson(json['data'] as Map<String, dynamic>),
+    );
+
+Map<String, dynamic> _$RefreshTokenResponseToJson(
+        RefreshTokenResponse instance) =>
+    <String, dynamic>{
+      'message': instance.message,
+      'status': instance.status,
+      'status_code': instance.statusCode,
+      'data': instance.data,
+    };

@@ -10,6 +10,7 @@ abstract class AuthRepository {
   Future<AuthResponse> resendOtp(String email);
   Future<AuthResponse> googleAuth(String token);
   Future<AuthResponse> getProfile();
+  Future<RefreshTokenResponse> getRefreshToken();
 }
 
 class IAuthRepository implements AuthRepository {
@@ -105,6 +106,21 @@ class IAuthRepository implements AuthRepository {
         ),
       );
       return AuthResponse.fromJson(response.data!);
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  @override
+  Future<RefreshTokenResponse> getRefreshToken() async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/auth/refresh',
+        data: {
+          'refresh_token': _store.get<String>(StoreKeys.wazeRefreshToken),
+        },
+      );
+      return RefreshTokenResponse.fromJson(response.data!);
     } on DioException catch (e) {
       throw _handleDioError(e);
     }

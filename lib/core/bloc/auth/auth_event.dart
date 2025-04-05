@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/cupertino.dart';
 
 abstract class AuthEvent extends Equatable {
   const AuthEvent();
@@ -29,6 +30,15 @@ abstract class AuthEvent extends Equatable {
 
   factory AuthEvent.getProfileRequested() {
     return const GetProfileRequested();
+  }
+
+  factory AuthEvent.refreshTokenRequested({VoidCallback? onRefreshToken}) {
+    return RefreshTokenRequested(onTokenRefresh: onRefreshToken);
+  }
+
+  factory AuthEvent.getUserCoordinateRequested(
+      {required BuildContext context}) {
+    return GetUserCoordinateRequested(context: context);
   }
 
   @override
@@ -92,4 +102,22 @@ class GetProfileRequested extends AuthEvent {
 
 class LogoutRequested extends AuthEvent {
   const LogoutRequested();
+}
+
+class RefreshTokenRequested extends AuthEvent {
+  const RefreshTokenRequested({this.onTokenRefresh});
+
+  final VoidCallback? onTokenRefresh;
+
+  @override
+  List<Object?> get props => [onTokenRefresh];
+}
+
+class GetUserCoordinateRequested extends AuthEvent {
+  const GetUserCoordinateRequested({required this.context});
+
+  final BuildContext context;
+
+  @override
+  List<Object?> get props => [context];
 }

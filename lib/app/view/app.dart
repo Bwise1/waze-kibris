@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
+import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
+import 'package:waze_kibris/core/repositories/report_repository.dart';
 import 'package:waze_kibris/l10n/l10n.dart';
 
 class App extends StatelessWidget {
@@ -14,6 +16,9 @@ class App extends StatelessWidget {
     return MultiRepositoryProvider(
       providers: [
         RepositoryProvider<AuthRepository>(create: (_) => IAuthRepository()),
+        RepositoryProvider<ReportRepository>(
+          create: (_) => ReportRepositoryImpl(),
+        ),
       ],
       child: MaterialApp.router(
         debugShowCheckedModeBanner: false,
@@ -28,6 +33,12 @@ class App extends StatelessWidget {
                 create: (context) => AuthBloc(
                   authRepository: context.read<AuthRepository>(),
                 )..add(AuthEvent.getProfileRequested()),
+              ),
+              BlocProvider<ReportsBloc>(
+                create: (context) => ReportsBloc(
+                  reportRepository: context.read<ReportRepository>(),
+                  authBloc: context.read<AuthBloc>(),
+                ),
               ),
             ],
             child: LayoutBuilder(

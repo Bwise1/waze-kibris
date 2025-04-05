@@ -40,6 +40,21 @@ class AuthSuccess extends AuthState {
   List<Object?> get props => [message, user, token];
 }
 
+class AuthRefreshTokenSuccess extends AuthState {
+  const AuthRefreshTokenSuccess({
+    required this.message,
+    required this.refreshToken,
+    required this.token,
+  });
+
+  final String message;
+  final String refreshToken;
+  final String token;
+
+  @override
+  List<Object?> get props => [message, refreshToken, token];
+}
+
 class AuthError extends AuthState {
   const AuthError({required this.message});
 
@@ -66,4 +81,17 @@ class OtpSent extends AuthState {
 
 class LoggedOut extends AuthState {
   const LoggedOut();
+}
+
+class UserCoordinate extends AuthState {
+  const UserCoordinate({
+    required this.longitude,
+    required this.latitude,
+  });
+
+  final double longitude;
+  final double latitude;
+
+  @override
+  List<Object?> get props => [longitude, latitude];
 }

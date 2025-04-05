@@ -18,6 +18,11 @@ class _GettingStartedState extends State<GettingStarted> {
   final TextEditingController _emailController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBodyBehindAppBar: true,

@@ -1,8 +1,12 @@
+import 'dart:developer';
+
+import 'package:flutter/cupertino.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
 import 'package:waze_kibris/core/res/store_keys.dart';
+import 'package:waze_kibris/core/utils/user_coordinates.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   AuthBloc({
@@ -18,6 +22,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<GoogleAuthRequested>(_onGoogleAuthRequested);
     on<GetProfileRequested>(_onGetProfileRequested);
     on<LogoutRequested>(_onLogoutRequested);
+    on<GetUserCoordinateRequested>(_onGetUserCoordinate);
+    on<RefreshTokenRequested>(_onRefreshTokenRequested);
   }
   final ILocalStorage _localStorage;
 
@@ -172,5 +178,70 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) {
     emit(const LoggedOut());
+  }
+
+  Future<void> _onGetUserCoordinate(
+    GetUserCoordinateRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    final position = await UserCoordinates.getAndSetUserCoordinate(
+      event.context,
+    );
+    log(position.toString());
+//save the user coordinate
+    emit(
+      UserCoordinate(
+        longitude: position?.longitude ?? 0.00,
+        latitude: position?.latitude ?? 0.00,
+      ),
+    );
+  }
+
+  Future<void> _onRefreshTokenRequested(
+    RefreshTokenRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    final context = navigatorKey.currentContext!;
+    try {
+      if (isEmptyOrNull(
+        getIt<ILocalStorage>().get<String>(StoreKeys.wazeRefreshToken),
+      )) {
+        // don't call the get profile function if theres no token in the local
+        // store
+        return;
+      }
+
+      emit(const AuthLoading());
+      await Navigator.of(context).pushNamed(ScreenPaths.loaderPage);
+
+      final response = await _authRepository.getRefreshToken();
+      emit(
+        AuthRefreshTokenSuccess(
+          message: response.message,
+          refreshToken: response.data!.refreshToken,
+          token: response.data!.token,
+        ),
+      );
+
+      //save the refresh token and new access token
+      await _localStorage.save(StoreKeys.wazeToken, response.data?.token ?? '');
+      await _localStorage.save(
+        StoreKeys.wazeRefreshToken,
+        response.data?.refreshToken ?? '',
+      );
+      // await Navigator.of(context).pushReplacementNamed(ScreenPaths.dashBoard);
+
+      if (context.mounted) {
+        Navigator.pop(context);
+      }
+      //push screen back to the dashboard after refresh token is done
+      // successfully;
+      // this happens due to the in activity of user over a period of days
+    } catch (e) {
+      emit(AuthError(message: e.toString()));
+      if (context.mounted) {
+        await Navigator.of(context).pushReplacementNamed(ScreenPaths.signIn);
+      }
+    }
   }
 }
