@@ -4,7 +4,7 @@ abstract class ReportsEvent extends Equatable {
   const ReportsEvent();
 
   factory ReportsEvent.getReportByID({
-    required int reportID,
+    required String reportID,
   }) {
     return GetReportByID(reportID: reportID);
   }
@@ -18,15 +18,15 @@ abstract class ReportsEvent extends Equatable {
   }
 
   factory ReportsEvent.voteOnReport({
-    required String reportID,
+    required int reportID,
     required String reportType,
   }) {
     return VoteOnReport(reportID: reportID, reportType: reportType);
   }
 
   factory ReportsEvent.submitReportRequested({
-    required String longitude,
-    required String latitude,
+    required double longitude,
+    required double latitude,
     required String type,
   }) {
     return SubmitReportRequested(
@@ -37,7 +37,7 @@ abstract class ReportsEvent extends Equatable {
   }
 
   factory ReportsEvent.getVotesOnReport({
-    required String reportID,
+    required int reportID,
   }) {
     return GetVotesOnReport(
       reportID: reportID,
@@ -55,7 +55,7 @@ abstract class ReportsEvent extends Equatable {
 class GetReportByID extends ReportsEvent {
   const GetReportByID({required this.reportID});
 
-  final int reportID;
+  final String reportID;
 
   @override
   List<Object?> get props => [reportID];
@@ -82,7 +82,7 @@ class VoteOnReport extends ReportsEvent {
     required this.reportType,
   });
 
-  final String reportID;
+  final int reportID;
   final String reportType;
 
   @override
@@ -96,8 +96,8 @@ class SubmitReportRequested extends ReportsEvent {
     required this.latitude,
   });
 
-  final String longitude;
-  final String latitude;
+  final double longitude;
+  final double latitude;
   final String type;
 
   @override
@@ -113,7 +113,7 @@ class GetVotesOnReport extends ReportsEvent {
     required this.reportID,
   });
 
-  final String reportID;
+  final int reportID;
 
   @override
   List<Object?> get props => [

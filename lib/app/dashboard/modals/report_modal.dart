@@ -136,10 +136,18 @@ class ReportPoliceEventModal extends StatefulWidget {
 }
 
 class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
+  @override
+  void initState() {
+    super.initState();
+    // context.read<AuthBloc>().add(
+    //       AuthEvent.getUserCoordinateRequested(context: context),
+    //     );
+  }
+
   int? _selectedIndex;
   @override
   Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> reports = [
+    final reports = <Map<String, dynamic>>[
       {
         'type': ReportType.police.name,
         'subType': 'police',
@@ -221,12 +229,13 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                             child: Checkbox(
                               value: true,
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(25)),
+                                borderRadius: BorderRadius.circular(25),
+                              ),
                               onChanged: (v) {},
                               activeColor: styles.theme.primary,
                             ),
                           ),
-                        )
+                        ),
                       ],
                     ),
                   );
@@ -235,9 +244,9 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
             },
           ),
           Gap(styles.insets.sm),
-          BlocConsumer<AuthBloc, AuthState>(
-            listener: (context, authState) {},
-            builder: (context, authState) {
+          BlocBuilder<AuthBloc, AuthState>(
+            // listener: (context, authState) {},
+            builder: (authContext, authState) {
               return Row(
                 children: [
                   Expanded(
@@ -253,27 +262,37 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                   Gap(styles.insets.sm),
                   Expanded(
                     child: BlocConsumer<ReportsBloc, ReportState>(
-                      listener: (context, state) {
+                      listener: (reportContext, state) {
                         if (state is ReportError) {
                           RSnackBar.error(state.message).show(context);
 
                           //this happens wen token has expired
-                          if (state.message == 'Exception: token-expired') {
-                            context.go(ScreenPaths.signIn);
-                            context.read<ReportsBloc>().add(
-                                  ReportsEvent.clearExpiredToken(),
-                                );
-                          }
+                          // if (state.message == 'Exception: token-expired') {
+                          //   context.go(ScreenPaths.signIn);
+                          //   context.read<ReportsBloc>().add(
+                          //         ReportsEvent.clearExpiredToken(),
+                          //       );
+                          // }
+                        } else if (state is SubmitReportSuccess) {
+                          Navigator.pop(context);
+                          RSnackBar.success(state.message).show(context);
                         }
+                        //this happens wen token has expired
+                        // if (state.message == 'Exception: token-expired') {
+                        //   context.go(ScreenPaths.signIn);
+                        //   context.read<ReportsBloc>().add(
+                        //         ReportsEvent.clearExpiredToken(),
+                        //       );
+                        // }
                       },
-                      builder: (context, state) {
+                      builder: (reportContext, state) {
                         return SubmitReportBTN(
                           onPressed: () {
                             if (authState is UserCoordinate) {
-                              context.read<ReportsBloc>().add(
+                              reportContext.read<ReportsBloc>().add(
                                     ReportsEvent.submitReportRequested(
-                                      longitude: authState.longitude.toString(),
-                                      latitude: authState.longitude.toString(),
+                                      longitude: authState.longitude,
+                                      latitude: authState.longitude,
                                       type: reports[_selectedIndex ?? 0]['type']
                                           .toString(),
                                     ),

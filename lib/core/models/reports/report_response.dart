@@ -94,7 +94,7 @@ class ReportData extends Equatable {
   final String type;
   final double latitude;
   final double longitude;
-  final int severity;
+  final int? severity;
   final bool active;
   final bool resolved;
   @JsonKey(name: 'created_at')
@@ -147,6 +147,35 @@ class GetReportsResponse extends Equatable {
   final List<ReportData> data;
 
   Map<String, dynamic> toJson() => _$GetReportsResponseToJson(this);
+
+  @override
+  List<Object?> get props => [
+        message,
+        status,
+        statusCode,
+        data,
+      ];
+}
+
+@JsonSerializable()
+class SubmitReportResponse extends Equatable {
+  const SubmitReportResponse({
+    required this.message,
+    required this.statusCode,
+    required this.status,
+    required this.data,
+  });
+
+  factory SubmitReportResponse.fromJson(Map<String, dynamic> json) =>
+      _$SubmitReportResponseFromJson(json);
+
+  final String message;
+  final String status;
+  @JsonKey(name: 'status_code')
+  final int statusCode;
+  final ReportData data;
+
+  Map<String, dynamic> toJson() => _$SubmitReportResponseToJson(this);
 
   @override
   List<Object?> get props => [

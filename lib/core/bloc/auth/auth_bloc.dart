@@ -202,17 +202,17 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     final context = navigatorKey.currentContext!;
+
     try {
       if (isEmptyOrNull(
         getIt<ILocalStorage>().get<String>(StoreKeys.wazeRefreshToken),
       )) {
-        // don't call the get profile function if theres no token in the local
-        // store
-        return;
+        // just go back to sign in screen if no refresh token
+        context.go(ScreenPaths.signIn);
       }
 
       emit(const AuthLoading());
-      await Navigator.of(context).pushNamed(ScreenPaths.loaderPage);
+      context.go(ScreenPaths.loaderPage);
 
       final response = await _authRepository.getRefreshToken();
       emit(
@@ -224,23 +224,24 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
 
       //save the refresh token and new access token
-      await _localStorage.save(StoreKeys.wazeToken, response.data?.token ?? '');
+      await _localStorage.save(
+        StoreKeys.wazeToken,
+        response.data?.token ?? '',
+      );
       await _localStorage.save(
         StoreKeys.wazeRefreshToken,
         response.data?.refreshToken ?? '',
       );
-      // await Navigator.of(context).pushReplacementNamed(ScreenPaths.dashBoard);
 
       if (context.mounted) {
         Navigator.pop(context);
       }
-      //push screen back to the dashboard after refresh token is done
-      // successfully;
+      //push screen back to the dashboard after refresh token;
       // this happens due to the in activity of user over a period of days
     } catch (e) {
       emit(AuthError(message: e.toString()));
       if (context.mounted) {
-        await Navigator.of(context).pushReplacementNamed(ScreenPaths.signIn);
+        context.go(ScreenPaths.signIn);
       }
     }
   }

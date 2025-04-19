@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/auth/view/blank_loader_page.dart';
 import 'package:waze_kibris/app/profile/view/help_screen.dart';
 import 'package:waze_kibris/app/profile/view/sound_settings.dart';
+import 'package:waze_kibris/app/report/view/report_votes.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/res/store_keys.dart';
 
@@ -20,6 +21,7 @@ class ScreenPaths {
   static String aboutUs = '/about-us';
   static String deleteAccount = '/delete-account';
   static String loaderPage = '/loader-page';
+  static String reportVotes = '/report-votes';
 }
 
 final navigatorKey = GlobalKey<NavigatorState>();
@@ -100,6 +102,11 @@ final appRouter = GoRouter(
           ScreenPaths.loaderPage,
           (state) => const BlankLoaderScreen(),
           name: 'loader-page',
+        ),
+        RouteWrapper(
+          ScreenPaths.reportVotes,
+          (state) => const ReportVotesScreen(),
+          name: 'report-votes',
         ),
       ],
     ),

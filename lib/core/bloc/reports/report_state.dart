@@ -33,11 +33,7 @@ class LoadedVotesOnReports extends ReportState {
 }
 
 class VoteReportSuccess extends ReportState {
-  const VoteReportSuccess();
-}
-
-class SubmitReportSuccess extends ReportState {
-  const SubmitReportSuccess({
+  const VoteReportSuccess({
     required this.data,
     required this.message,
     required this.status,
@@ -52,8 +48,42 @@ class SubmitReportSuccess extends ReportState {
   List<Object?> get props => [message, data, status];
 }
 
+class SubmitReportSuccess extends ReportState {
+  const SubmitReportSuccess({
+    required this.data,
+    required this.message,
+    required this.status,
+  });
+
+  final String message;
+  final String status;
+
+  final ReportData data;
+
+  @override
+  List<Object?> get props => [message, data, status];
+}
+
 class GetReportSuccess extends ReportState {
   const GetReportSuccess({
+    required this.data,
+    required this.message,
+    required this.status,
+    required this.statusCode,
+  });
+
+  final String message;
+  final String status;
+  final int statusCode;
+
+  final List<ReportData> data;
+
+  @override
+  List<Object?> get props => [message, data, status, statusCode];
+}
+
+class GetVotesOnReportSuccess extends ReportState {
+  const GetVotesOnReportSuccess({
     required this.data,
     required this.message,
     required this.status,

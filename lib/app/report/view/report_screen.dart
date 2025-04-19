@@ -14,49 +14,35 @@ class ReportScreen extends StatefulWidget {
 }
 
 class _ReportScreenState extends State<ReportScreen> {
-  @override
-  void initState() {
-// Position? position=await  UserCoordinates.getAndSetUserCoordinate(context);
-// context.read<ReportsBloc>().add(GetNearByReports(radius: radius, lat: lat, long: long))
-    super.initState();
-  }
+  final TextEditingController _idFieldController = TextEditingController();
+
+  double startRangeVal = 0;
+  double endRangeVal = 50;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Column(
         children: [
           Padding(
             padding: EdgeInsets.symmetric(horizontal: styles.insets.lg),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Gap(16 * styles.scale),
-                  Text(
-                    'Reports that are close to you.',
-                    style: styles.typography.h3.textColor(styles.theme.text),
-                  ),
-//
-
-                  Gap(16 * styles.scale),
-                  // CustomClickableText(
-                  //   onTap: () {},
-                  //   text: 'Navigation',
-                  // ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Divider(
-                      color: styles.theme.secondary,
-                      thickness: 1,
-                    ),
-                  ),
-                  Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Gap(45 * styles.scale),
+                SizedBox(
+                  height: 60,
+                  child: Row(
                     children: [
                       Expanded(
                         child: CustomTextField(
-                          hintText: 'Find a specific report, type in its ID',
+                          hintText: 'Find report type with ID',
+                          controller: _idFieldController,
+                          onChanged: (v) {
+                            setState(() {});
+                          },
                           prefix: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -79,88 +65,338 @@ class _ReportScreenState extends State<ReportScreen> {
                         ),
                       ),
                       Gap(16 * styles.scale),
-                      Expanded(
-                        child: CustomClickableText(onTap: () {}, text: 'ID'),
+                      CustomClickableText(
+                        onTap: () {
+                          context.read<ReportsBloc>().add(
+                                ReportsEvent.getReportByID(
+                                  reportID: _idFieldController.text,
+                                ),
+                              );
+                        },
+                        padding: EdgeInsets.all(10 * styles.scale),
+                        color: styles.theme.divider,
+                        text: _idFieldController.text.isNotEmpty
+                            ? 'Find'
+                            : 'Paste ID', //
                       ),
                     ],
                   ),
-
-                  Expanded(
-                    child: BlocConsumer<ReportsBloc, ReportState>(
-                      listener: (context, state) {},
-                      builder: (context, state) {
-                        if ((state as GetReportsResponse).data.isEmpty) {
-                          return Text(
-                            'No current nearby report',
-                            style: styles.typography.body,
-                          );
-                        } else if (state is GetReportSuccess &&
-                            (state as GetReportsResponse).data.isEmpty) {
-                          return ListView.builder(
-                            itemCount: state.data.length,
-                            itemBuilder: (context, index) {
-                              return Row(
-                                children: [
-                                  Column(
-                                    children: [
-                                      Text(
-                                        '${state.data[index].type.toLowerCase()} Report',
-                                        style: styles.typography.h3
-                                            .textColor(styles.theme.text),
-                                      ),
-                                      Gap(16 * styles.scale),
-                                      Text(
-                                        'Id: ${state.data[index].id}',
-                                        style: styles.typography.h3
-                                            .textColor(styles.theme.text),
-                                      ),
-                                    ],
-                                  ),
-                                  const Icon(
-                                    Icons.arrow_forward_ios_rounded,
-                                  ),
-                                ],
-                              );
-                            },
-                          );
-                        } else if (state is ReportLoading) {
-                          return CircularProgressIndicator(
-                            color: styles.theme.primary,
-                          );
-                        } else {
-                          return Column(
-                            children: [
-                              CustomClickableText(
-                                onTap: () async {
-                                  final position = await UserCoordinates
-                                      .getAndSetUserCoordinate(
-                                    context,
-                                  );
-                                  context.read<ReportsBloc>().add(
-                                        ReportsEvent.getNearByReports(
-                                          radius: 5,
-                                          lat: position!.latitude.toString(),
-                                          long: position.longitude.toString(),
-                                        ),
-                                      );
-                                },
-                                text: 'Refresh to see new  Reports.',
-                                style: styles.typography.h3,
+                ),
+              ],
+            ),
+          ),
+          BlocConsumer<ReportsBloc, ReportState>(
+            listener: (context, state) {
+              if (state is GetReportSuccess && state.data.isEmpty) {
+                RSnackBar.error(
+                  'No current report close to you at the moment.',
+                );
+              }
+            },
+            builder: (context, state) {
+              if (state is ReportInitial) {
+                return Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CustomClickableText(
+                        text: 'No current nearby reports',
+                        style:
+                            styles.typography.body.textColor(styles.theme.grey),
+                        color: Colors.white,
+                      ),
+                      const Icon(
+                        size: 40,
+                        Icons.refresh_rounded,
+                      ),
+                    ],
+                  ).rippleClick(
+                    () async {
+                      final position =
+                          await UserCoordinates.getAndSetUserCoordinate(
+                        context,
+                      );
+                      if (context.mounted) {
+                        context.read<ReportsBloc>().add(
+                              ReportsEvent.getNearByReports(
+                                radius: 5,
+                                lat: position!.latitude.toString(),
+                                long: position.longitude.toString(),
                               ),
-                              Gap(16 * styles.scale),
-                              const SlideIndicator(),
-                            ],
+                            );
+                      } //
+                    },
+                  ),
+                );
+              } else if (state is GetReportSuccess && state.data.isNotEmpty) {
+                return ListView.builder(
+                  itemCount: state.data.length,
+                  itemBuilder: (context, index) {
+                    return Row(
+                      children: [
+                        Column(
+                          children: [
+                            Text(
+                              '${state.data[index].type.toLowerCase()} '
+                              '  Report',
+                              style: styles.typography.h3
+                                  .textColor(styles.theme.text),
+                            ),
+                            Gap(6 * styles.scale),
+                            Text(
+                              'Id: ${state.data[index].id}',
+                              style: styles.typography.h3
+                                  .textColor(styles.theme.text),
+                            ),
+                          ],
+                        ),
+                        const Icon(
+                          Icons.arrow_forward_ios_rounded,
+                        ),
+                      ],
+                    ).clickable(() {
+                      //get the numbers of votes on a certain report
+                      context.read<ReportsBloc>().add(
+                            ReportsEvent.getVotesOnReport(
+                              reportID: state.data[index].id,
+                            ),
                           );
-                        }
-                      },
+
+                      //open the bottom sheet for the detail screen
+                      CustomDialogRoutes.showBottomSheet<bool>(
+                        context,
+                        ReportDetailScreen(report: state.data[index]),
+                      );
+                    });
+                  },
+                );
+              } else if (state is SubmitReportSuccess) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                              '${state.data.type.toLowerCase()} '
+                              'Report',
+                              style: styles.typography.body
+                              // .textColor(styles.theme.text),
+                              ),
+                          Gap(4 * styles.scale),
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                'ID:',
+                                style: styles.typography.t3
+                                    .textColor(styles.theme.caption),
+                              ),
+                              Text(' ${state.data.latitude}',
+                                  style: styles.typography.t1
+                                  // .textColor(styles.theme.divider),
+                                  ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const Icon(
+                        Icons.arrow_forward_ios_rounded,
+                      ),
+                    ],
+                  ).clickable(() {
+                    //get the numbers of votes on a certain report
+                    context.read<ReportsBloc>().add(
+                          ReportsEvent.getVotesOnReport(
+                            reportID: state.data.id,
+                          ),
+                        );
+
+                    //open the bottom sheet for the detail screen
+                    CustomDialogRoutes.showBottomSheet<bool>(
+                      context,
+                      ReportDetailScreen(report: state.data),
+                    );
+                  }),
+                );
+              } else if (state is ReportLoading) {
+                return Expanded(
+                  child: Center(
+                    child: SizedBox(
+                      height: 40,
+                      width: 40,
+                      child: CircularProgressIndicator(
+                        color: styles.theme.primary,
+                      ),
                     ),
                   ),
-                ],
-              ),
-            ),
+                );
+              } else {
+                return Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CustomClickableText(
+                          text: 'Simplify your search to certain distance',
+                          style:
+                              styles.typography.h5.textColor(styles.theme.body),
+                        ),
+                        Gap(8 * styles.scale),
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            RangeSlider(
+                              max: 100,
+                              values: RangeValues(startRangeVal, endRangeVal),
+                              onChanged: (val) {
+                                setState(() {
+                                  endRangeVal = val.end;
+                                  // startRangeVal = val.start;
+                                });
+                              },
+                              onChangeEnd: (endVal) {
+                                setState(() {
+                                  endRangeVal = endVal.end;
+                                  // startRangeVal = endVal.start;
+                                });
+                              },
+                              onChangeStart: (endVal) {
+                                setState(() {
+                                  endRangeVal = endVal.end;
+                                  startRangeVal = endVal.start;
+                                });
+                              },
+                              activeColor: Colors.red,
+                            ),
+                            Positioned(
+                              left: 20,
+                              bottom: -30,
+                              child: Row(
+                                children: [
+                                  Text(
+                                    'Radius searched: ',
+                                    style: styles.typography.hairline,
+                                  ),
+                                  Text(
+                                    '${endRangeVal.toInt()} (meters)',
+                                    style: styles.typography.h5,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        Gap(53 * styles.scale),
+                        TextButton(
+                          onPressed: () async {
+                            final position =
+                                await UserCoordinates.getAndSetUserCoordinate(
+                              context,
+                            );
+                            if (context.mounted) {
+                              context.read<ReportsBloc>().add(
+                                    ReportsEvent.getNearByReports(
+                                      radius: endRangeVal.toInt(),
+                                      lat: position!.latitude.toString(),
+                                      long: position.longitude.toString(),
+                                    ),
+                                  );
+                            }
+                          },
+                          style: TextButton.styleFrom(
+                              backgroundColor: styles.theme.divider),
+                          child: Icon(
+                            size: 35,
+                            Icons.search_rounded,
+                            // color: styles.theme.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+            },
           ),
         ],
       ),
     );
   }
 }
+
+class ReportDetailScreen extends StatelessWidget {
+  const ReportDetailScreen({required this.report, super.key});
+
+  final ReportData report;
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.all(styles.insets.md),
+      child: BlocConsumer<ReportsBloc, ReportState>(
+        listener: (context, state) {
+          if (state is VoteReportSuccess) {
+            RSnackBar.success(state.message).show(context);
+          }
+        },
+        builder: (context, state) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${report.type} Report ',
+                style: styles.typography.f.size(20).bold,
+              ),
+              Container(
+                height: 68,
+                width: 68,
+                decoration: BoxDecoration(
+                  color: styles.theme.grey.withValues(alpha: .3),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Map Widget comes here',
+                  style: styles.typography.f.size(20).bold,
+                ),
+              ),
+              Gap(styles.insets.xl),
+              Text(
+                'Reported by a ${report.reportSource} ',
+                style: styles.typography.f.size(20).bold,
+              ),
+              Gap(styles.insets.xl),
+              Text(
+                '${(state is GetVotesOnReportSuccess) ? state.data.length : ''}'
+                'voted on this report.',
+                style: styles.typography.f.size(20).bold,
+              ).clickable(() {
+                context.go(ScreenPaths.reportVotes);
+              }),
+              Gap(styles.insets.lg),
+              PrimaryButton(
+                isLoading: state is ReportLoading,
+                onPressed: () {
+                  context.read<ReportsBloc>().add(
+                        ReportsEvent.voteOnReport(
+                          reportID: report.id,
+                          reportType: ReportVoteType.upvote.name.toUpperCase(),
+                        ),
+                      );
+                },
+                text: 'Vote on report',
+                bgColor: styles.theme.secondary,
+                textColor: styles.theme.primary,
+              ),
+              Gap(styles.insets.md),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+enum ReportVoteType { upvote }

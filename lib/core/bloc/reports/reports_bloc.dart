@@ -44,11 +44,19 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
         emit(const ReportError(message: 'Report have been deleted'));
         return;
       }
-      // emit(
-      //
-      //     ///call the method if request is successful here
-      //     );
+      emit(SubmitReportSuccess(
+        data: response.data,
+        message: response.message,
+        status: response.status,
+      ));
     } catch (e) {
+      if (e.toString() == 'Exception: token-expired') {
+        authBloc.add(
+          AuthEvent.refreshTokenRequested(
+            onRefreshToken: () {},
+          ),
+        );
+      }
       emit(ReportError(message: e.toString()));
     }
   }
@@ -80,6 +88,13 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
         ),
       );
     } catch (e) {
+      if (e.toString() == 'Exception: token-expired') {
+        authBloc.add(
+          AuthEvent.refreshTokenRequested(
+            onRefreshToken: () {},
+          ),
+        );
+      }
       emit(ReportError(message: e.toString()));
     }
   }
@@ -119,13 +134,14 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
         emit(const ReportError(message: 'Reports not available.'));
         return;
       }
-      // emit(
-      //   OtpSent(
-      //     message: response.message,
-      //     userId: response.data?.id ?? '',
-      //     email: response.data?.email ?? '',
-      //   ),
-      // );
+      emit(
+        GetVotesOnReportSuccess(
+          message: response.message,
+          statusCode: response.statusCode,
+          status: response.status,
+          data: response.data,
+        ),
+      );
     } catch (e) {
       emit(ReportError(message: e.toString()));
       if (e.toString() == 'Exception: token-expired') {
@@ -172,7 +188,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
       } else {
         emit(
           SubmitReportSuccess(
-            data: response.data?.email ?? '',
+            data: response.data,
             message: response.message,
             status: response.status,
           ),
@@ -180,7 +196,8 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
       }
     } catch (e) {
       emit(ReportError(message: e.toString()));
-      if (e.toString() == 'Exception: token-expired') {
+
+      if (e.toString().trim() == 'Exception: token-expired') {
         authBloc.add(
           AuthEvent.refreshTokenRequested(onRefreshToken: () {}),
         );

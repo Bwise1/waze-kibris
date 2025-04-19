@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:sheet/sheet.dart';
 import 'package:styled_widget/styled_widget.dart';
 import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
+import 'package:waze_kibris/app/dashboard/view/marp.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
@@ -19,6 +20,10 @@ class MainDashboard extends StatefulWidget {
 class _MainDashboardState extends State<MainDashboard>
     with TickerProviderStateMixin {
   late SheetController controller;
+
+  static const styleUrl =
+      "https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json";
+  static const stadiaApiKey = "8a83c0b9-fbe3-4caa-98d5-d8b60efc67c5";
 
   @override
   void initState() {
@@ -38,22 +43,24 @@ class _MainDashboardState extends State<MainDashboard>
       extendBodyBehindAppBar: true,
       backgroundColor: Colors.grey[200],
       appBar: MapAppBar(controller: controller),
-      body: Stack(
-        children: <Widget>[
-          Positioned.fill(
-            child: Text(
-              'Map',
-              style: styles.typography.t1.textColor(styles.theme.black),
-              textAlign: TextAlign.center,
-            ).center(),
-          ),
-          FloatingButtons(controller: controller),
-          Positioned.fill(
-            top: kToolbarHeight + MediaQuery.of(context).padding.top - 18,
-            child: MapSheet(controller: controller),
-          ),
-        ],
-      ),
+      // body: Stack(
+      //   children: <Widget>[
+      //     Positioned.fill(
+      // body: Center(),
+      body: MapScreen(),
+      //       // child: Text(
+      //       //   'Map',
+      //       //   style: styles.typography.t1.textColor(styles.theme.black),
+      //       //   textAlign: TextAlign.center,
+      //       // ).center(),
+      //     ),
+      //     FloatingButtons(controller: controller),
+      //     Positioned.fill(
+      //       top: kToolbarHeight + MediaQuery.of(context).padding.top - 18,
+      //       child: MapSheet(controller: controller),
+      //     ),
+      //   ],
+      // ),
     );
   }
 
@@ -333,7 +340,9 @@ class MapSheet extends StatelessWidget {
                                               .textColor(styles.theme.grey)
                                               .medium,
                                         ),
-                                        Expanded(child: Container()),
+                                        Expanded(
+                                          child: Container(),
+                                        ),
                                         AppIcon(
                                           Assets.icons.arrowForward,
                                           color: styles.theme.grey,

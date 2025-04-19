@@ -50,7 +50,7 @@ ReportData _$ReportDataFromJson(Map<String, dynamic> json) => ReportData(
       id: (json['id'] as num).toInt(),
       userId: json['user_id'] as String,
       type: json['type'] as String,
-      severity: (json['severity'] as num).toInt(),
+      severity: (json['severity'] as num?)?.toInt(),
       active: json['active'] as bool,
       resolved: json['resolved'] as bool,
       createdAt: json['created_at'] as String,
@@ -90,6 +90,24 @@ GetReportsResponse _$GetReportsResponseFromJson(Map<String, dynamic> json) =>
     );
 
 Map<String, dynamic> _$GetReportsResponseToJson(GetReportsResponse instance) =>
+    <String, dynamic>{
+      'message': instance.message,
+      'status': instance.status,
+      'status_code': instance.statusCode,
+      'data': instance.data,
+    };
+
+SubmitReportResponse _$SubmitReportResponseFromJson(
+        Map<String, dynamic> json) =>
+    SubmitReportResponse(
+      message: json['message'] as String,
+      statusCode: (json['status_code'] as num).toInt(),
+      status: json['status'] as String,
+      data: ReportData.fromJson(json['data'] as Map<String, dynamic>),
+    );
+
+Map<String, dynamic> _$SubmitReportResponseToJson(
+        SubmitReportResponse instance) =>
     <String, dynamic>{
       'message': instance.message,
       'status': instance.status,

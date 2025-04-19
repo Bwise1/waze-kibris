@@ -42,10 +42,15 @@ class _HomeBottomNavState extends State<HomeBottomNav> {
               widget.onChanged(0);
             },
             child: Container(
-              height: 58,
-              width: 53,
+              height: 60,
+              // width: 53,
+
+              padding: EdgeInsets.all(styles.insets.xs),
+
               decoration: BoxDecoration(
-                color: styles.theme.grey,
+                color: index == 0
+                    ? styles.theme.secondary
+                    : styles.theme.transparent,
                 borderRadius: BorderRadius.circular(styles.corners.sm),
               ),
               child: Column(
@@ -61,7 +66,7 @@ class _HomeBottomNavState extends State<HomeBottomNav> {
                   ),
                   Text(
                     'Home',
-                    style: styles.typography.t3.textColor(
+                    style: styles.typography.hairline.textColor(
                       index == 0 ? styles.theme.primary : styles.theme.grey,
                     ),
                   ),
@@ -74,29 +79,31 @@ class _HomeBottomNavState extends State<HomeBottomNav> {
               setState(() {
                 index = 1;
               });
-              widget.onChanged(0);
+              widget.onChanged(1);
             },
             child: Container(
-              height: 58,
-              width: 53,
+              height: 60,
+              // width: 53,
+              padding: EdgeInsets.all(styles.insets.xs),
               decoration: BoxDecoration(
-                color: styles.theme.grey,
+                color: index == 1
+                    ? styles.theme.secondary
+                    : styles.theme.transparent,
                 borderRadius: BorderRadius.circular(styles.corners.sm),
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   AppIcon(
-                    index == 1
-                        ? Assets.icons.homeLine
-                        : Assets.icons.homeLineRegular,
+                    Assets.icons.globe,
+                    // : Assets.icons.homeLineRegular,
                     color:
                         index == 1 ? styles.theme.primary : styles.theme.grey,
                     size: 24,
                   ),
                   Text(
                     'Reports',
-                    style: styles.typography.t3.textColor(
+                    style: styles.typography.hairline.textColor(
                       index == 1 ? styles.theme.primary : styles.theme.grey,
                     ),
                   ),
@@ -112,10 +119,13 @@ class _HomeBottomNavState extends State<HomeBottomNav> {
               widget.onChanged(1);
             },
             child: Container(
-              height: 58,
-              width: 53,
+              height: 60,
+              // width: 53, //
+              padding: EdgeInsets.all(styles.insets.xs),
               decoration: BoxDecoration(
-                color: styles.theme.grey,
+                color: index == 2
+                    ? styles.theme.secondary
+                    : styles.theme.transparent,
                 borderRadius: BorderRadius.circular(styles.corners.sm),
               ),
               child: Column(
@@ -130,7 +140,7 @@ class _HomeBottomNavState extends State<HomeBottomNav> {
                   ),
                   Text(
                     'Profile',
-                    style: styles.typography.t3.textColor(
+                    style: styles.typography.hairline.textColor(
                       index == 2
                           ? styles.theme.primary
                           : styles.theme.grey.withValues(alpha: .5),

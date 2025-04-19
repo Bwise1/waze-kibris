@@ -1,24 +1,23 @@
 import 'package:dio/dio.dart';
 import 'package:waze_kibris/common.dart';
-import 'package:waze_kibris/core/models/auth/auth_response.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/core/res/store_keys.dart';
 
 abstract class ReportRepository {
-  Future<AuthResponse> getReportById(String reportID);
+  Future<SubmitReportResponse> getReportById(String reportID);
   Future<GetReportsResponse> getNearByReport(
     String latitude,
     String longitude,
     int radius,
   );
-  Future<AuthResponse> getVotesOnReport(String reportID);
-  Future<AuthResponse> voteOnReport(
+  Future<GetReportsResponse> getVotesOnReport(int reportID);
+  Future<GetReportsResponse> voteOnReport(
     String voteType,
-    String reportID,
+    int reportID,
   );
-  Future<AuthResponse> submitReport(
-    String latitude,
-    String longitude,
+  Future<SubmitReportResponse> submitReport(
+    double latitude,
+    double longitude,
     String type,
   );
 }
@@ -32,8 +31,14 @@ class ReportRepositoryImpl implements ReportRepository {
   final ILocalStorage _store;
   @override
   Future<GetReportsResponse> getNearByReport(
-      String latitude, String longitude, int radius) async {
+    String latitude,
+    String longitude,
+    int radius,
+  ) async {
     try {
+      print(
+        '/reports/nearby?latitude=$latitude&longitude=$longitude&radius=$radius',
+      );
       final response = await _dio.get<Map<String, dynamic>>(
         '/reports/nearby?latitude=$latitude&longitude=$longitude&radius=$radius',
         options: Options(
@@ -43,6 +48,7 @@ class ReportRepositoryImpl implements ReportRepository {
           },
         ),
       );
+      print('hhhh${response.data}');
       return GetReportsResponse.fromJson(response.data!);
     } on DioException catch (e) {
       throw _handleDioError(e);
@@ -50,7 +56,7 @@ class ReportRepositoryImpl implements ReportRepository {
   }
 
   @override
-  Future<AuthResponse> getReportById(String reportID) async {
+  Future<SubmitReportResponse> getReportById(String reportID) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/reports/$reportID',
@@ -61,19 +67,19 @@ class ReportRepositoryImpl implements ReportRepository {
           },
         ),
       );
-      return AuthResponse.fromJson(response.data!);
+      return SubmitReportResponse.fromJson(response.data!);
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
   }
 
   @override
-  Future<AuthResponse> getVotesOnReport(String id) {
+  Future<GetReportsResponse> getVotesOnReport(int id) {
     throw UnimplementedError();
   }
 
   @override
-  Future<AuthResponse> voteOnReport(String voteType, String reportID) async {
+  Future<GetReportsResponse> voteOnReport(String voteType, int reportID) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         '/reports/$reportID/votes',
@@ -85,16 +91,16 @@ class ReportRepositoryImpl implements ReportRepository {
         ),
         data: {'vote_type': voteType},
       );
-      return AuthResponse.fromJson(response.data!);
+      return GetReportsResponse.fromJson(response.data!);
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
   }
 
   @override
-  Future<AuthResponse> submitReport(
-    String latitude,
-    String longitude,
+  Future<SubmitReportResponse> submitReport(
+    double latitude,
+    double longitude,
     String type,
   ) async {
     try {
@@ -112,8 +118,7 @@ class ReportRepositoryImpl implements ReportRepository {
           'latitude': latitude,
         },
       );
-
-      return AuthResponse.fromJson(response.data!);
+      return SubmitReportResponse.fromJson(response.data!);
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
