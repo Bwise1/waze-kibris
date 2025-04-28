@@ -12,9 +12,8 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
   ReportsBloc({
     required ReportRepository reportRepository,
     required this.authBloc,
-    ILocalStorage? localStorage,
   })  : _reportRepository = reportRepository,
-        _localStorage = localStorage ?? getIt<ILocalStorage>(),
+        // _localStorage = localStorage ?? getIt<ILocalStorage>(),
         super(const ReportInitial()) {
     on<GetReportByID>(_onRequestReportByID);
     on<GetNearByReports>(_onRequestNearByReport);
@@ -26,7 +25,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
 
   final ReportRepository _reportRepository;
   final AuthBloc authBloc;
-  final ILocalStorage _localStorage;
+  // final ILocalStorage _localStorage;
   Future<void> _onRequestReportByID(
     GetReportByID event,
     Emitter<ReportState> emit,
@@ -44,11 +43,13 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
         emit(const ReportError(message: 'Report have been deleted'));
         return;
       }
-      emit(SubmitReportSuccess(
-        data: response.data,
-        message: response.message,
-        status: response.status,
-      ));
+      emit(
+        SubmitReportSuccess(
+          data: response.data,
+          message: response.message,
+          status: response.status,
+        ),
+      );
     } catch (e) {
       if (e.toString() == 'Exception: token-expired') {
         authBloc.add(
@@ -75,7 +76,8 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
       if (response.statusCode == 409) {
         emit(
           const ReportError(
-              message: 'Error has occurred fetching nearby reports'),
+            message: 'Error has occurred fetching nearby reports',
+          ),
         );
         return;
       }
@@ -106,10 +108,10 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
   ) async {
     try {
       emit(const ReportLoading());
-      final response = await _reportRepository.voteOnReport(
-        event.reportType,
-        event.reportID,
-      );
+      // final response = await _reportRepository.voteOnReport(
+      //   event.reportType,
+      //   event.reportID,
+      // );
       // emit(
       //   AuthSuccess(
       //     message: response.message,

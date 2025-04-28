@@ -16,6 +16,14 @@ class SignInScreen extends StatefulWidget {
 
 class _SignInScreenState extends State<SignInScreen> {
   final TextEditingController _emailController = TextEditingController();
+  @override
+  void initState() {
+    super.initState();
+
+    context.read<AuthBloc>().add(
+          AuthEvent.getUserCoordinateRequested(context: context),
+        );
+  }
 
   @override
   Widget build(BuildContext context) {

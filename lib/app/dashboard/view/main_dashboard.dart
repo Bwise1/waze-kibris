@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:sheet/sheet.dart';
 import 'package:styled_widget/styled_widget.dart';
 import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
-import 'package:waze_kibris/app/dashboard/view/marp.dart';
+import 'package:waze_kibris/app/dashboard/view/flutter_map_imp.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
@@ -20,10 +20,6 @@ class MainDashboard extends StatefulWidget {
 class _MainDashboardState extends State<MainDashboard>
     with TickerProviderStateMixin {
   late SheetController controller;
-
-  static const styleUrl =
-      "https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json";
-  static const stadiaApiKey = "8a83c0b9-fbe3-4caa-98d5-d8b60efc67c5";
 
   @override
   void initState() {

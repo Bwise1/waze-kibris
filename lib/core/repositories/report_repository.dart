@@ -36,9 +36,10 @@ class ReportRepositoryImpl implements ReportRepository {
     int radius,
   ) async {
     try {
-      print(
-        '/reports/nearby?latitude=$latitude&longitude=$longitude&radius=$radius',
-      );
+      // print(
+      //   '/reports/nearby?latitude=$latitude&longitude=$longitude&radius=$radius',
+      // );
+
       final response = await _dio.get<Map<String, dynamic>>(
         '/reports/nearby?latitude=$latitude&longitude=$longitude&radius=$radius',
         options: Options(
@@ -48,7 +49,7 @@ class ReportRepositoryImpl implements ReportRepository {
           },
         ),
       );
-      print('hhhh${response.data}');
+      // print('hhhh${response.data}');
       return GetReportsResponse.fromJson(response.data!);
     } on DioException catch (e) {
       throw _handleDioError(e);
@@ -118,6 +119,7 @@ class ReportRepositoryImpl implements ReportRepository {
           'latitude': latitude,
         },
       );
+      // print(response.data); //
       return SubmitReportResponse.fromJson(response.data!);
     } on DioException catch (e) {
       throw _handleDioError(e);

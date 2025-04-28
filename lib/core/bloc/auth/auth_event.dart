@@ -36,8 +36,9 @@ abstract class AuthEvent extends Equatable {
     return RefreshTokenRequested(onTokenRefresh: onRefreshToken);
   }
 
-  factory AuthEvent.getUserCoordinateRequested(
-      {required BuildContext context}) {
+  factory AuthEvent.getUserCoordinateRequested({
+    required BuildContext context,
+  }) {
     return GetUserCoordinateRequested(context: context);
   }
 

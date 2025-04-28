@@ -154,12 +154,12 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
         'icon': Assets.icons.police.image(),
       },
       {
-        'type': ReportType.police.name,
+        'type': ReportType.traffic.name,
         'subType': 'patrol',
         'icon': Assets.icons.policeCar.image(),
       },
       {
-        'type': ReportType.police.name,
+        'type': ReportType.accident.name,
         'subType': 'otherLane',
         'icon': Assets.icons.accident.image(),
       }
@@ -292,7 +292,7 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                               reportContext.read<ReportsBloc>().add(
                                     ReportsEvent.submitReportRequested(
                                       longitude: authState.longitude,
-                                      latitude: authState.longitude,
+                                      latitude: authState.latitude,
                                       type: reports[_selectedIndex ?? 0]['type']
                                           .toString(),
                                     ),

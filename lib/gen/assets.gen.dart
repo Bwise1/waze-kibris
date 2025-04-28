@@ -41,11 +41,21 @@ class $AssetsIconsGen {
   /// File path: assets/icons/back_arrow.svg
   String get backArrow => 'assets/icons/back_arrow.svg';
 
+  /// File path: assets/icons/barrier.png
+  AssetGenImage get barrier => const AssetGenImage('assets/icons/barrier.png');
+
   /// File path: assets/icons/bin.svg
   String get bin => 'assets/icons/bin.svg';
 
   /// File path: assets/icons/briefcase.svg
   String get briefcase => 'assets/icons/briefcase.svg';
+
+  /// File path: assets/icons/cars_warning.png
+  AssetGenImage get carsWarning =>
+      const AssetGenImage('assets/icons/cars_warning.png');
+
+  /// File path: assets/icons/cctv.png
+  AssetGenImage get cctv => const AssetGenImage('assets/icons/cctv.png');
 
   /// File path: assets/icons/chat.png
   AssetGenImage get chat => const AssetGenImage('assets/icons/chat.png');
@@ -106,6 +116,10 @@ class $AssetsIconsGen {
   /// File path: assets/icons/plus.svg
   String get plus => 'assets/icons/plus.svg';
 
+  /// File path: assets/icons/point_marker.png
+  AssetGenImage get pointMarker =>
+      const AssetGenImage('assets/icons/point_marker.png');
+
   /// File path: assets/icons/police-car.png
   AssetGenImage get policeCar =>
       const AssetGenImage('assets/icons/police-car.png');
@@ -132,6 +146,17 @@ class $AssetsIconsGen {
   /// File path: assets/icons/shield_zap.svg
   String get shieldZap => 'assets/icons/shield_zap.svg';
 
+  /// File path: assets/icons/three_cars.png
+  AssetGenImage get threeCars =>
+      const AssetGenImage('assets/icons/three_cars.png');
+
+  /// File path: assets/icons/traffic_light.png
+  AssetGenImage get trafficLight =>
+      const AssetGenImage('assets/icons/traffic_light.png');
+
+  /// File path: assets/icons/two_cars.png
+  AssetGenImage get twoCars => const AssetGenImage('assets/icons/two_cars.png');
+
   /// File path: assets/icons/user-02.svg
   String get user02 => 'assets/icons/user-02.svg';
 
@@ -150,8 +175,11 @@ class $AssetsIconsGen {
         arrowForward,
         at,
         backArrow,
+        barrier,
         bin,
         briefcase,
+        carsWarning,
+        cctv,
         chat,
         chevronLeft,
         close,
@@ -171,6 +199,7 @@ class $AssetsIconsGen {
         moon,
         person,
         plus,
+        pointMarker,
         policeCar,
         police,
         profile,
@@ -179,6 +208,9 @@ class $AssetsIconsGen {
         searchGlass,
         sendingIll,
         shieldZap,
+        threeCars,
+        trafficLight,
+        twoCars,
         user02,
         warningCars
       ];

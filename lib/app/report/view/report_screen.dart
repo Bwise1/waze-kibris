@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:screenshot/screenshot.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
@@ -15,9 +16,31 @@ class ReportScreen extends StatefulWidget {
 
 class _ReportScreenState extends State<ReportScreen> {
   final TextEditingController _idFieldController = TextEditingController();
+  ScreenshotController screenshotController = ScreenshotController();
 
   double startRangeVal = 0;
   double endRangeVal = 50;
+  @override
+  initState() {
+    super.initState();
+    print('hello');
+    getNearReport(context);
+  }
+
+  Future<void> getNearReport(BuildContext context) async {
+    final position = await UserCoordinates.getAndSetUserCoordinate(
+      context,
+    );
+    if (context.mounted) {
+      context.read<ReportsBloc>().add(
+            ReportsEvent.getNearByReports(
+              radius: endRangeVal.toInt(),
+              lat: position!.latitude.toString(),
+              long: position.longitude.toString(),
+            ),
+          );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +108,19 @@ class _ReportScreenState extends State<ReportScreen> {
               ],
             ),
           ),
+          GestureDetector(
+            onTap: () async {
+              final imageBytes = await screenshotController.captureFromWidget(
+                IconImageMakerWidget(
+                  iconObject: Assets.icons.police.image(),
+                ),
+              );
+              print(imageBytes);
+            },
+            child: IconImageMakerWidget(
+              iconObject: Assets.icons.policeCar.image(),
+            ),
+          ),
           BlocConsumer<ReportsBloc, ReportState>(
             listener: (context, state) {
               if (state is GetReportSuccess && state.data.isEmpty) {
@@ -130,99 +166,118 @@ class _ReportScreenState extends State<ReportScreen> {
                   ),
                 );
               } else if (state is GetReportSuccess && state.data.isNotEmpty) {
-                return ListView.builder(
-                  itemCount: state.data.length,
-                  itemBuilder: (context, index) {
-                    return Row(
-                      children: [
-                        Column(
+                return Expanded(
+                  child: ListView.builder(
+                    itemCount: state.data.length,
+                    itemBuilder: (context, index) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              '${state.data[index].type.toLowerCase()} '
-                              '  Report',
-                              style: styles.typography.h3
-                                  .textColor(styles.theme.text),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${state.data[index].type.toLowerCase()} '
+                                  'Report',
+                                  style: styles.typography.body,
+                                  // .textColor(styles.theme.text),
+                                ),
+                                Gap(4 * styles.scale),
+                                Wrap(
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Text(
+                                      'ID:',
+                                      style: styles.typography.t3
+                                          .textColor(styles.theme.caption),
+                                    ),
+                                    Text(
+                                      ' ${state.data[index].latitude}',
+                                      style: styles.typography.t1,
+                                      // .textColor(styles.theme.divider),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
-                            Gap(6 * styles.scale),
-                            Text(
-                              'Id: ${state.data[index].id}',
-                              style: styles.typography.h3
-                                  .textColor(styles.theme.text),
+                            const Icon(
+                              Icons.arrow_forward_ios_rounded,
                             ),
                           ],
                         ),
-                        const Icon(
-                          Icons.arrow_forward_ios_rounded,
-                        ),
-                      ],
-                    ).clickable(() {
-                      //get the numbers of votes on a certain report
-                      context.read<ReportsBloc>().add(
-                            ReportsEvent.getVotesOnReport(
-                              reportID: state.data[index].id,
-                            ),
-                          );
+                      ).clickable(() {
+                        //get the numbers of votes on a certain report
+                        context.read<ReportsBloc>().add(
+                              ReportsEvent.getVotesOnReport(
+                                reportID: state.data[index].id,
+                              ),
+                            );
 
-                      //open the bottom sheet for the detail screen
-                      CustomDialogRoutes.showBottomSheet<bool>(
-                        context,
-                        ReportDetailScreen(report: state.data[index]),
-                      );
-                    });
-                  },
-                );
-              } else if (state is SubmitReportSuccess) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                              '${state.data.type.toLowerCase()} '
-                              'Report',
-                              style: styles.typography.body
-                              // .textColor(styles.theme.text),
-                              ),
-                          Gap(4 * styles.scale),
-                          Wrap(
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(
-                                'ID:',
-                                style: styles.typography.t3
-                                    .textColor(styles.theme.caption),
-                              ),
-                              Text(' ${state.data.latitude}',
-                                  style: styles.typography.t1
-                                  // .textColor(styles.theme.divider),
-                                  ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const Icon(
-                        Icons.arrow_forward_ios_rounded,
-                      ),
-                    ],
-                  ).clickable(() {
-                    //get the numbers of votes on a certain report
-                    context.read<ReportsBloc>().add(
-                          ReportsEvent.getVotesOnReport(
-                            reportID: state.data.id,
-                          ),
+                        //open the bottom sheet for the detail screen
+                        CustomDialogRoutes.showBottomSheet<bool>(
+                          context,
+                          ReportDetailScreen(report: state.data[index]),
                         );
-
-                    //open the bottom sheet for the detail screen
-                    CustomDialogRoutes.showBottomSheet<bool>(
-                      context,
-                      ReportDetailScreen(report: state.data),
-                    );
-                  }),
+                      });
+                    },
+                  ),
                 );
-              } else if (state is ReportLoading) {
+              }
+              // else if (state is SubmitReportSuccess) {
+              //   return Padding(
+              //     padding: const EdgeInsets.symmetric(horizontal: 20),
+              //     child: Row(
+              //       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              //       children: [
+              //         Column(
+              //           crossAxisAlignment: CrossAxisAlignment.start,
+              //           children: [
+              //             Text(
+              //                 '${state.data.type.toLowerCase()} '
+              //                 'Report',
+              //                 style: styles.typography.body
+              //                 // .textColor(styles.theme.text),
+              //                 ),
+              //             Gap(4 * styles.scale),
+              //             Wrap(
+              //               crossAxisAlignment: WrapCrossAlignment.center,
+              //               children: [
+              //                 Text(
+              //                   'ID:',
+              //                   style: styles.typography.t3
+              //                       .textColor(styles.theme.caption),
+              //                 ),
+              //                 Text(' ${state.data.latitude}',
+              //                     style: styles.typography.t1
+              //                     // .textColor(styles.theme.divider),
+              //                     ),
+              //               ],
+              //             ),
+              //           ],
+              //         ),
+              //         const Icon(
+              //           Icons.arrow_forward_ios_rounded,
+              //         ),
+              //       ],
+              //     ).clickable(() {
+              //       //get the numbers of votes on a certain report
+              //       context.read<ReportsBloc>().add(
+              //             ReportsEvent.getVotesOnReport(
+              //               reportID: state.data.id,
+              //             ),
+              //           );
+              //
+              //       //open the bottom sheet for the detail screen
+              //       CustomDialogRoutes.showBottomSheet<bool>(
+              //         context,
+              //         ReportDetailScreen(report: state.data),
+              //       );
+              //     }),
+              //   );
+              // }
+              else if (state is ReportLoading) {
                 return Expanded(
                   child: Center(
                     child: SizedBox(
@@ -293,6 +348,12 @@ class _ReportScreenState extends State<ReportScreen> {
                         Gap(53 * styles.scale),
                         TextButton(
                           onPressed: () async {
+                            if (state is GetVotesOnReportSuccess) {
+                              RSnackBar.error('Hey${state.data.length}')
+                                  .show(context);
+                            } else {
+                              RSnackBar.error('Hey Nothing here').show(context);
+                            }
                             final position =
                                 await UserCoordinates.getAndSetUserCoordinate(
                               context,
@@ -308,8 +369,9 @@ class _ReportScreenState extends State<ReportScreen> {
                             }
                           },
                           style: TextButton.styleFrom(
-                              backgroundColor: styles.theme.divider),
-                          child: Icon(
+                            backgroundColor: styles.theme.divider,
+                          ),
+                          child: const Icon(
                             size: 35,
                             Icons.search_rounded,
                             // color: styles.theme.grey,
@@ -400,3 +462,32 @@ class ReportDetailScreen extends StatelessWidget {
 }
 
 enum ReportVoteType { upvote }
+
+class IconImageMakerWidget extends StatelessWidget {
+  const IconImageMakerWidget({required this.iconObject, super.key});
+  final Widget iconObject;
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          Icon(
+            Icons.location_on_rounded,
+            size: 45,
+            color: styles.theme.border, //
+          ),
+          Positioned(
+            top: 3,
+            child: SizedBox(
+              height: 30,
+              width: 30,
+              child: iconObject,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
