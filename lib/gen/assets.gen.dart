@@ -69,6 +69,14 @@ class $AssetsIconsGen {
   /// File path: assets/icons/coordinate.svg
   String get coordinate => 'assets/icons/coordinate.svg';
 
+  /// File path: assets/icons/currentPosition.png
+  AssetGenImage get currentPosition =>
+      const AssetGenImage('assets/icons/currentPosition.png');
+
+  /// File path: assets/icons/endlocation_pin.png
+  AssetGenImage get endlocationPin =>
+      const AssetGenImage('assets/icons/endlocation_pin.png');
+
   /// File path: assets/icons/flag_marker.svg
   String get flagMarker => 'assets/icons/flag_marker.svg';
 
@@ -184,6 +192,8 @@ class $AssetsIconsGen {
         chevronLeft,
         close,
         coordinate,
+        currentPosition,
+        endlocationPin,
         flagMarker,
         globe,
         googleAssistant,

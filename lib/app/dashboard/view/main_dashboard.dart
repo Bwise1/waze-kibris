@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:sheet/sheet.dart';
 import 'package:styled_widget/styled_widget.dart';
 import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
-import 'package:waze_kibris/app/dashboard/view/flutter_map_imp.dart';
+import 'package:waze_kibris/app/dashboard/view/marp.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
@@ -43,7 +43,7 @@ class _MainDashboardState extends State<MainDashboard>
       //   children: <Widget>[
       //     Positioned.fill(
       // body: Center(),
-      body: MapScreen(),
+      body: const MapScreen(),
       //       // child: Text(
       //       //   'Map',
       //       //   style: styles.typography.t1.textColor(styles.theme.black),

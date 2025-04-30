@@ -116,7 +116,7 @@ class _HomeBottomNavState extends State<HomeBottomNav> {
               setState(() {
                 index = 2;
               });
-              widget.onChanged(1);
+              widget.onChanged(2);
             },
             child: Container(
               height: 60,

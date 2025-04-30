@@ -25,13 +25,13 @@ const double assumedAverageSpeed = 50.0; // km/h for ETA calculation
 //   }
 // }
 
-class MapScreen extends StatefulWidget {
+class PolyLineMapScreen extends StatefulWidget {
   static const String routeName = '/map';
   @override
-  _MapScreenState createState() => _MapScreenState();
+  _PolyLineMapScreenState createState() => _PolyLineMapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _PolyLineMapScreenState extends State<PolyLineMapScreen> {
   final MapController _mapController = MapController();
   final Location _locationService = Location();
   List<LatLng> _routePoints = [];
@@ -204,8 +204,11 @@ class _MapScreenState extends State<MapScreen> {
                       point: _currentPosition!,
                       width: 40,
                       height: 40,
-                      child: const Icon(Icons.location_on,
-                          color: Colors.blue, size: 40),
+                      child: const Icon(
+                        Icons.location_on,
+                        color: Colors.blue,
+                        size: 40,
+                      ),
                     ),
                   ..._maneuvers
                       .map(

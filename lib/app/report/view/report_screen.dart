@@ -127,6 +127,10 @@ class _ReportScreenState extends State<ReportScreen> {
                 RSnackBar.error(
                   'No current report close to you at the moment.',
                 );
+              } else if (state is GetReportSuccess && state.data.isNotEmpty) {
+                RSnackBar.error(
+                  '${state.data.length}',
+                );
               }
             },
             builder: (context, state) {
@@ -359,6 +363,13 @@ class _ReportScreenState extends State<ReportScreen> {
                               context,
                             );
                             if (context.mounted) {
+                              // print(
+                              //   "${position!.latitude.toString()}"
+                              //   "${position.longitude.toString()}",
+                              // );
+                              // RSnackBar.error(
+                              //         "${position!.latitude.toString()} ${position.longitude.toString()}")
+                              //     .show(context);
                               context.read<ReportsBloc>().add(
                                     ReportsEvent.getNearByReports(
                                       radius: endRangeVal.toInt(),
