@@ -118,6 +118,10 @@ class $AssetsIconsGen {
   /// File path: assets/icons/moon.svg
   String get moon => 'assets/icons/moon.svg';
 
+  /// File path: assets/icons/my_location.png
+  AssetGenImage get myLocation =>
+      const AssetGenImage('assets/icons/my_location.png');
+
   /// File path: assets/icons/person.svg
   String get person => 'assets/icons/person.svg';
 
@@ -207,6 +211,7 @@ class $AssetsIconsGen {
         mapMarker,
         microphone,
         moon,
+        myLocation,
         person,
         plus,
         pointMarker,

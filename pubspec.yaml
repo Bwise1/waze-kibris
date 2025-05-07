@@ -46,6 +46,9 @@ dependencies:
   location: ^8.0.0
   flutter_polyline_points: ^2.1.0
   flutter_map: ^8.1.1
+#  location_geocoder: ^1.0.5
+  geocoding: ^3.0.0
+
 
 dev_dependencies:
   bloc_test: ^9.1.7

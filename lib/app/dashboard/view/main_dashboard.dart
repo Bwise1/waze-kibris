@@ -2,13 +2,17 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:sheet/sheet.dart';
 import 'package:styled_widget/styled_widget.dart';
 import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
-import 'package:waze_kibris/app/dashboard/view/marp.dart';
+import 'package:waze_kibris/app/dashboard/view/map_viewpoly.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
+import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
+import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 
 class MainDashboard extends StatefulWidget {
   const MainDashboard({super.key});
@@ -20,12 +24,26 @@ class MainDashboard extends StatefulWidget {
 class _MainDashboardState extends State<MainDashboard>
     with TickerProviderStateMixin {
   late SheetController controller;
-
+  RouteFetchState routeFetchState = RouteFetchState.none;
   @override
   void initState() {
     context.read<AuthBloc>().add(
-          AuthEvent.getUserCoordinateRequested(context: context),
+          AuthEvent.getUserCoordinateRequested(
+            context: context,
+            onCallBack: (latLng) {
+              //on call back successful call the get nearby reports
+              context.read<ReportsBloc>().add(
+                    ReportsEvent.getNearByReports(
+                      radius: 5,
+                      lat: latLng.latitude.toString(),
+                      long: latLng.longitude.toString(),
+                    ),
+                  );
+            },
+          ),
         );
+
+    print("latLng");
 
     //call to get user coordinate
 
@@ -39,24 +57,22 @@ class _MainDashboardState extends State<MainDashboard>
       extendBodyBehindAppBar: true,
       backgroundColor: Colors.grey[200],
       appBar: MapAppBar(controller: controller),
-      // body: Stack(
-      //   children: <Widget>[
-      //     Positioned.fill(
-      // body: Center(),
-      body: const MapScreen(),
-      //       // child: Text(
-      //       //   'Map',
-      //       //   style: styles.typography.t1.textColor(styles.theme.black),
-      //       //   textAlign: TextAlign.center,
-      //       // ).center(),
-      //     ),
-      //     FloatingButtons(controller: controller),
-      //     Positioned.fill(
-      //       top: kToolbarHeight + MediaQuery.of(context).padding.top - 18,
-      //       child: MapSheet(controller: controller),
-      //     ),
-      //   ],
-      // ),
+      body: Stack(
+        children: <Widget>[
+          Positioned.fill(
+            child: MapPolyScreen(
+              // onRouteStateChanged: (state) {
+              //   routeFetchState = state;
+              //   setState(() {});
+              // },
+              controller: controller,
+            ),
+          ),
+
+          ///
+          // FloatingButtons(controller: controller),
+        ],
+      ),
     );
   }
 
@@ -154,7 +170,8 @@ class _MapAppBarState extends State<MapAppBar> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Assets.icons.spotifyPng.image(),
+                            // Assets.icons.spotifyPng.image(),
+                           const SizedBox(),
                             IconBtn(
                               icon: Assets.icons.alertTriangle,
                               onPressed: () =>
@@ -248,22 +265,72 @@ class FloatingButtons extends StatelessWidget {
   }
 }
 
-class MapSheet extends StatelessWidget {
-  const MapSheet({required this.controller, super.key});
+class MapSheet extends StatefulWidget {
+  MapSheet({required this.controller, this.onSearchedDestination, super.key});
   final SheetController controller;
+  final ValueChanged<LatLng>? onSearchedDestination;
+
+  @override
+  State<MapSheet> createState() => _MapSheetState();
+}
+
+class _MapSheetState extends State<MapSheet> {
+  final TextEditingController destinationController = TextEditingController();
+
+  LatLng? foundLocation;
+  String foundLocationName = '';
+
+  void getCoordinateFromTextAddress() {
+    // locationFromAddress("1600 Amphitheatre Parkway, Mountain View")
+    locationFromAddress(destinationController.text).then((locations) {
+      var output = 'No results found.';
+      if (locations.isNotEmpty) {
+        foundLocation = LatLng(locations.reversed.last.latitude,
+            locations.reversed.last.longitude);
+        output = locations[0].toString();
+
+        /// get the name of found location
+        getNameOfSelectedCoordinate(foundLocation);
+
+        debugPrint(output);
+        setState(() {
+          // _output = output;
+        });
+      }
+    });
+  }
+
+  void getNameOfSelectedCoordinate(LatLng? latLng) {
+    // late String outPut;
+
+    if (latLng != null) {
+      placemarkFromCoordinates(latLng.latitude, latLng.longitude)
+          .then((placeMarks) {
+        if (placeMarks.isNotEmpty) {
+          foundLocationName =
+              '${placeMarks.reversed.last.country} ${placeMarks.reversed.last.locality}';
+          // output = placeMarks[0].toString();
+          // debugPrint("......$outPut");
+        }
+      });
+    }
+    setState(() {});
+    // return outPut;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Sheet(
       backgroundColor: Colors.transparent,
       initialExtent: 120,
-      controller: controller,
+      controller: widget.controller,
       physics: const SnapSheetPhysics(
         stops: <double>[0.3, 1],
       ),
       child: AnimatedBuilder(
-        animation: controller.animation,
+        animation: widget.controller.animation,
         builder: (BuildContext context, Widget? child) {
-          final sheetBar = controller.animation.value > 0.95;
+          final sheetBar = widget.controller.animation.value > 0.95;
           return TweenAnimationBuilder<double>(
             tween: Tween<double>(begin: 0, end: sheetBar ? 1 : 0),
             duration: const Duration(milliseconds: 200),
@@ -315,36 +382,93 @@ class MapSheet extends StatelessWidget {
                               child: Column(
                                 children: [
                                   Container(
-                                    height: 55,
+                                    // height: 100,
                                     padding: EdgeInsets.symmetric(
                                       horizontal: styles.insets.sm,
                                     ),
-                                    decoration: BoxDecoration(
-                                      color: styles.theme.background,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Row(
-                                      spacing: styles.insets.sm,
+                                    // decoration: BoxDecoration(
+                                    //   color: styles.theme.background,
+                                    //   borderRadius: BorderRadius.circular(8),
+                                    // ),
+
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        AppIcon(
-                                          Assets.icons.globe,
-                                          color: styles.theme.grey,
+                                        CustomTextField(
+                                          hintText: 'Going somewhere?',
+                                          controller: destinationController,
+                                          onChanged: (v) =>
+                                              getCoordinateFromTextAddress(),
+                                          prefix: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              SizedBox(
+                                                height: 45,
+                                                width: 45,
+                                                child: AppIcon(
+                                                  Assets.icons.searchGlass,
+                                                  color: styles.theme.grey,
+                                                  size: 18,
+                                                ),
+                                              ),
+                                              Text(
+                                                '|',
+                                                style: styles.typography.h4
+                                                    .textColor(
+                                                        styles.theme.ash),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        Text(
-                                          'Going somewhere?',
-                                          style: styles.typography.t2
-                                              .textColor(styles.theme.grey)
-                                              .medium,
-                                        ),
-                                        Expanded(
-                                          child: Container(),
-                                        ),
-                                        AppIcon(
-                                          Assets.icons.arrowForward,
-                                          color: styles.theme.grey,
-                                        ),
+                                        if (foundLocation != null &&
+                                            foundLocationName.isNotEmpty)
+                                          Gap(styles.insets.md),
+                                        if (foundLocation != null &&
+                                            foundLocationName.isNotEmpty)
+                                          LocationItem(
+                                            appIcon: Assets.icons.location,
+                                            title: foundLocationName,
+                                            sub:
+                                                '${foundLocation?.latitude.toString()} , ${foundLocation?.longitude.toString()}',
+                                          ).clickable(() {
+                                            if (widget.onSearchedDestination !=
+                                                    null &&
+                                                foundLocation != null) {
+                                              widget.onSearchedDestination!(
+                                                  foundLocation!);
+                                            }
+                                          }),
+                                        if (foundLocation != null &&
+                                            foundLocationName.isNotEmpty)
+                                          Divider(
+                                            thickness: 0.8,
+                                            color: styles.theme.divider,
+                                          ),
                                       ],
                                     ),
+
+                                    // child: Row(
+                                    //   spacing: styles.insets.sm,
+                                    //   children: [
+                                    //     AppIcon(
+                                    //       Assets.icons.globe,
+                                    //       color: styles.theme.grey,
+                                    //     ),
+                                    //     Text(
+                                    //       'Going somewhere?',
+                                    //       style: styles.typography.t2
+                                    //           .textColor(styles.theme.grey)
+                                    //           .medium,
+                                    //     ),
+                                    //     Expanded(
+                                    //       child: Container(),
+                                    //     ),
+                                    //     AppIcon(
+                                    //       Assets.icons.arrowForward,
+                                    //       color: styles.theme.grey,
+                                    //     ),
+                                    //   ],
+                                    // ),
                                   ),
                                   const Gap(24),
                                   const LocationItem(
@@ -516,10 +640,11 @@ class MapSheet extends StatelessWidget {
 }
 
 class LocationItem extends StatelessWidget {
-  const LocationItem({required this.title, required this.sub, super.key});
+  const LocationItem(
+      {required this.title, required this.sub, super.key, this.appIcon});
   final String title;
   final String sub;
-
+  final String? appIcon;
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -535,7 +660,7 @@ class LocationItem extends StatelessWidget {
               boxShadow: styles.shadows.md,
             ),
             child: AppIcon(
-              Assets.icons.homeSmile,
+              appIcon ?? Assets.icons.homeSmile,
               color: styles.theme.grey,
               size: 18,
             ),

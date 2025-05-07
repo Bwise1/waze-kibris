@@ -195,6 +195,13 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
             status: response.status,
           ),
         );
+
+        add(
+          ReportsEvent.getNearByReports(
+              radius: 50,
+              lat: event.latitude.toString(),
+              long: event.longitude.toString()),
+        );
       }
     } catch (e) {
       emit(ReportError(message: e.toString()));

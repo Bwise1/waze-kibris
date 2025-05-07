@@ -1,6 +1,7 @@
 import 'dart:developer';
 
 import 'package:flutter/cupertino.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
@@ -195,6 +196,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         latitude: position?.latitude ?? 0.00,
       ),
     );
+
+    if (event.onCallBack != null) {
+      event.onCallBack!(
+          LatLng(position?.latitude ?? 0.00, position?.longitude ?? 0.00));
+    }
   }
 
   Future<void> _onRefreshTokenRequested(

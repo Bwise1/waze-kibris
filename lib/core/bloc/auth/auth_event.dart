@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 
 abstract class AuthEvent extends Equatable {
   const AuthEvent();
@@ -36,10 +37,9 @@ abstract class AuthEvent extends Equatable {
     return RefreshTokenRequested(onTokenRefresh: onRefreshToken);
   }
 
-  factory AuthEvent.getUserCoordinateRequested({
-    required BuildContext context,
-  }) {
-    return GetUserCoordinateRequested(context: context);
+  factory AuthEvent.getUserCoordinateRequested(
+      {required BuildContext context, ValueChanged<LatLng>? onCallBack}) {
+    return GetUserCoordinateRequested(context: context, onCallBack: onCallBack);
   }
 
   @override
@@ -115,10 +115,13 @@ class RefreshTokenRequested extends AuthEvent {
 }
 
 class GetUserCoordinateRequested extends AuthEvent {
-  const GetUserCoordinateRequested({required this.context});
+  const GetUserCoordinateRequested({
+    required this.context,
+    this.onCallBack,
+  });
 
   final BuildContext context;
-
+  final ValueChanged<LatLng>? onCallBack;
   @override
-  List<Object?> get props => [context];
+  List<Object?> get props => [context, onCallBack];
 }

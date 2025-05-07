@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:waze_kibris/app/dashboard/view/map_viewpoly.dart';
 import 'package:waze_kibris/app/main/views/main_nav_bar.dart';
 import 'package:waze_kibris/app/report/view/report_screen.dart';
 import 'package:waze_kibris/common.dart';
@@ -29,12 +28,11 @@ class _MainScreenState extends State<MainScreen> {
       ),
       body: LazyIndexedStack(
         index: index,
-        children: [
-          const MainDashboard(),
-          const ReportScreen(),
-          // PolyLineMapScreen(),
-          MapPolyScreen() //
-          // ProfileMainScreen(),
+        children: const [
+          MainDashboard(),
+          ReportScreen(),
+          // MapPolyScreen(), //
+          ProfileMainScreen(),
         ],
       ),
     );

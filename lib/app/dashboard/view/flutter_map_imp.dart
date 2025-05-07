@@ -89,7 +89,7 @@ class _PolyLineMapScreenState extends State<PolyLineMapScreen> {
           ],
           'costing': 'auto',
           'units': 'kilometers',
-          'directions_options': {'narrative': true}
+          'directions_options': {'narrative': true},
         }),
       );
 

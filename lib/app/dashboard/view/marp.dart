@@ -151,6 +151,7 @@ class _MapScreenState extends State<MapScreen> {
 
     // Configure location tracking
     controller.updateMyLocationTrackingMode(MyLocationTrackingMode.trackingGps);
+    mapController?.onSymbolTapped.add(tapSymbols);
     // tapSymbols();
   }
 
@@ -213,44 +214,41 @@ class _MapScreenState extends State<MapScreen> {
       return SymbolOptions.defaultOptions;
     }).toList();
 
-
     mapController!.addSymbols(symbols);
     setState(() {});
   }
 
-  Future<void> tapSymbols() async {
-
-    CustomDialogRoutes.showBottomSheet<bool>(
-      context,
-      Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '{icon.options.textField} '
-            'Report',
-            style: styles.typography.body,
-            // .textColor(styles.theme.text),
-          ),
-          Gap(4 * styles.scale),
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(
-                'ID:',
-                style: styles.typography.t3.textColor(styles.theme.caption),
-              ),
-              Text(
-                ' ...',
-                style: styles.typography.t1,
-                // .textColor(styles.theme.divider),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-
+  tapSymbols(Symbol symbol) async {
+    // CustomDialogRoutes.showBottomSheet<bool>(
+    //   context,
+    //   Column(
+    //     mainAxisSize: MainAxisSize.min,
+    //     crossAxisAlignment: CrossAxisAlignment.start,
+    //     children: [
+    //       Text(
+    //         '{icon.options.textField} '
+    //         'Report',
+    //         style: styles.typography.body,
+    //         // .textColor(styles.theme.text),
+    //       ),
+    //       Gap(4 * styles.scale),
+    //       Wrap(
+    //         crossAxisAlignment: WrapCrossAlignment.center,
+    //         children: [
+    //           Text(
+    //             'ID:',
+    //             style: styles.typography.t3.textColor(styles.theme.caption),
+    //           ),
+    //           Text(
+    //             ' ...',
+    //             style: styles.typography.t1,
+    //             // .textColor(styles.theme.divider),
+    //           ),
+    //         ],
+    //       ),
+    //     ],
+    //   ),
+    // );
   }
 
   @override
@@ -295,13 +293,7 @@ class _MapScreenState extends State<MapScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        // onPressed: _getCurrentLocation,
-        onPressed: () {
-          tapSymbols();
-
-          print('sjdjd');
-        },
-
+        onPressed: _getCurrentLocation,
         child: const Icon(Icons.my_location),
       ),
     );

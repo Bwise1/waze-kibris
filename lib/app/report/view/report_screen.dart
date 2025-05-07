@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
@@ -23,7 +24,7 @@ class _ReportScreenState extends State<ReportScreen> {
   @override
   initState() {
     super.initState();
-    print('hello');
+    // print('hello');
     getNearReport(context);
   }
 
@@ -42,9 +43,24 @@ class _ReportScreenState extends State<ReportScreen> {
     }
   }
 
+
+  String _output = '';
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // floatingActionButton: FloatingActionButton(onPressed: () {
+      //   placemarkFromCoordinates(9.9312, 76.2673).then((placemarks) {
+      //     var output = 'No results found.';
+      //     if (placemarks.isNotEmpty) {
+      //       output = placemarks[0].toString();
+      //       debugPrint(placemarks.toString());
+      //     }
+      //
+      //     setState(() {
+      //       _output = output;
+      //     });
+      //   });
+      // }),
       backgroundColor: Colors.white,
       body: Column(
         children: [
@@ -108,19 +124,33 @@ class _ReportScreenState extends State<ReportScreen> {
               ],
             ),
           ),
-          GestureDetector(
-            onTap: () async {
-              final imageBytes = await screenshotController.captureFromWidget(
-                IconImageMakerWidget(
-                  iconObject: Assets.icons.police.image(),
-                ),
-              );
-              print(imageBytes);
-            },
-            child: IconImageMakerWidget(
-              iconObject: Assets.icons.policeCar.image(),
-            ),
+          Text(
+            _output,
+            style: styles.typography.body,
           ),
+          // GestureDetector(
+          //   onTap: () async {
+          //     // final imageBytes = await screenshotController.captureFromWidget(
+          //     //   IconImageMakerWidget(
+          //     //     iconObject: Assets.icons.police.image(),
+          //     //   ),
+          //     // );
+          //     // print(imageBytes);
+          //     locationFromAddress("1600 Amphitheatre Parkway, Mountain View")
+          //         .then((locations) {
+          //       var output = 'No results found.';
+          //       if (locations.isNotEmpty) {
+          //         output = locations[0].toString();
+          //       }
+          //       setState(() {
+          //         _output = output;
+          //       });
+          //     });
+          //   },
+          //   child: IconImageMakerWidget(
+          //     iconObject: Assets.icons.policeCar.image(),
+          //   ),
+          // ),
           BlocConsumer<ReportsBloc, ReportState>(
             listener: (context, state) {
               if (state is GetReportSuccess && state.data.isEmpty) {
@@ -362,6 +392,9 @@ class _ReportScreenState extends State<ReportScreen> {
                                 await UserCoordinates.getAndSetUserCoordinate(
                               context,
                             );
+                            RSnackBar.error(position!.longitude.toString())
+                                .show(context);
+
                             if (context.mounted) {
                               // print(
                               //   "${position!.latitude.toString()}"

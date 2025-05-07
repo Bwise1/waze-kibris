@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
@@ -81,7 +82,7 @@ class ReportEventModal extends StatelessWidget {
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
               crossAxisSpacing: 19,
-              childAspectRatio: 0.85,
+              childAspectRatio: 0.8,
             ),
             itemBuilder: (context, index) {
               return GestureDetector(
@@ -139,14 +140,16 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
   @override
   void initState() {
     super.initState();
-    // context.read<AuthBloc>().add(
-    //       AuthEvent.getUserCoordinateRequested(context: context),
-    //     );
+    context.read<AuthBloc>().add(
+          AuthEvent.getUserCoordinateRequested(context: context),
+        );
   }
 
   int? _selectedIndex;
   @override
   Widget build(BuildContext context) {
+    // final userCoordinate = context.select((AuthBloc auth) => auth.state);
+
     final reports = <Map<String, dynamic>>[
       {
         'type': ReportType.police.name,
@@ -187,7 +190,7 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
               crossAxisSpacing: 19,
-              childAspectRatio: 0.85,
+              childAspectRatio: 0.8,
             ),
             itemBuilder: (context, index) {
               return BlocConsumer<AuthBloc, AuthState>(
@@ -243,7 +246,7 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
               );
             },
           ),
-          Gap(styles.insets.sm),
+          Gap(styles.insets.md),
           BlocBuilder<AuthBloc, AuthState>(
             // listener: (context, authState) {},
             builder: (authContext, authState) {
@@ -288,7 +291,11 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                       builder: (reportContext, state) {
                         return SubmitReportBTN(
                           onPressed: () {
+                            // print(userCoordinate);
+
                             if (authState is UserCoordinate) {
+                              debugPrint(
+                                  '${authState.longitude} ${authState.latitude}');
                               reportContext.read<ReportsBloc>().add(
                                     ReportsEvent.submitReportRequested(
                                       longitude: authState.longitude,
@@ -298,6 +305,17 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                                     ),
                                   );
                             }
+                            // if (authState is UserCoordinate) {
+                            //   print(authState.longitude);
+                            //   reportContext.read<ReportsBloc>().add(
+                            //         ReportsEvent.submitReportRequested(
+                            //           longitude: authState.longitude,
+                            //           latitude: authState.latitude,
+                            //           type: reports[_selectedIndex ?? 0]['type']
+                            //               .toString(),
+                            //         ),
+                            //       );
+                            // }
                           },
                         );
                       },
