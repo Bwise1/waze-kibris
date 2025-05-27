@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:waze_kibris/app/main/views/main_nav_bar.dart';
 import 'package:waze_kibris/app/report/view/report_screen.dart';
 import 'package:waze_kibris/common.dart';
 
@@ -18,14 +17,15 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       extendBodyBehindAppBar: true,
       backgroundColor: styles.theme.background,
-      bottomNavigationBar: HomeBottomNav(
-        index: index,
-        onChanged: (int index) {
-          setState(() {
-            this.index = index;
-          });
-        },
-      ),
+
+      // bottomNavigationBar: HomeBottomNav(
+      //   index: index,
+      //   onChanged: (int index) {
+      //     setState(() {
+      //       this.index = index;
+      //     });
+      //   },
+      // ),
       body: LazyIndexedStack(
         index: index,
         children: const [

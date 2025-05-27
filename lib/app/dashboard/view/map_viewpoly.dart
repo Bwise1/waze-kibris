@@ -5,9 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart' as latlong;
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sheet/sheet.dart';
+import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
@@ -32,10 +34,15 @@ class MapPolyScreen extends StatefulWidget {
   State<MapPolyScreen> createState() => _MapPolyScreenState();
 }
 
-class _MapPolyScreenState extends State<MapPolyScreen> {
+class _MapPolyScreenState extends State<MapPolyScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<Offset> _offsetAnimation;
+  bool _isVisible = false;
   MaplibreMapController? mapController;
   LatLng? _currentLocation;
   bool _isLoading = false;
+  bool _tripIsStarted = false;
   bool _mapReady = false;
   bool _showRouteDetails = false;
   bool _markersLoaded = false;
@@ -53,11 +60,45 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
   Line? _routeLine;
   Symbol? _startSymbol;
   Symbol? _endSymbol;
+  Circle? _startCircle;
+  Circle? _endCircle;
 
   @override
   void initState() {
     super.initState();
     _requestLocationPermission();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _offsetAnimation = Tween<Offset>(
+      begin: const Offset(0, -1), // Start off-screen (above)
+      end: const Offset(0, 0.06), // End at 60px from top (visible)
+    ).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeInOut,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _toggleNotification() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {
+        _isVisible = !_isVisible;
+        if (_isVisible) {
+          _controller.forward();
+        } else {
+          _controller.reverse();
+        }
+      });
+    });
   }
 
   Future<void> _requestLocationPermission() async {
@@ -95,9 +136,11 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
     }
   }
 
-  void _moveCamera(LatLng target) {
+  void _moveCamera(LatLng target, {double zoom = 12}) {
     mapController?.animateCamera(
-      CameraUpdate.newCameraPosition(CameraPosition(target: target, zoom: 15)),
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: target, zoom: zoom),
+      ),
     );
   }
 
@@ -105,19 +148,77 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
     if (_markersLoaded) return;
 
     try {
-      // Load start marker PNG
-      final startMarkerData =
-          await rootBundle.load('assets/currentPosition.png');
-      await mapController?.addImage(
-          'start-marker', startMarkerData.buffer.asUint8List());
+      // // Load start marker PNG
+      // final startMarkerData =
+      //     await rootBundle.load('assets/icons/currentPosition.png');
+      // await mapController?.addImage(
+      //     'start-marker', startMarkerData.buffer.asUint8List());
 
-      // Load end marker PNG
-      final endMarkerData = await rootBundle.load('assets/endlocation_pin.png');
+      // Load my location marker PNG
+      final myLocationMarkerData =
+          await rootBundle.load('assets/icons/mylpin.png');
       await mapController?.addImage(
-          'end-marker', endMarkerData.buffer.asUint8List());
+        'end-marker',
+        myLocationMarkerData.buffer.asUint8List(),
+      );
 
+      // Load circle marker PNG
+      final circle = await rootBundle.load('assets/icons/circle_one.png');
+      await mapController?.addImage(
+        'circle-marker',
+        circle.buffer.asUint8List(),
+      );
+
+      // Load circle marker PNG
+      final userMarkerData =
+          await rootBundle.load('assets/icons/user_location.png');
+      await mapController?.addImage(
+        'userPin-marker',
+        userMarkerData.buffer.asUint8List(),
+      );
+
+      // Load start trip marker PNG
+      final startTripMarkerData =
+          await rootBundle.load('assets/icons/start_trip.png');
+      await mapController?.addImage(
+        'startTrip-marker',
+        startTripMarkerData.buffer.asUint8List(),
+      );
+
+      // Load police marker PNG
+      final policeMarkerData = await rootBundle.load(Assets.icons.police.path);
+      await mapController?.addImage(
+        'police-marker',
+        policeMarkerData.buffer.asUint8List(),
+      );
+
+      // Load police car marker PNG
+      final policeCarMarkerData = await rootBundle.load(
+        Assets.icons.policeCar.path,
+      );
+      await mapController?.addImage(
+        'policeCar-marker',
+        policeCarMarkerData.buffer.asUint8List(),
+      );
+
+      // Load accident marker PNG
+      final accidentMarkerData =
+          await rootBundle.load(Assets.icons.accident.path);
+      await mapController?.addImage(
+        'accident-marker',
+        accidentMarkerData.buffer.asUint8List(),
+      );
+
+      // Load accident marker PNG
+      final pointMarkerData =
+          await rootBundle.load(Assets.icons.pointMarker.path);
+      await mapController?.addImage(
+        'point-marker',
+        pointMarkerData.buffer.asUint8List(),
+      );
       _markersLoaded = true;
     } catch (e) {
+      _showSnackBar('Error loading marker images: $e');
       debugPrint('Error loading marker images: $e');
     }
   }
@@ -167,18 +268,24 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
   }
 
   // Replace your _drawRoute() method with this implementation
-  void _drawRoute() async {
+  Future<void> _drawRoute() async {
     if (mapController == null || routeData == null) return;
     await _loadMarkerImages();
     // Clear previous route
     if (_routeLine != null) {
-      mapController?.removeLine(_routeLine!);
+      await mapController?.removeLine(_routeLine!);
     }
     if (_startSymbol != null) {
-      mapController?.removeSymbol(_startSymbol!);
+      await mapController?.removeSymbol(_startSymbol!);
     }
     if (_endSymbol != null) {
-      mapController?.removeSymbol(_endSymbol!);
+      await mapController?.removeSymbol(_endSymbol!);
+    }
+    if (_startCircle != null) {
+      await mapController?.removeCircle(_startCircle!);
+    }
+    if (_endCircle != null) {
+      await mapController?.removeCircle(_endCircle!);
     }
 
     final coords =
@@ -191,79 +298,100 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
       LineOptions(
         geometry: coords,
         lineColor: '#3b82f6',
-        lineWidth: 5,
-        lineOpacity: 0.8,
+        lineWidth: 6,
+        lineOpacity: 0.9,
       ),
     );
 
-    // Add start point as a circle (will always be visible)
-    await mapController?.addCircle(CircleOptions(
-      geometry: coords.first,
-      circleRadius: 8,
-      circleColor: '#4CAF50', // Green for start
-      circleStrokeColor: '#FFFFFF',
-      circleStrokeWidth: 2,
-      circleOpacity: 0.9,
-    ));
-
-    // Add end point as a circle (will always be visible)
-    await mapController?.addCircle(CircleOptions(
-      geometry: coords.last,
-      circleRadius: 8,
-      circleColor: '#F44336', // Red for destination
-      circleStrokeColor: '#FFFFFF',
-      circleStrokeWidth: 2,
-      circleOpacity: 0.9,
-    ));
+    // // Add start point as a circle (will always be visible)
+    _startCircle = await mapController?.addCircle(
+      CircleOptions(
+        geometry: coords.first,
+        circleRadius: 8,
+        circleColor: '#4CAF50', // Green for start
+        circleStrokeColor: '#FFFFFF',
+        circleStrokeWidth: 2,
+        circleOpacity: 0.9,
+      ),
+    );
+    //
+    // // Add end point as a circle (will always be visible)
+    // _endCircle = await mapController?.addCircle(
+    //   CircleOptions(
+    //     geometry: coords.last,
+    //     circleRadius: 8,
+    //     circleColor: '#F44336', // Red for destination
+    //     circleStrokeColor: '#FFFFFF',
+    //     circleStrokeWidth: 2,
+    //     circleOpacity: 0.9,
+    //   ),
+    // );
 
     // Try to add symbols as well (as a backup)
     try {
-      // Add start marker using PNG
-      _startSymbol = await mapController?.addSymbol(SymbolOptions(
-        geometry: coords.first,
-        iconImage: 'start-marker',
-        iconSize: 1, // Adjust this value based on your PNG size
-        iconAnchor: 'bottom', // Position the marker correctly
-      ));
-
       // Add end marker using PNG
-      _endSymbol = await mapController?.addSymbol(SymbolOptions(
-        geometry: coords.last,
-        iconImage: 'end-marker',
-        iconSize: 1, // Adjust this value based on your PNG size
-        iconAnchor: 'bottom', // Position the marker correctly
-      ));
+      _endSymbol = await mapController?.addSymbol(
+        SymbolOptions(
+          geometry: coords.last,
+          iconImage: 'end-marker',
+          iconSize: 0.2, // Adjust this value based on your PNG size
+          iconAnchor: 'bottom', // Position the marker correctly
+        ),
+      );
     } catch (e) {
       debugPrint('Error adding symbols: $e');
       // If symbols fail, we still have circles as markers
     }
-
-    _fitBounds(coords);
+    _zoomOnPointA(_currentLocation!);
+    // _fitBounds(coords);
   }
 
-  void _fitBounds(List<LatLng> coords) {
-    if (coords.isEmpty) return;
-
-    var minLat = coords.first.latitude, maxLat = coords.first.latitude;
-    var minLon = coords.first.longitude, maxLon = coords.first.longitude;
-
-    for (var c in coords) {
-      if (c.latitude < minLat) minLat = c.latitude;
-      if (c.latitude > maxLat) maxLat = c.latitude;
-      if (c.longitude < minLon) minLon = c.longitude;
-      if (c.longitude > maxLon) maxLon = c.longitude;
+  //this removes all line   and marker added
+  Future<void> _removeLineAndClearMarkers() async {
+    _moveCamera(_currentLocation!, zoom: 10);
+    // Clear previous route
+    if (_routeLine != null) {
+      await mapController?.removeLine(_routeLine!);
     }
-
-    mapController?.animateCamera(
-      CameraUpdate.newLatLngBounds(
-        LatLngBounds(
-          southwest: LatLng(minLat, minLon),
-          northeast: LatLng(maxLat, maxLon),
-        ),
-        // padding: 80,
-      ),
-    );
+    if (_startSymbol != null) {
+      await mapController?.removeSymbol(_startSymbol!);
+    }
+    if (_endSymbol != null) {
+      await mapController?.removeSymbol(_endSymbol!);
+    }
+    if (_startCircle != null) {
+      await mapController?.removeCircle(_startCircle!);
+    }
+    if (_endCircle != null) {
+      await mapController?.removeCircle(_endCircle!);
+    }
   }
+
+  // void _fitBounds(List<LatLng> coords) {
+  //   if (coords.isEmpty) return;
+  //
+  //   var minLat = coords.first.latitude;
+  //   var maxLat = coords.first.latitude;
+  //   var minLon = coords.first.longitude;
+  //   var maxLon = coords.first.longitude;
+  //
+  //   for (var c in coords) {
+  //     if (c.latitude < minLat) minLat = c.latitude;
+  //     if (c.latitude > maxLat) maxLat = c.latitude;
+  //     if (c.longitude < minLon) minLon = c.longitude;
+  //     if (c.longitude > maxLon) maxLon = c.longitude;
+  //   }
+  //
+  //   mapController?.animateCamera(
+  //     CameraUpdate.newLatLngBounds(
+  //       LatLngBounds(
+  //         southwest: LatLng(minLat, minLon),
+  //         northeast: LatLng(maxLat, maxLon),
+  //       ),
+  //       // padding: 80,
+  //     ),
+  //   );
+  // }
 
   void _showPermissionDialog() {
     showDialog(
@@ -292,11 +420,12 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  void _onMapCreated(MapLibreMapController controller) async {
+  Future<void> _onMapCreated(MapLibreMapController controller) async {
     mapController = controller;
     setState(() => _mapReady = true);
 
     await _loadMarkerImages();
+    _startUserLocationUpdates();
 
     if (_currentLocation != null) {
       _moveCamera(_currentLocation!);
@@ -313,37 +442,32 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
   }
 
   void _toggleRouteOptionStates(RouteFetchState state) {
-    _mRouteState = state;
     // widget.onRouteStateChanged(state);
-    setState(() {});
+    setState(() {
+      _mRouteState = state;
+      if (_mRouteState == RouteFetchState.searchingOutDestination ||
+          _mRouteState == RouteFetchState.nowInDestination) {
+      } else if (_mRouteState == RouteFetchState.none) {}
+    });
   }
 
   String getIconOnMapByReportType(String reportType) {
     ///
-    // try {
-    //   // Load marker PNG
-    //   final ByteData startMarkerData =
-    //       await rootBundle.load('assets/currentPosition.png');
-    //   await mapController?.addImage(
-    // 'start-marker', startMarkerData.buffer.asUint8List());
-    ///
-    //
-    // _markersLoaded = true;
-
-    // } catch (e) {
-    // debugPrint('Error loading marker images: $e');
-    // }
 
     if (reportType == ReportType.police.name) {
-      return Assets.icons.police.path;
+      return 'police-marker';
+      // return Assets.icons.police.path;
     }
     if (reportType == ReportType.traffic.name) {
-      return Assets.icons.policeCar.path;
+      return 'policeCar-marker';
+      // return Assets.icons.policeCar.path;
     }
     if (reportType == ReportType.accident.name) {
-      return Assets.icons.accident.path;
+      return 'accident-marker';
+      // return Assets.icons.accident.path;
     } else {
-      return Assets.icons.pointMarker.path;
+      return 'point-marker';
+      // return Assets.icons.pointMarker.path;
     }
   }
 
@@ -373,6 +497,8 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
     _toggleRouteOptionStates(RouteFetchState.foundDestination);
     if (_mRouteState == RouteFetchState.foundDestination) {
       _destinationEndPoint = symbol.options.geometry!;
+      getNameOfSelectedCoordinate(_destinationEndPoint);
+      _toggleNotification(); //open panel
 
       ///move the camera to selected position
       ///
@@ -403,6 +529,139 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
     }
   }
 
+  void _startUserLocationUpdates({bool animateCameraLongLocation = false}) {
+    Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 1,
+      ),
+    ).listen((Position position) {
+      final userLatLatLng = LatLng(position.latitude, position.longitude);
+      _updateCustomUserMaker(userLatLatLng);
+
+      if (animateCameraLongLocation) {
+        mapController!.animateCamera(CameraUpdate.newLatLng(userLatLatLng));
+      }
+    });
+  }
+
+  Symbol? userMaker;
+  Future<void> _updateCustomUserMaker(LatLng location) async {
+    _currentLocation = location; //constantly update user location
+
+    if (userMaker == null) {
+      userMaker = await mapController!.addSymbol(
+        SymbolOptions(
+          geometry: location,
+          // iconImage: Assets.icons.userLocation.path,
+          iconImage: 'userPin-marker',
+          // iconSize: 0.3,
+        ),
+      );
+    } else if (userMaker != null && _tripIsStarted) {
+      await mapController!.updateSymbol(
+        userMaker!,
+        SymbolOptions(
+          geometry: location,
+          iconImage: 'startTrip-marker',
+          // iconImage: Assets.icons.startTrip.path,
+          iconSize: 0.8,
+        ),
+      );
+    } else {
+      await mapController!.updateSymbol(
+        userMaker!,
+        SymbolOptions(geometry: location),
+      );
+    }
+  }
+
+  void _toggleStartTrip(bool startTrip) {
+    _tripIsStarted = startTrip;
+
+    // WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (_tripIsStarted) {
+      mapController!.updateSymbol(
+        userMaker!,
+        SymbolOptions(
+          geometry: _currentLocation,
+          iconImage: 'startTrip-marker',
+          iconSize: 0.8,
+        ),
+      );
+
+      if (_startCircle != null) {
+        ///
+        // rotateCameraToDestination(
+        //   _startCircle!.options.geometry!,
+        //   _destinationEndPoint!,
+        // );
+
+        _zoomOnPointA(
+          _startCircle!.options.geometry!,
+          startTripZoom: true,
+        );
+      }
+    } else {
+      mapController!.updateSymbol(
+        userMaker!,
+        SymbolOptions(
+          geometry: _currentLocation,
+          iconImage: 'userPin-marker',
+          // iconSize: 2,
+        ),
+      );
+
+      _removeLineAndClearMarkers();
+    }
+    // });
+  }
+
+  ///
+  ///
+  double? bearing; // Store the bearing from A to B
+// Calculate bearing from point A to point B
+  void _calculateBearing() {
+    final a = latlong.LatLng(_startCircle!.options.geometry!.latitude,
+        _startCircle!.options.geometry!.longitude);
+    final b = latlong.LatLng(
+        _destinationEndPoint!.latitude, _destinationEndPoint!.longitude);
+    bearing = const latlong.Distance().bearing(a, b); // Bearing in degrees
+  }
+
+  ///
+  ///
+  // Zoom in on point A with the calculated bearing
+  void _zoomOnPointA(LatLng pointA, {bool startTripZoom = false}) {
+    _calculateBearing();
+    if (bearing == null) return;
+
+    if (startTripZoom) {
+      mapController!.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: pointA,
+            zoom: 18, // Zoom level for point A
+            bearing: bearing!,
+            tilt: 56, // Orient the map toward point B
+          ),
+        ),
+        duration: const Duration(seconds: 2), // Smooth zoom animation
+      );
+    } else {
+      mapController!.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: pointA,
+            zoom: 12, // Zoom level for point A
+            // bearing: 0,
+          ),
+        ),
+        duration: const Duration(seconds: 2), // Smooth zoom animation
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -419,23 +678,15 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
                 onMapCreated: _onMapCreated,
                 initialCameraPosition: CameraPosition(
                   target: _currentLocation ?? const LatLng(37.7749, -122.4194),
-                  zoom: 10,
+                  zoom: 12,
                 ),
                 styleString:
                     'https://tiles-eu.stadiamaps.com/styles/outdoors.json?api_key=$stadiaApiKey',
-                myLocationEnabled: true,
-                myLocationTrackingMode: MyLocationTrackingMode.trackingGps,
-                myLocationRenderMode: MyLocationRenderMode.compass,
+                // myLocationEnabled: false,
+                // myLocationTrackingMode: MyLocationTrackingMode.trackingGps,
+                // myLocationRenderMode: MyLocationRenderMode.compass,
                 onStyleLoadedCallback: () {
-                  //add symbol after style loaded successfully
-                  mapController?.addSymbol(
-                    SymbolOptions(
-                      geometry:
-                          _currentLocation ?? const LatLng(37.7749, -122.4194),
-                      iconImage: Assets.icons.myLocation.path,
-                      iconSize: 1,
-                    ),
-                  ); //
+                  //
                 },
               );
             },
@@ -456,6 +707,7 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
             RouteOptionPanel(
               key: UniqueKey(),
               title: foundLocationName,
+              mRouteState: _mRouteState,
               onClose: () {
                 _toggleRouteOptionStates(RouteFetchState.none);
               },
@@ -463,132 +715,89 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
                           RouteFetchState.foundDestination &&
                       _destinationEndPoint != null)
                   ? () async {
-                      // _destinationEndPoint = ;
-                      // _destinationEndPoint = const LatLng(35.221906, 33.417018);
                       await getNameOfSelectedCoordinate(_destinationEndPoint);
                       await _fetchRoute();
-                      _toggleRouteOptionStates(
-                          RouteFetchState.searchingOutDestination);
+                      // _toggleRouteOptionStates(
+                      //     RouteFetchState.searchingOutDestination);
                     }
                   : () {},
+              onClickStartTrip: () {
+                // startTrip();
+              },
             ),
 
           ///top most panel
-          if (_mRouteState == RouteFetchState.searchingOutDestination ||
-              _mRouteState == RouteFetchState.nowInDestination)
-            Positioned(
-              top: 10,
-              left: 10,
-              right: 10,
-              child: SafeArea(
-                child: CustomContainer(
-                  // height: 50,
-                  width: context.widthPx,
-                  color: styles.theme.white,
+          ///
+          SlideTransition(
+            position: _offsetAnimation,
+            child: Column(
+              children: [
+                CustomContainer(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+
+                  // height: 200,
+                  // width: 400,
+                  color: styles.theme.white,
                   borderRadius: BorderRadius.circular(styles.corners.md),
-                  child: Column(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Row(
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              height: 15,
+                              width: 15,
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: styles.theme.green
+                                      .withValues(alpha: 0.1)),
+                              child: CircleAvatar(
+                                radius: 3,
+                                backgroundColor: styles.theme.green,
+                              ),
+                            ),
+                            const Gap(8),
+                            Flexible(
+                              child: Text(
+                                foundLocationName,
+                                maxLines: 2,
+                                style: styles.typography.h3,
+                                // '${_destinationEndPoint?.latitude ?? ""}, ${_destinationEndPoint?.longitude ?? ""} ',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Gap(18),
+                      Column(
                         children: [
-                          Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Container(
-                                height: 15,
-                                width: 15,
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: styles.theme.green
-                                        .withValues(alpha: 0.1)),
-                                child: CircleAvatar(
-                                  radius: 3,
-                                  backgroundColor: styles.theme.green,
-                                ),
-                              ),
-                              Positioned(
-                                left: 6,
-                                top: 17,
-                                child: CircleAvatar(
-                                  radius: 2,
-                                  backgroundColor: styles.theme.green,
-                                ),
-                              ),
-                              Positioned(
-                                left: 6,
-                                top: 25,
-                                child: CircleAvatar(
-                                  radius: 2,
-                                  backgroundColor: styles.theme.green,
-                                ),
-                              ),
-                              Positioned(
-                                left: 6,
-                                top: 34,
-                                child: CircleAvatar(
-                                  radius: 2,
-                                  backgroundColor: styles.theme.green,
-                                ),
-                              ),
-                              Positioned(
-                                left: 6,
-                                top: 42,
-                                child: CircleAvatar(
-                                  radius: 2,
-                                  backgroundColor: styles.theme.green,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const Gap(8),
-                          const Text(
-                            'Your current location',
-                            // '${_currentLocation?.latitude ?? ""}, ${_currentLocation?.longitude ?? ""}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const Spacer(),
                           const Icon(Icons.close_rounded).clickable(() {
+                            _toggleNotification(); //close the top panel
                             _toggleRouteOptionStates(
                               RouteFetchState.none,
                             );
+
+                            _toggleStartTrip(false);
                           }),
-                        ],
-                      ),
-                      const Gap(5),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Divider(
-                          color: styles.theme.divider,
-                        ),
-                      ),
-                      const Gap(5),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.pin_drop_rounded,
-                            color: styles.theme.red,
-                          ),
-                          const Gap(8),
-                          Expanded(
-                            child: Text(
-                              foundLocationName,
-                              maxLines: 2,
-                              // '${_destinationEndPoint?.latitude ?? ""}, ${_destinationEndPoint?.longitude ?? ""} ',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const Gap(8),
-                          const Spacer(),
-                          const Icon(Icons.map_outlined)
+                          const Gap(18),
+                          Assets.icons.startTrip.image(scale: 3).clickable(() {
+                            _toggleStartTrip(true);
+                          }),
                         ],
                       ),
                     ],
                   ),
                 ),
-              ),
+              ],
             ),
+          ),
+
+          ///..........
+          ///
 
           ///Mapsheet
           if (_mRouteState == RouteFetchState.none)
@@ -602,7 +811,7 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
                   _fetchRoute();
                   _toggleRouteOptionStates(
                       RouteFetchState.searchingOutDestination);
-
+                  _toggleNotification(); //open the top panel
                   ///move the camera to selected position
                   _moveCamera(_destinationEndPoint!);
 
@@ -615,10 +824,30 @@ class _MapPolyScreenState extends State<MapPolyScreen> {
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          FloatingActionButton(
+            onPressed: () {
+              _toggleRouteOptionStates(RouteFetchState.nowInDestination);
+              _toggleDetails();
+            },
+            heroTag: 'add-report',
+            backgroundColor: styles.theme.yellow,
+            child: IconBtn(
+              icon: Assets.icons.alertTriangle,
+              onPressed: () => CustomDialogRoutes.showBottomSheet<bool>(
+                context,
+                const ReportEventModal(),
+              ),
+              semanticLabel: '',
+              bgColor: styles.theme.yellow,
+              color: styles.theme.black,
+            ),
+          ),
+          const SizedBox(height: 10),
           if (routeData != null)
             FloatingActionButton(
               onPressed: () {
                 // _toggleRouteOptionPanel(); //close the ;
+                ///
                 _toggleRouteOptionStates(RouteFetchState.nowInDestination);
                 _toggleDetails();
               },
@@ -641,11 +870,16 @@ class RouteOptionPanel extends StatelessWidget {
   const RouteOptionPanel(
       {required this.onClose,
       required this.onClickGetDirection,
+      required this.title,
+      required this.onClickStartTrip,
       super.key,
-      required this.title});
+      required this.mRouteState});
   final VoidCallback onClose;
   final VoidCallback onClickGetDirection;
+  final VoidCallback onClickStartTrip;
   final String title;
+  final RouteFetchState mRouteState;
+
   @override
   Widget build(BuildContext context) {
     return Positioned(
@@ -668,21 +902,20 @@ class RouteOptionPanel extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     if (state is UserCoordinate)
-                      Expanded(child:Text(
-                        '$title ',
-                        // '${state.latitude} ${state.longitude} ',
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
-                      ),),
-
-                    IconButton(
-                      onPressed: onClose,
-                      icon: const Icon(
-                        Icons.close,
-                        size: 24,
+                      Expanded(
+                        child: Text(
+                          '$title ',
+                          // '${state.latitude} ${state.longitude} ',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
                       ),
-                    ),
+                    const Spacer(),
+                    const Icon(
+                      Icons.close_rounded,
+                      size: 24,
+                    ).clickable(onClose),
                   ],
                 ),
                 const Divider(),
@@ -693,7 +926,7 @@ class RouteOptionPanel extends StatelessWidget {
                       child: ColoredBox(
                         color: styles.theme.primary,
                         child: Padding(
-                          padding: const EdgeInsets.all(10),
+                          padding: const EdgeInsets.all(8),
                           child: Row(
                             children: [
                               const Icon(
@@ -701,17 +934,47 @@ class RouteOptionPanel extends StatelessWidget {
                                 size: 22,
                                 color: Colors.white,
                               ),
-                              const Gap(8),
+                              const Gap(3),
                               Text(
                                 'Get Directions',
-                                style: styles.typography.t3
-                                    .textColor(styles.theme.white),
+                                style: styles.typography.body.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: styles.theme.white,
+                                ),
                               ),
                             ],
                           ),
                         ),
                       ),
                     ).clickable(onClickGetDirection),
+                    const Gap(10),
+                    if (mRouteState == RouteFetchState.foundDestination)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(styles.corners.lg),
+                        child: ColoredBox(
+                          color: styles.theme.primary,
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.play_arrow,
+                                  size: 22,
+                                  color: Colors.white,
+                                ),
+                                const Gap(3),
+                                Text(
+                                  'Start trip',
+                                  style: styles.typography.body.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: styles.theme.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ).clickable(onClickStartTrip),
                   ],
                 ),
               ],
@@ -814,3 +1077,218 @@ class RouteDetailsPanel extends StatelessWidget {
     return '${minutes}m ${secs}s';
   }
 }
+
+///
+///
+///
+///
+
+// class _MapScreenState extends State<MapScreen> { MapLibreMapController? _mapController; Location location = Location(); late LatLng pointA; late LatLng pointB; LatLng? userPosition; List<LatLng> routePoints = []; bool _isTraveling = false; double? bearing; // Store the bearing from A to B @override void initState() { super.initState(); // Define points A and B (replace with your coordinates) pointA = const LatLng(51.5074, -0.1278); // London pointB = const LatLng(51.5150, -0.1410); // Slightly north-west of London _generateRoutePoints(); _calculateBearing(); // Calculate bearing on init _setupLocation(); } // Calculate bearing from point A to point B void _calculateBearing() { final latlong.LatLng a = latlong.LatLng(pointA.latitude, pointA.longitude); final latlong.LatLng b = latlong.LatLng(pointB.latitude, pointB.longitude); bearing = const latlong.Distance().bearing(a, b); // Bearing in degrees } // Simulate a route by interpolating points between A and B void _generateRoutePoints() { const steps = 50; for (int i = 0; i <= steps; i++) { double t = i / steps; double lat = pointA.latitude + (pointB.latitude - pointA.latitude) * t; double lng = pointA.longitude + (pointB.longitude - pointA.longitude) * t; routePoints.add(LatLng(lat, lng)); } } // Set up location permissions Future<void> _setupLocation() async { bool serviceEnabled; PermissionStatus permissionGranted; serviceEnabled = await location.serviceEnabled(); if (!serviceEnabled) { serviceEnabled = await location.requestService(); if (!serviceEnabled) return; } permissionGranted = await location.hasPermission(); if (permissionGranted == PermissionStatus.denied) { permissionGranted = await location.requestPermission(); if (permissionGranted != PermissionStatus.granted) return; } } // Add markers and route on map creation void _onMapCreated(MapLibreMapController controller) { _mapController = controller; // Add markers for point A and B _mapController!.addSymbol( SymbolOptions(geometry: pointA, iconImage: "marker-15", iconSize: 2), ); _mapController!.addSymbol( SymbolOptions(geometry: pointB, iconImage: "marker-15", iconSize: 2), ); // Draw the route as a polyline _mapController!.addLine( LineOptions(geometry: routePoints, lineColor: "#FF0000", lineWidth: 4.0), ); // Zoom in on point A with the correct bearing _zoomOnPointA(); } // Zoom in on point A with the calculated bearing void _zoomOnPointA() { if (bearing == null) return; _mapController!.animateCamera( CameraUpdate.newCameraPosition( CameraPosition( target: pointA, zoom: 15.0, // Zoom level for point A bearing: bearing!, // Orient the map toward point B ), ), duration: const Duration(seconds: 2), // Smooth zoom animation ); } // Simulate travel and zoom in on the user's position void _simulateTravel() async { if (_isTraveling) return; _isTraveling = true; // Ensure the map is zoomed in on point A with the correct bearing before starting _zoomOnPointA(); // Wait for the initial zoom to complete before starting the trip await Future.delayed(const Duration(seconds: 2)); Symbol? userMarker; for (int i = 0; i < routePoints.length; i++) { if (!mounted || !_isTraveling) break; userPosition = routePoints[i]; // Update user marker position if (userMarker != null) { _mapController!.updateSymbol( userMarker, SymbolOptions(geometry: userPosition), ); } else { userMarker = await _mapController!.addSymbol( SymbolOptions( geometry: userPosition, iconImage: "person-15", iconSize: 2, ), ); } // Zoom in on the user's position while maintaining the bearing _mapController!.animateCamera( CameraUpdate.newCameraPosition( CameraPosition( target: userPosition!, zoom: 15.0, bearing: bearing!, // Keep the map oriented toward the destination ), ), duration: const Duration(milliseconds: 500), ); // Simulate movement delay await Future.delayed(const Duration(milliseconds: 200)); } _isTraveling = false; } @override Widget build(BuildContext context) { return Scaffold( appBar: AppBar( title: const Text("Travel from A to B"), ), body: Stack( children: [ MapLibreMap( onMapCreated: _onMapCreated, styleString: "https://tiles.stadiamaps.com/styles/alidade_smooth.json?api_key=YOUR_API_KEY", initialCameraPosition: CameraPosition( target: LatLng( (pointA.latitude + pointB.latitude) / 2, (pointA.longitude + pointB.longitude) / 2, ), zoom: 12.0, ), myLocationEnabled: false, ), Positioned( bottom: 20, left: 20, child: ElevatedButton( onPressed: _simulateTravel, child: const Text("Start Travel"), ), ), ], ), ); } @override void dispose() { _isTraveling = false; super.dispose(); }}
+
+// class Test extends StatefulWidget {
+//   const Test({super.key});
+//
+//   @override
+//   State<Test> createState() => _TestState();
+// }
+//
+// class _TestState extends State<Test> {
+//   MapLibreMapController? _mapController;
+//   late Location location;
+//   late LatLng pointA;
+//   late LatLng pointB;
+//   LatLng? userPosition;
+//   List<LatLng> routePoints = [];
+//   bool _isTraveling = false;
+//   double? bearing; // Store the bearing from A to B
+//   String stadiaApiKey = '8a83c0b9-fbe3-4caa-98d5-d8b60efc67c5';
+//
+//   @override
+//   void initState() {
+//     super.initState();
+//     // Define points A and B (replace with your coordinates)
+//     pointA = const LatLng(51.5074, -0.1278); // London
+//     pointB = const LatLng(51.5150, -0.1410); // Slightly north-west of London
+//     _generateRoutePoints();
+//     _calculateBearing(); // Calculate bearing on init
+//     _requestLocationPermission();
+//   }
+//
+//   // Calculate bearing from point A to point B
+//   void _calculateBearing() {
+//     final latlong.LatLng a = latlong.LatLng(pointA.latitude, pointA.longitude);
+//     final latlong.LatLng b = latlong.LatLng(pointB.latitude, pointB.longitude);
+//     bearing = const latlong.Distance().bearing(a, b); // Bearing in degrees
+//   }
+//
+//   // Simulate a route by interpolating points between A and B
+//   void _generateRoutePoints() {
+//     const steps = 50;
+//     for (int i = 0; i <= steps; i++) {
+//       double t = i / steps;
+//       double lat = pointA.latitude + (pointB.latitude - pointA.latitude) * t;
+//       double lng = pointA.longitude + (pointB.longitude - pointA.longitude) * t;
+//       routePoints.add(LatLng(lat, lng));
+//     }
+//   }
+//
+//   // Set up location permissions
+//   Future<void> _requestLocationPermission() async {
+//     final status = await Permission.locationWhenInUse.request();
+//     if (status.isGranted) {
+//       // await _getCurrentLocation();
+//     } else {
+//       _showPermissionDialog();
+//     }
+//   }
+//
+//   void _showPermissionDialog() {
+//     showDialog(
+//       context: context,
+//       builder: (ctx) => AlertDialog(
+//         title: const Text('Permission Needed'),
+//         content: const Text('Location access is needed for routing.'),
+//         actions: [
+//           TextButton(
+//             onPressed: () {
+//               openAppSettings();
+//               Navigator.of(ctx).pop();
+//             },
+//             child: const Text('Open Settings'),
+//           ),
+//           TextButton(
+//             onPressed: () => Navigator.of(ctx).pop(),
+//             child: const Text('Cancel'),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+//
+//   // Add markers and route on map creation
+//   void _onMapCreated(MapLibreMapController controller) {
+//     _mapController = controller;
+//
+//     // Add markers for point A and B
+//     _mapController!.addSymbol(
+//       SymbolOptions(geometry: pointA, iconImage: "marker-15", iconSize: 2),
+//     );
+//     _mapController!.addSymbol(
+//       SymbolOptions(geometry: pointB, iconImage: "marker-15", iconSize: 2),
+//     );
+//
+//     // Draw the route as a polyline
+//     _mapController!.addLine(
+//       LineOptions(geometry: routePoints, lineColor: "#FF0000", lineWidth: 4.0),
+//     );
+//
+//     // Zoom in on point A with the correct bearing
+//     _zoomOnPointA();
+//   }
+//
+//   // Zoom in on point A with the calculated bearing
+//   void _zoomOnPointA() {
+//     if (bearing == null) return;
+//     _mapController!.animateCamera(
+//       CameraUpdate.newCameraPosition(
+//         CameraPosition(
+//           target: pointA,
+//           zoom: 15.0, // Zoom level for point A
+//           bearing: bearing!, // Orient the map toward point B
+//         ),
+//       ),
+//       duration: const Duration(seconds: 2), // Smooth zoom animation
+//     );
+//   }
+//
+//   // Simulate travel and zoom in on the user's position
+//   void _simulateTravel() async {
+//     if (_isTraveling) return;
+//     _isTraveling = true;
+//
+//     // Ensure the map is zoomed in on point A with the correct bearing before starting
+//     _zoomOnPointA();
+//
+//     // Wait for the initial zoom to complete before starting the trip
+//     await Future.delayed(const Duration(seconds: 2));
+//
+//     Symbol? userMarker;
+//     for (int i = 0; i < routePoints.length; i++) {
+//       if (!mounted || !_isTraveling) break;
+//
+//       userPosition = routePoints[i];
+//
+//       // Update user marker position
+//       if (userMarker != null) {
+//         _mapController!.updateSymbol(
+//           userMarker,
+//           SymbolOptions(geometry: userPosition),
+//         );
+//       } else {
+//         userMarker = await _mapController!.addSymbol(
+//           SymbolOptions(
+//             geometry: userPosition,
+//             iconImage: "person-15",
+//             iconSize: 2,
+//           ),
+//         );
+//       }
+//
+//       // Zoom in on the user's position while maintaining the bearing
+//       _mapController!.animateCamera(
+//         CameraUpdate.newCameraPosition(
+//           CameraPosition(
+//             target: userPosition!,
+//             zoom: 19.0,
+//             bearing: bearing!, // Keep the map oriented toward the destination
+//           ),
+//         ),
+//         duration: const Duration(milliseconds: 500),
+//       );
+//
+//       // Simulate movement delay
+//       await Future.delayed(const Duration(milliseconds: 200));
+//     }
+//     _isTraveling = false;
+//   }
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       appBar: AppBar(
+//         title: const Text("Travel from A to B"),
+//       ),
+//       body: Stack(
+//         children: [
+//           MapLibreMap(
+//             onMapCreated: _onMapCreated,
+//             styleString:
+//                 "https://tiles.stadiamaps.com/styles/alidade_smooth.json?api_key=$stadiaApiKey",
+//             initialCameraPosition: CameraPosition(
+//               target: LatLng(
+//                 (pointA.latitude + pointB.latitude) / 2,
+//                 (pointA.longitude + pointB.longitude) / 2,
+//               ),
+//               zoom: 12.0,
+//             ),
+//             myLocationEnabled: false,
+//           ),
+//           Positioned(
+//             bottom: 20,
+//             left: 20,
+//             child: ElevatedButton(
+//               onPressed: _simulateTravel,
+//               child: const Text("Start Travel"),
+//             ),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+//
+//   @override
+//   void dispose() {
+//     _isTraveling = false;
+//     super.dispose();
+//   }
+// }

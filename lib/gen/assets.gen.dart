@@ -63,19 +63,19 @@ class $AssetsIconsGen {
   /// File path: assets/icons/chevron-left.svg
   String get chevronLeft => 'assets/icons/chevron-left.svg';
 
+  /// File path: assets/icons/circle_one.png
+  AssetGenImage get circleOne =>
+      const AssetGenImage('assets/icons/circle_one.png');
+
+  /// File path: assets/icons/circle_two.png
+  AssetGenImage get circleTwo =>
+      const AssetGenImage('assets/icons/circle_two.png');
+
   /// File path: assets/icons/close.svg
   String get close => 'assets/icons/close.svg';
 
   /// File path: assets/icons/coordinate.svg
   String get coordinate => 'assets/icons/coordinate.svg';
-
-  /// File path: assets/icons/currentPosition.png
-  AssetGenImage get currentPosition =>
-      const AssetGenImage('assets/icons/currentPosition.png');
-
-  /// File path: assets/icons/endlocation_pin.png
-  AssetGenImage get endlocationPin =>
-      const AssetGenImage('assets/icons/endlocation_pin.png');
 
   /// File path: assets/icons/flag_marker.svg
   String get flagMarker => 'assets/icons/flag_marker.svg';
@@ -108,6 +108,10 @@ class $AssetsIconsGen {
   /// File path: assets/icons/location.svg
   String get location => 'assets/icons/location.svg';
 
+  /// File path: assets/icons/location_pin.png
+  AssetGenImage get locationPin =>
+      const AssetGenImage('assets/icons/location_pin.png');
+
   /// File path: assets/icons/map-marker.png
   AssetGenImage get mapMarker =>
       const AssetGenImage('assets/icons/map-marker.png');
@@ -118,9 +122,12 @@ class $AssetsIconsGen {
   /// File path: assets/icons/moon.svg
   String get moon => 'assets/icons/moon.svg';
 
-  /// File path: assets/icons/my_location.png
-  AssetGenImage get myLocation =>
-      const AssetGenImage('assets/icons/my_location.png');
+  /// File path: assets/icons/mylpin.png
+  AssetGenImage get mylpin => const AssetGenImage('assets/icons/mylpin.png');
+
+  /// File path: assets/icons/navigate.png
+  AssetGenImage get navigate =>
+      const AssetGenImage('assets/icons/navigate.png');
 
   /// File path: assets/icons/person.svg
   String get person => 'assets/icons/person.svg';
@@ -158,6 +165,10 @@ class $AssetsIconsGen {
   /// File path: assets/icons/shield_zap.svg
   String get shieldZap => 'assets/icons/shield_zap.svg';
 
+  /// File path: assets/icons/start_trip.png
+  AssetGenImage get startTrip =>
+      const AssetGenImage('assets/icons/start_trip.png');
+
   /// File path: assets/icons/three_cars.png
   AssetGenImage get threeCars =>
       const AssetGenImage('assets/icons/three_cars.png');
@@ -171,6 +182,22 @@ class $AssetsIconsGen {
 
   /// File path: assets/icons/user-02.svg
   String get user02 => 'assets/icons/user-02.svg';
+
+  /// File path: assets/icons/user_location.png
+  AssetGenImage get userLocation =>
+      const AssetGenImage('assets/icons/user_location.png');
+
+  /// File path: assets/icons/userlocation_four.png
+  AssetGenImage get userlocationFour =>
+      const AssetGenImage('assets/icons/userlocation_four.png');
+
+  /// File path: assets/icons/userlocation_one.png
+  AssetGenImage get userlocationOne =>
+      const AssetGenImage('assets/icons/userlocation_one.png');
+
+  /// File path: assets/icons/userlocation_three.png
+  AssetGenImage get userlocationThree =>
+      const AssetGenImage('assets/icons/userlocation_three.png');
 
   /// File path: assets/icons/warning-cars.png
   AssetGenImage get warningCars =>
@@ -194,10 +221,10 @@ class $AssetsIconsGen {
         cctv,
         chat,
         chevronLeft,
+        circleOne,
+        circleTwo,
         close,
         coordinate,
-        currentPosition,
-        endlocationPin,
         flagMarker,
         globe,
         googleAssistant,
@@ -208,10 +235,12 @@ class $AssetsIconsGen {
         homeSmile,
         light,
         location,
+        locationPin,
         mapMarker,
         microphone,
         moon,
-        myLocation,
+        mylpin,
+        navigate,
         person,
         plus,
         pointMarker,
@@ -223,10 +252,15 @@ class $AssetsIconsGen {
         searchGlass,
         sendingIll,
         shieldZap,
+        startTrip,
         threeCars,
         trafficLight,
         twoCars,
         user02,
+        userLocation,
+        userlocationFour,
+        userlocationOne,
+        userlocationThree,
         warningCars
       ];
 }

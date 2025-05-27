@@ -15,6 +15,7 @@ class CustomContainer extends StatelessWidget {
     this.duration,
     this.padding,
     this.border,
+    this.transform,
   });
   final Color? color;
   final BorderRadiusGeometry? borderRadius;
@@ -27,16 +28,18 @@ class CustomContainer extends StatelessWidget {
   final Duration? duration;
   final BoxBorder? border;
   final EdgeInsets? padding;
-
+  final Matrix4? transform;
   @override
   Widget build(BuildContext context) {
     return AnimatedContainer(
+      transform: transform,
       width: width,
       height: height,
       margin: margin,
       alignment: align,
       padding: padding,
       duration: duration ?? styles.times.med,
+      curve: Curves.easeInOut,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: color ?? styles.theme.nu1,

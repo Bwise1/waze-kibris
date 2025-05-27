@@ -6,7 +6,6 @@ import 'package:geocoding/geocoding.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:sheet/sheet.dart';
 import 'package:styled_widget/styled_widget.dart';
-import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
 import 'package:waze_kibris/app/dashboard/view/map_viewpoly.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
@@ -60,6 +59,7 @@ class _MainDashboardState extends State<MainDashboard>
       body: Stack(
         children: <Widget>[
           Positioned.fill(
+            // child: Test(),
             child: MapPolyScreen(
               // onRouteStateChanged: (state) {
               //   routeFetchState = state;
@@ -171,18 +171,18 @@ class _MapAppBarState extends State<MapAppBar> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             // Assets.icons.spotifyPng.image(),
-                           const SizedBox(),
-                            IconBtn(
-                              icon: Assets.icons.alertTriangle,
-                              onPressed: () =>
-                                  CustomDialogRoutes.showBottomSheet<bool>(
-                                context,
-                                const ReportEventModal(),
-                              ),
-                              semanticLabel: '',
-                              bgColor: styles.theme.yellow,
-                              color: styles.theme.black,
-                            ),
+                            const SizedBox(),
+                            // IconBtn(
+                            //   icon: Assets.icons.alertTriangle,
+                            //   onPressed: () =>
+                            //       CustomDialogRoutes.showBottomSheet<bool>(
+                            //     context,
+                            //     const ReportEventModal(),
+                            //   ),
+                            //   semanticLabel: '',
+                            //   bgColor: styles.theme.yellow,
+                            //   color: styles.theme.black,
+                            // ),
                           ],
                         ),
                       ),
@@ -397,8 +397,21 @@ class _MapSheetState extends State<MapSheet> {
                                         CustomTextField(
                                           hintText: 'Going somewhere?',
                                           controller: destinationController,
-                                          onChanged: (v) =>
-                                              getCoordinateFromTextAddress(),
+                                          onChanged: (v) {
+                                            getCoordinateFromTextAddress();
+                                            if (widget.controller.animation
+                                                    .value <=
+                                                0.3) {
+                                              widget.controller
+                                                  .relativeAnimateTo(
+                                                0.9,
+                                                duration: const Duration(
+                                                  milliseconds: 200,
+                                                ),
+                                                curve: Curves.easeOut,
+                                              );
+                                            }
+                                          },
                                           prefix: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
