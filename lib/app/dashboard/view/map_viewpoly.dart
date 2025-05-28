@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'package:latlong2/latlong.dart' as latlong;
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sheet/sheet.dart';
+import 'package:turf/turf.dart' as turf;
 import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
@@ -231,7 +233,7 @@ class _MapPolyScreenState extends State<MapPolyScreen>
         Uri.parse(backendUrl),
         headers: {
           'Content-Type': 'application/json',
-          'X-Request-Source': 'postman'
+          'X-Request-Source': 'postman',
         },
         body: jsonEncode({
           'locations': [
@@ -267,6 +269,7 @@ class _MapPolyScreenState extends State<MapPolyScreen>
     }
   }
 
+  List<LatLng> polylineCoords = [];
   // Replace your _drawRoute() method with this implementation
   Future<void> _drawRoute() async {
     if (mapController == null || routeData == null) return;
@@ -293,6 +296,7 @@ class _MapPolyScreenState extends State<MapPolyScreen>
             .map<LatLng>((c) => LatLng(c[1] as double, c[0] as double))
             .toList();
 
+    polylineCoords = coords;
     // Draw the route line first
     _routeLine = await mapController?.addLine(
       LineOptions(
@@ -365,33 +369,8 @@ class _MapPolyScreenState extends State<MapPolyScreen>
     if (_endCircle != null) {
       await mapController?.removeCircle(_endCircle!);
     }
+    routeData = null;
   }
-
-  // void _fitBounds(List<LatLng> coords) {
-  //   if (coords.isEmpty) return;
-  //
-  //   var minLat = coords.first.latitude;
-  //   var maxLat = coords.first.latitude;
-  //   var minLon = coords.first.longitude;
-  //   var maxLon = coords.first.longitude;
-  //
-  //   for (var c in coords) {
-  //     if (c.latitude < minLat) minLat = c.latitude;
-  //     if (c.latitude > maxLat) maxLat = c.latitude;
-  //     if (c.longitude < minLon) minLon = c.longitude;
-  //     if (c.longitude > maxLon) maxLon = c.longitude;
-  //   }
-  //
-  //   mapController?.animateCamera(
-  //     CameraUpdate.newLatLngBounds(
-  //       LatLngBounds(
-  //         southwest: LatLng(minLat, minLon),
-  //         northeast: LatLng(maxLat, maxLon),
-  //       ),
-  //       // padding: 80,
-  //     ),
-  //   );
-  // }
 
   void _showPermissionDialog() {
     showDialog(
@@ -539,10 +518,96 @@ class _MapPolyScreenState extends State<MapPolyScreen>
       final userLatLatLng = LatLng(position.latitude, position.longitude);
       _updateCustomUserMaker(userLatLatLng);
 
-      if (animateCameraLongLocation) {
-        mapController!.animateCamera(CameraUpdate.newLatLng(userLatLatLng));
+      if (animateCameraLongLocation && _tripIsStarted) {
+        // _calculateBearing();
+        // mapController!.animateCamera(
+        //   CameraUpdate.newCameraPosition(
+        //     CameraPosition(
+        //       target: userLatLatLng,
+        //     ),
+        //   ),
+        // );
+
+        _updateMarkerAndCamera(userLatLatLng);
+        // mapController!.animateCamera(CameraUpdate.newLatLng(userLatLatLng));
       }
     });
+  }
+
+  LatLng? _previousPosition;
+//   void _updateMarkerAndCamera(LatLng currentPosition){
+// //userPin-marker
+//   }
+
+  void _updateMarkerAndCamera(LatLng currentPosition) async {
+    final snappedPosition = _snapToPolyline(currentPosition, polylineCoords);
+    if (userMaker != null) {
+      if (_previousPosition != null) {
+        const steps = 20;
+        final deltaLat =
+            (snappedPosition.latitude - _previousPosition!.latitude) / steps;
+        final deltaLng =
+            (snappedPosition.longitude - _previousPosition!.longitude) / steps;
+        for (int i = 1; i <= steps; i++) {
+          final interpolatedPosition = LatLng(
+            _previousPosition!.latitude + deltaLat * i,
+            _previousPosition!.longitude + deltaLng * i,
+          );
+          await mapController?.updateSymbol(
+            userMaker!,
+            SymbolOptions(geometry: interpolatedPosition),
+          );
+          await Future.delayed(const Duration(milliseconds: 50 ~/ steps));
+        }
+      } else {
+        await mapController?.updateSymbol(
+          userMaker!,
+          SymbolOptions(geometry: snappedPosition),
+        );
+      }
+    }
+    await mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: snappedPosition,
+          zoom: 18,
+          bearing: bearing!,
+          // bearing: _previousPosition != null
+          //     ? _calculateBearingTwo(_previousPosition!, snappedPosition)
+          //     : 0,
+          tilt: 45,
+        ),
+      ),
+      duration: const Duration(seconds: 2),
+    );
+    _previousPosition = snappedPosition;
+  }
+
+  LatLng _snapToPolyline(LatLng position, List<LatLng> polylineCoords) {
+    final point = turf.Point(
+        coordinates: turf.Position(position.longitude, position.latitude));
+    final line = turf.LineString(
+      coordinates: polylineCoords
+          .map((p) => turf.Position(p.longitude, p.latitude))
+          .toList(),
+    );
+    final snapped = turf.nearestPointOnLine(line, point);
+    return LatLng(snapped.geometry!.coordinates.lat.toDouble(),
+        snapped.geometry!.coordinates.lng.toDouble());
+  }
+
+  double _calculateBearingTwo(LatLng point1, LatLng point2) {
+    final lon1 = point1.longitude * pi / 180;
+    final lat1 = point1.latitude * pi / 180;
+    final lon2 = point2.longitude * pi / 180;
+    final lat2 = point2.latitude * pi / 180;
+
+    final dLon = lon2 - lon1;
+    final y = sin(dLon) * cos(lat2);
+    final x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
+    var bearing = atan2(y, x) * 180 / pi;
+    bearing = (bearing + 360) % 360;
+    return bearing;
   }
 
   Symbol? userMaker;
@@ -597,10 +662,12 @@ class _MapPolyScreenState extends State<MapPolyScreen>
         //   _destinationEndPoint!,
         // );
 
-        _zoomOnPointA(
-          _startCircle!.options.geometry!,
-          startTripZoom: true,
-        );
+        // _zoomOnPointA(
+        //   _startCircle!.options.geometry!,
+        //   startTripZoom: true,
+        // );
+        _updateMarkerAndCamera(_startCircle!.options.geometry!);
+        _startUserLocationUpdates(animateCameraLongLocation: true);
       }
     } else {
       mapController!.updateSymbol(
@@ -624,8 +691,15 @@ class _MapPolyScreenState extends State<MapPolyScreen>
   void _calculateBearing() {
     final a = latlong.LatLng(_startCircle!.options.geometry!.latitude,
         _startCircle!.options.geometry!.longitude);
-    final b = latlong.LatLng(
-        _destinationEndPoint!.latitude, _destinationEndPoint!.longitude);
+    final b = polylineCoords.length > 3
+        ? latlong.LatLng(
+            polylineCoords[1].latitude,
+            polylineCoords[1].longitude,
+          )
+        : latlong.LatLng(
+            _destinationEndPoint!.latitude,
+            _destinationEndPoint!.longitude,
+          );
     bearing = const latlong.Distance().bearing(a, b); // Bearing in degrees
   }
 
@@ -653,7 +727,7 @@ class _MapPolyScreenState extends State<MapPolyScreen>
         CameraUpdate.newCameraPosition(
           CameraPosition(
             target: pointA,
-            zoom: 12, // Zoom level for point A
+            zoom: 13, // Zoom level for point A
             // bearing: 0,
           ),
         ),
@@ -678,7 +752,7 @@ class _MapPolyScreenState extends State<MapPolyScreen>
                 onMapCreated: _onMapCreated,
                 initialCameraPosition: CameraPosition(
                   target: _currentLocation ?? const LatLng(37.7749, -122.4194),
-                  zoom: 12,
+                  zoom: 13,
                 ),
                 styleString:
                     'https://tiles-eu.stadiamaps.com/styles/outdoors.json?api_key=$stadiaApiKey',
@@ -780,7 +854,6 @@ class _MapPolyScreenState extends State<MapPolyScreen>
                             _toggleRouteOptionStates(
                               RouteFetchState.none,
                             );
-
                             _toggleStartTrip(false);
                           }),
                           const Gap(18),
@@ -843,7 +916,7 @@ class _MapPolyScreenState extends State<MapPolyScreen>
             ),
           ),
           const SizedBox(height: 10),
-          if (routeData != null)
+          if (routeData != null && routeData!.isNotEmpty)
             FloatingActionButton(
               onPressed: () {
                 // _toggleRouteOptionPanel(); //close the ;

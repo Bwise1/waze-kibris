@@ -45,10 +45,12 @@ dependencies:
   screenshot: ^3.0.0
   latlong2: ^0.9.1
   location: ^8.0.0
+
   flutter_polyline_points: ^2.1.0
   flutter_map: ^8.1.1
 
   geocoding: ^3.0.0
+  turf: ^0.0.10
 
 
 dev_dependencies:
