@@ -1,20 +1,26 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:sheet/sheet.dart';
 import 'package:styled_widget/styled_widget.dart';
+import 'package:waze_kibris/app/dashboard/view/location_details.dart';
 import 'package:waze_kibris/app/dashboard/view/map_viewpoly.dart';
+import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
+import 'package:waze_kibris/core/models/places/places_response.dart';
 
 class MainDashboard extends StatefulWidget {
-  const MainDashboard({super.key});
+  MainDashboard({super.key});
 
   @override
   State<MainDashboard> createState() => _MainDashboardState();
@@ -24,6 +30,9 @@ class _MainDashboardState extends State<MainDashboard>
     with TickerProviderStateMixin {
   late SheetController controller;
   RouteFetchState routeFetchState = RouteFetchState.none;
+  final GlobalKey<MapPolyScreenState> mapPolyKey =
+      GlobalKey<MapPolyScreenState>();
+
   @override
   void initState() {
     context.read<AuthBloc>().add(
@@ -61,6 +70,8 @@ class _MainDashboardState extends State<MainDashboard>
           Positioned.fill(
             // child: Test(),
             child: MapPolyScreen(
+              key: mapPolyKey,
+              mapPolyKey: mapPolyKey,
               // onRouteStateChanged: (state) {
               //   routeFetchState = state;
               //   setState(() {});
@@ -266,9 +277,14 @@ class FloatingButtons extends StatelessWidget {
 }
 
 class MapSheet extends StatefulWidget {
-  MapSheet({required this.controller, this.onSearchedDestination, super.key});
+  const MapSheet(
+      {required this.controller,
+      required this.mapPolyKey,
+      this.onSearchedDestination,
+      super.key});
   final SheetController controller;
   final ValueChanged<LatLng>? onSearchedDestination;
+  final GlobalKey<MapPolyScreenState> mapPolyKey;
 
   @override
   State<MapSheet> createState() => _MapSheetState();
@@ -279,6 +295,46 @@ class _MapSheetState extends State<MapSheet> {
 
   LatLng? foundLocation;
   String foundLocationName = '';
+  List<Map<String, dynamic>> suggestions = [];
+  bool isSearching = false;
+  static const String backendBaseUrl = 'https://waze-api.benjys.me';
+  final Dio _dio = Dio();
+  Timer? _debounceTimer;
+  List<AutocompleteSuggestion> stadiaSuggestions = [];
+  final PlacesService _placesService = PlacesService();
+
+  void _onSearchChanged(String query) {
+    // Cancel previous timer
+    _debounceTimer?.cancel();
+
+    if (query.isEmpty) {
+      setState(() {
+        stadiaSuggestions = [];
+        isSearching = false;
+      });
+      return;
+    }
+
+    setState(() => isSearching = true);
+
+    // Set new timer with 300ms delay
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final results = await _placesService.fetchSuggestions(query);
+        setState(() {
+          stadiaSuggestions = results ?? []; // Handle potential null
+          isSearching = false;
+          print('Suggestions fetched: ${stadiaSuggestions.length} items');
+        });
+      } catch (e) {
+        debugPrint('Error fetching suggestions: $e');
+        setState(() {
+          stadiaSuggestions = [];
+          isSearching = false;
+        });
+      }
+    });
+  }
 
   void getCoordinateFromTextAddress() {
     // locationFromAddress("1600 Amphitheatre Parkway, Mountain View")
@@ -300,6 +356,10 @@ class _MapSheetState extends State<MapSheet> {
     });
   }
 
+  void _handleStartTrip() {
+    widget.mapPolyKey.currentState?.startTrip();
+  }
+
   void getNameOfSelectedCoordinate(LatLng? latLng) {
     // late String outPut;
 
@@ -316,6 +376,120 @@ class _MapSheetState extends State<MapSheet> {
     }
     setState(() {});
     // return outPut;
+  }
+
+  Future<void> _onSuggestionSelected(AutocompleteSuggestion suggestion) async {
+    setState(() {
+      isSearching = true;
+      stadiaSuggestions = []; // Clear suggestions immediately
+    });
+
+    try {
+      // Fetch detailed place information using the gid
+      final placeDetails =
+          await _placesService.fetchPlaceDetails(suggestion.id);
+
+      if (placeDetails != null && placeDetails['coordinates'] != null) {
+        setState(() {
+          foundLocation = placeDetails['coordinates'] as LatLng;
+          foundLocationName = placeDetails['name'] as String? ??
+              suggestion.name ??
+              suggestion.description;
+          isSearching = false;
+        });
+        // LatLng coordinates = placeDetails['coordinates'] as LatLng;
+        // await mapPolyKey.currentState?.fetchRoutesForLocation(coordinates);
+
+        // Show location details bottom sheet (like Waze)
+        await showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (context) => LocationDetailsBottomSheet(
+            suggestion: suggestion,
+            placeDetails: placeDetails,
+            onGetRoute: _showRouteSelection,
+            onSave: () {
+              _saveLocation(suggestion, placeDetails);
+            },
+            onRouteSelected: (routeIndex) {
+              debugPrint('Route selected: $routeIndex');
+              debugPrint(
+                  'mapPolyKey.currentState: ${widget.mapPolyKey.currentState}');
+              widget.mapPolyKey.currentState?.drawRouteForSelected(routeIndex);
+            },
+            onStartTrip: _handleStartTrip,
+          ),
+        );
+
+        // After the LocationDetailsBottomSheet is dismissed,
+        // collapse the MapSheet to its initial extent.
+        await widget.controller.animateTo(
+          120.0, // Use the actual initialExtent value
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      } else {
+        // Fallback if place details fail or no coordinates
+        setState(() {
+          foundLocationName = suggestion.name ?? suggestion.description;
+          isSearching = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not get location coordinates')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error fetching place details: $e');
+
+      // Fallback on error
+      setState(() {
+        foundLocationName = suggestion.name ?? suggestion.description;
+        isSearching = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not get place details: $e')),
+      );
+    }
+  }
+
+  Future<void> _showRouteSelection() async {
+    // For now, just call the existing callback
+    if (widget.onSearchedDestination != null && foundLocation != null) {
+      widget.onSearchedDestination!(foundLocation!);
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Getting route to $foundLocationName...'),
+        action: SnackBarAction(
+          label: 'Navigate',
+          onPressed: () {
+            // This is where you'd navigate to the map with route
+          },
+        ),
+      ),
+    );
+  }
+
+  void _saveLocation(
+      AutocompleteSuggestion suggestion, Map<String, dynamic>? placeDetails) {
+    // Handle saving location to favorites/saved locations
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+            '${placeDetails?['name'] ?? suggestion.name} saved to favorites!'),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    destinationController.dispose();
+    super.dispose();
   }
 
   @override
@@ -398,7 +572,9 @@ class _MapSheetState extends State<MapSheet> {
                                           hintText: 'Going somewhere?',
                                           controller: destinationController,
                                           onChanged: (v) {
-                                            getCoordinateFromTextAddress();
+                                            // getCoordinateFromTextAddress();
+
+                                            _onSearchChanged(v);
                                             if (widget.controller.animation
                                                     .value <=
                                                 0.3) {
@@ -418,11 +594,21 @@ class _MapSheetState extends State<MapSheet> {
                                               SizedBox(
                                                 height: 45,
                                                 width: 45,
-                                                child: AppIcon(
-                                                  Assets.icons.searchGlass,
-                                                  color: styles.theme.grey,
-                                                  size: 18,
-                                                ),
+                                                child: isSearching
+                                                    ? const SizedBox(
+                                                        width: 18,
+                                                        height: 18,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                                strokeWidth: 2),
+                                                      )
+                                                    : AppIcon(
+                                                        Assets
+                                                            .icons.searchGlass,
+                                                        color:
+                                                            styles.theme.grey,
+                                                        size: 18,
+                                                      ),
                                               ),
                                               Text(
                                                 '|',
@@ -433,6 +619,26 @@ class _MapSheetState extends State<MapSheet> {
                                             ],
                                           ),
                                         ),
+                                        if (stadiaSuggestions.isNotEmpty) ...[
+                                          Gap(styles.insets.md),
+                                          ...stadiaSuggestions.map(
+                                              (suggestion) => LocationItem(
+                                                    appIcon:
+                                                        Assets.icons.location,
+                                                    title: suggestion.name ??
+                                                        suggestion.description,
+                                                    sub: suggestion.location !=
+                                                            null
+                                                        ? '${suggestion.location}'
+                                                        : '',
+                                                  ).clickable(() =>
+                                                      _onSuggestionSelected(
+                                                          suggestion))),
+                                          Divider(
+                                            thickness: 0.8,
+                                            color: styles.theme.divider,
+                                          ),
+                                        ],
                                         if (foundLocation != null &&
                                             foundLocationName.isNotEmpty)
                                           Gap(styles.insets.md),
@@ -459,29 +665,6 @@ class _MapSheetState extends State<MapSheet> {
                                           ),
                                       ],
                                     ),
-
-                                    // child: Row(
-                                    //   spacing: styles.insets.sm,
-                                    //   children: [
-                                    //     AppIcon(
-                                    //       Assets.icons.globe,
-                                    //       color: styles.theme.grey,
-                                    //     ),
-                                    //     Text(
-                                    //       'Going somewhere?',
-                                    //       style: styles.typography.t2
-                                    //           .textColor(styles.theme.grey)
-                                    //           .medium,
-                                    //     ),
-                                    //     Expanded(
-                                    //       child: Container(),
-                                    //     ),
-                                    //     AppIcon(
-                                    //       Assets.icons.arrowForward,
-                                    //       color: styles.theme.grey,
-                                    //     ),
-                                    //   ],
-                                    // ),
                                   ),
                                   const Gap(24),
                                   const LocationItem(

@@ -28,11 +28,11 @@ class _MainScreenState extends State<MainScreen> {
       // ),
       body: LazyIndexedStack(
         index: index,
-        children: const [
+        children: [
           MainDashboard(),
-          ReportScreen(),
+          const ReportScreen(),
           // MapPolyScreen(), //
-          ProfileMainScreen(),
+          const ProfileMainScreen(),
         ],
       ),
     );

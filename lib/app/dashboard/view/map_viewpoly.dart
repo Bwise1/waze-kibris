@@ -12,6 +12,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:sheet/sheet.dart';
 import 'package:turf/turf.dart' as turf;
 import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
+import 'package:waze_kibris/app/dashboard/view/maneuver_banner.dart';
+import 'package:waze_kibris/app/dashboard/view/route_summary.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
@@ -28,35 +30,50 @@ enum RouteFetchState {
 }
 
 class MapPolyScreen extends StatefulWidget {
-  const MapPolyScreen({required this.controller, super.key});
+  const MapPolyScreen({
+    required this.controller,
+    this.onRouteSelected,
+    required this.mapPolyKey,
+    super.key,
+  });
   static const String routeName = '/map';
   // final ValueChanged<RouteFetchState> onRouteStateChanged;
   final SheetController controller;
+  final void Function(int index)? onRouteSelected;
+  final GlobalKey<MapPolyScreenState> mapPolyKey;
+
   @override
-  State<MapPolyScreen> createState() => _MapPolyScreenState();
+  State<MapPolyScreen> createState() => MapPolyScreenState();
 }
 
-class _MapPolyScreenState extends State<MapPolyScreen>
+List<Map<String, dynamic>> availableRoutes = [];
+
+class MapPolyScreenState extends State<MapPolyScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<Offset> _offsetAnimation;
   bool _isVisible = false;
-  MaplibreMapController? mapController;
+  MapLibreMapController? mapController;
   LatLng? _currentLocation;
   bool _isLoading = false;
   bool _tripIsStarted = false;
   bool _mapReady = false;
   bool _showRouteDetails = false;
   bool _markersLoaded = false;
+  double? _userHeading;
 
   // bool _showRouteOptionPanel = false;
   // bool _showStartEndDisplayPanel = false;
+  LatLng? foundLocation;
+  List<Map<String, dynamic>> suggestions = [];
+
   RouteFetchState _mRouteState = RouteFetchState.none;
 
   late LatLng? _destinationEndPoint;
   String foundLocationName = 'Destination';
   String stadiaApiKey = '8a83c0b9-fbe3-4caa-98d5-d8b60efc67c5';
   static const backendUrl = 'https://waze-api.benjys.me/route';
+  static const backendBaseUrl = 'https://waze-api.benjys.me';
 
   Map<String, dynamic>? routeData;
   Line? _routeLine;
@@ -127,7 +144,7 @@ class _MapPolyScreenState extends State<MapPolyScreen>
             );
       }
       if (_mapReady) {
-        _moveCamera(_currentLocation!);
+        _moveCamera(_currentLocation!, zoom: 17);
         //
         // await _fetchRoute();
       }
@@ -173,7 +190,7 @@ class _MapPolyScreenState extends State<MapPolyScreen>
 
       // Load circle marker PNG
       final userMarkerData =
-          await rootBundle.load('assets/icons/user_location.png');
+          await rootBundle.load('assets/icons/CurrentPosition.png');
       await mapController?.addImage(
         'userPin-marker',
         userMarkerData.buffer.asUint8List(),
@@ -228,6 +245,24 @@ class _MapPolyScreenState extends State<MapPolyScreen>
   Future<void> _fetchRoute() async {
     if (_currentLocation == null) return;
     setState(() => _isLoading = true);
+    String payload = jsonEncode({
+      'locations': [
+        {
+          'lat': _currentLocation?.latitude,
+          'lon': _currentLocation?.longitude,
+        },
+        {
+          'lat': _destinationEndPoint?.latitude,
+          'lon': _destinationEndPoint?.longitude,
+        },
+        // {"lat": 35.221906, "lon": 33.417018},
+      ],
+      // 'costing': 'auto',
+      // 'units': 'kilometers',
+      // 'directions_options': {'narrative': true},
+    });
+
+    print('+++++++++++++++++++++Payload: $payload');
     try {
       final response = await http.post(
         Uri.parse(backendUrl),
@@ -255,9 +290,21 @@ class _MapPolyScreenState extends State<MapPolyScreen>
 
       if (response.statusCode == 200) {
         routeData = jsonDecode(response.body) as Map<String, dynamic>;
-        if (_mapReady) {
-          _drawRoute();
-        }
+
+// After: routeData = jsonDecode(response.body) as Map<String, dynamic>;
+        final data = routeData!['data'];
+        final mainRoute = data['trip'] as Map<String, dynamic>;
+        final alternatesRaw = data['alternates'];
+        final alternates = (alternatesRaw is List)
+            ? alternatesRaw
+                .map<Map<String, dynamic>>((e) => e as Map<String, dynamic>)
+                .toList()
+            : <Map<String, dynamic>>[];
+        availableRoutes = [mainRoute, ...alternates];
+
+        print(
+          '++++++++++++++++Route data fetched successfully: ${availableRoutes.length}',
+        );
       } else {
         throw Exception('Failed with status: ${response.statusCode}');
       }
@@ -318,18 +365,6 @@ class _MapPolyScreenState extends State<MapPolyScreen>
         circleOpacity: 0.9,
       ),
     );
-    //
-    // // Add end point as a circle (will always be visible)
-    // _endCircle = await mapController?.addCircle(
-    //   CircleOptions(
-    //     geometry: coords.last,
-    //     circleRadius: 8,
-    //     circleColor: '#F44336', // Red for destination
-    //     circleStrokeColor: '#FFFFFF',
-    //     circleStrokeWidth: 2,
-    //     circleOpacity: 0.9,
-    //   ),
-    // );
 
     // Try to add symbols as well (as a backup)
     try {
@@ -407,7 +442,7 @@ class _MapPolyScreenState extends State<MapPolyScreen>
     _startUserLocationUpdates();
 
     if (_currentLocation != null) {
-      _moveCamera(_currentLocation!);
+      _moveCamera(_currentLocation!, zoom: 16);
     }
     if (routeData != null) {
       _drawRoute();
@@ -508,38 +543,69 @@ class _MapPolyScreenState extends State<MapPolyScreen>
     }
   }
 
+  int _currentManeuverIndex = 0;
+
+  void _advanceManeuverIfNeeded(LatLng userPosition) {
+    final maneuvers = routeData?['data']?['trip']?['legs']?[0]?['maneuvers']
+        as List<dynamic>?;
+    if (maneuvers == null || maneuvers.isEmpty) return;
+    if (_currentManeuverIndex >= maneuvers.length) return;
+
+    final next = maneuvers[_currentManeuverIndex];
+    if (next['position'] is List && next['position'].length == 2) {
+      final maneuverLat = next['position'][0] as double;
+      final maneuverLng = next['position'][1] as double;
+      final distance = const latlong.Distance().as(
+        latlong.LengthUnit.Meter,
+        latlong.LatLng(userPosition.latitude, userPosition.longitude),
+        latlong.LatLng(maneuverLat, maneuverLng),
+      );
+      if (distance < 25) {
+        // 25 meters threshold
+        setState(() {
+          _currentManeuverIndex =
+              (_currentManeuverIndex + 1).clamp(0, maneuvers.length - 1);
+        });
+      }
+    }
+  }
+
   void _startUserLocationUpdates({bool animateCameraLongLocation = false}) {
     Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 1,
+        distanceFilter: 3,
       ),
     ).listen((Position position) {
-      final userLatLatLng = LatLng(position.latitude, position.longitude);
-      _updateCustomUserMaker(userLatLatLng);
+      final userLatLng = LatLng(position.latitude, position.longitude);
 
-      if (animateCameraLongLocation && _tripIsStarted) {
-        // _calculateBearing();
-        // mapController!.animateCamera(
-        //   CameraUpdate.newCameraPosition(
-        //     CameraPosition(
-        //       target: userLatLatLng,
-        //     ),
-        //   ),
-        // );
-
-        _updateMarkerAndCamera(userLatLatLng);
-        // mapController!.animateCamera(CameraUpdate.newLatLng(userLatLatLng));
+      _advanceManeuverIfNeeded(userLatLng);
+      // Only update if moved >2 meters
+      if (_currentLocation == null ||
+          const latlong.Distance().as(
+                latlong.LengthUnit.Meter,
+                latlong.LatLng(
+                    _currentLocation!.latitude, _currentLocation!.longitude),
+                latlong.LatLng(userLatLng.latitude, userLatLng.longitude),
+              ) >
+              2) {
+        if (_tripIsStarted) {
+          _updateMarkerAndCamera(userLatLng);
+        } else {
+          _updateCustomUserMaker(userLatLng);
+        }
       }
     });
   }
 
   LatLng? _previousPosition;
-//   void _updateMarkerAndCamera(LatLng currentPosition){
-// //userPin-marker
-//   }
 
-  void _updateMarkerAndCamera(LatLng currentPosition) async {
+  bool _isAnimatingMarker = false;
+
+  Future<void> _updateMarkerAndCamera(LatLng currentPosition) async {
+    if (_isAnimatingMarker) return;
+    _isAnimatingMarker = true;
+
     final snappedPosition = _snapToPolyline(currentPosition, polylineCoords);
     if (userMaker != null) {
       if (_previousPosition != null) {
@@ -571,16 +637,18 @@ class _MapPolyScreenState extends State<MapPolyScreen>
         CameraPosition(
           target: snappedPosition,
           zoom: 18,
-          bearing: bearing!,
-          // bearing: _previousPosition != null
-          //     ? _calculateBearingTwo(_previousPosition!, snappedPosition)
-          //     : 0,
+          bearing: bearing != null
+              ? bearing!
+              : _previousPosition != null
+                  ? _calculateBearingTwo(_previousPosition!, snappedPosition)
+                  : 0,
           tilt: 45,
         ),
       ),
       duration: const Duration(seconds: 2),
     );
     _previousPosition = snappedPosition;
+    _isAnimatingMarker = false;
   }
 
   LatLng _snapToPolyline(LatLng position, List<LatLng> polylineCoords) {
@@ -614,75 +682,108 @@ class _MapPolyScreenState extends State<MapPolyScreen>
   Future<void> _updateCustomUserMaker(LatLng location) async {
     _currentLocation = location; //constantly update user location
 
+    if (_tripIsStarted) {
+      // If trip is started, _updateMarkerAndCamera will handle the userMaker.
+      // _currentLocation is updated, but the visual update is deferred.
+      return;
+    }
+
+    // Logic for when trip is NOT started
+    if (mapController == null) return; // Ensure mapController is ready
+
     if (userMaker == null) {
       userMaker = await mapController!.addSymbol(
         SymbolOptions(
           geometry: location,
-          // iconImage: Assets.icons.userLocation.path,
-          iconImage: 'userPin-marker',
-          // iconSize: 0.3,
+          iconImage: 'userPin-marker', // Default icon when not navigating
+          iconSize: 0.6,
         ),
       );
-    } else if (userMaker != null && _tripIsStarted) {
+    } else {
+      // Update existing marker's position and ensure correct icon if not navigating
       await mapController!.updateSymbol(
         userMaker!,
         SymbolOptions(
           geometry: location,
-          iconImage: 'startTrip-marker',
-          // iconImage: Assets.icons.startTrip.path,
-          iconSize: 0.8,
+          iconImage: 'userPin-marker', // Ensure it's the non-navigation icon
+          iconSize: 0.6, // Keep consistent size
         ),
-      );
-    } else {
-      await mapController!.updateSymbol(
-        userMaker!,
-        SymbolOptions(geometry: location),
       );
     }
   }
 
   void _toggleStartTrip(bool startTrip) {
+    debugPrint(
+        '[MapPolyScreenState] _toggleStartTrip: Called with startTrip = $startTrip');
+    debugPrint(
+        '[MapPolyScreenState] _toggleStartTrip: _tripIsStarted BEFORE = $_tripIsStarted');
     _tripIsStarted = startTrip;
+    debugPrint(
+        '[MapPolyScreenState] _toggleStartTrip: _tripIsStarted AFTER = $_tripIsStarted');
 
     // WidgetsBinding.instance.addPostFrameCallback((_) {
     if (_tripIsStarted) {
-      mapController!.updateSymbol(
-        userMaker!,
-        SymbolOptions(
-          geometry: _currentLocation,
-          iconImage: 'startTrip-marker',
-          iconSize: 0.8,
-        ),
-      );
+      debugPrint(
+          '[MapPolyScreenState] _toggleStartTrip: Condition _tripIsStarted is TRUE');
+      if (userMaker != null && _currentLocation != null) {
+        // Added null checks
+        mapController!.updateSymbol(
+          userMaker!,
+          SymbolOptions(
+            geometry: _currentLocation, // Ensure _currentLocation is not null
+            iconImage: 'startTrip-marker',
+            iconSize: 0.8,
+          ),
+        );
+        debugPrint(
+            '[MapPolyScreenState] _toggleStartTrip: Updated userMaker to startTrip-marker');
+      } else {
+        debugPrint(
+            '[MapPolyScreenState] _toggleStartTrip: userMaker or _currentLocation is null, cannot update symbol for trip start');
+      }
 
       if (_startCircle != null) {
-        ///
-        // rotateCameraToDestination(
-        //   _startCircle!.options.geometry!,
-        //   _destinationEndPoint!,
-        // );
+        debugPrint(
+            '[MapPolyScreenState] _toggleStartTrip: _startCircle is not null');
 
-        // _zoomOnPointA(
-        //   _startCircle!.options.geometry!,
-        //   startTripZoom: true,
-        // );
         _updateMarkerAndCamera(_startCircle!.options.geometry!);
+        debugPrint(
+            '[MapPolyScreenState] _toggleStartTrip: Called _updateMarkerAndCamera');
         _startUserLocationUpdates(animateCameraLongLocation: true);
+        debugPrint(
+            '[MapPolyScreenState] _toggleStartTrip: Called _startUserLocationUpdates(animateCameraLongLocation: true)');
+      } else {
+        debugPrint(
+            '[MapPolyScreenState] _toggleStartTrip: _startCircle IS NULL');
       }
     } else {
-      mapController!.updateSymbol(
-        userMaker!,
-        SymbolOptions(
-          geometry: _currentLocation,
-          iconImage: 'userPin-marker',
-          // iconSize: 2,
-        ),
-      );
+      debugPrint(
+          '[MapPolyScreenState] _toggleStartTrip: Condition _tripIsStarted is FALSE');
+      if (userMaker != null && _currentLocation != null) {
+        // Added null checks
+        mapController!.updateSymbol(
+          userMaker!,
+          SymbolOptions(
+            geometry: _currentLocation, // Ensure _currentLocation is not null
+            iconImage: 'userPin-marker',
+            // iconSize: 2,
+          ),
+        );
+        debugPrint(
+            '[MapPolyScreenState] _toggleStartTrip: Updated userMaker to userPin-marker');
+      } else {
+        debugPrint(
+            '[MapPolyScreenState] _toggleStartTrip: userMaker or _currentLocation is null, cannot update symbol for trip end');
+      }
 
       _removeLineAndClearMarkers();
+      debugPrint(
+          '[MapPolyScreenState] _toggleStartTrip: Called _removeLineAndClearMarkers');
     }
     // });
   }
+
+  void startTrip() => _toggleStartTrip(true);
 
   ///
   ///
@@ -738,6 +839,17 @@ class _MapPolyScreenState extends State<MapPolyScreen>
 
   @override
   Widget build(BuildContext context) {
+    final List? maneuvers = routeData?['data']?['trip']?['legs']?[0]
+        ?['maneuvers'] as List<dynamic>?;
+    final isNavigating =
+        _tripIsStarted && maneuvers != null && maneuvers.isNotEmpty;
+    final nextManeuver =
+        (isNavigating && _currentManeuverIndex < maneuvers.length)
+            ? maneuvers[_currentManeuverIndex]
+            : null;
+
+    debugPrint('[MapPolyScreen] build: isNavigating = $isNavigating');
+    debugPrint('[MapPolyScreen] build: nextManeuver = $nextManeuver');
     return Scaffold(
       body: Stack(
         children: [
@@ -750,18 +862,19 @@ class _MapPolyScreenState extends State<MapPolyScreen>
             builder: (context, state) {
               return MapLibreMap(
                 onMapCreated: _onMapCreated,
+                compassEnabled: true,
+
+                compassViewMargins: const Point(0, 700),
                 initialCameraPosition: CameraPosition(
                   target: _currentLocation ?? const LatLng(37.7749, -122.4194),
-                  zoom: 13,
+                  zoom: 17,
                 ),
                 styleString:
                     'https://tiles-eu.stadiamaps.com/styles/outdoors.json?api_key=$stadiaApiKey',
                 // myLocationEnabled: false,
                 // myLocationTrackingMode: MyLocationTrackingMode.trackingGps,
-                // myLocationRenderMode: MyLocationRenderMode.compass,
-                onStyleLoadedCallback: () {
-                  //
-                },
+                //myLocationRenderMode: MyLocationRenderMode.compass,
+                onStyleLoadedCallback: _loadMarkerImages,
               );
             },
           ),
@@ -796,8 +909,31 @@ class _MapPolyScreenState extends State<MapPolyScreen>
                     }
                   : () {},
               onClickStartTrip: () {
-                // startTrip();
+                debugPrint('[RouteOptionPanel] onClickStartTrip: Tapped');
+                startTrip();
+                debugPrint(
+                    '[RouteOptionPanel] onClickStartTrip: Called startTrip()');
+                _toggleRouteOptionStates(RouteFetchState
+                    .nowInDestination); // Add this to hide the panel
+                debugPrint(
+                    '[RouteOptionPanel] onClickStartTrip: Called _toggleRouteOptionStates(nowInDestination)');
               },
+            ),
+
+          if (isNavigating && nextManeuver != null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 16,
+              left: 0,
+              right: 0,
+              child: ManeuverBanner(
+                distance: '${nextManeuver['distanceMeters']} m',
+                instruction: nextManeuver['instruction'].toString() ?? '',
+                roadName: nextManeuver['streetName'].toString() ?? '',
+                icon: Icons.turn_left, // You can map maneuver type to icon
+                onVoiceTap: () {
+                  // Optionally trigger TTS or voice instructions
+                },
+              ),
             ),
 
           ///top most panel
@@ -890,6 +1026,7 @@ class _MapPolyScreenState extends State<MapPolyScreen>
 
                   // searched
                 },
+                mapPolyKey: widget.mapPolyKey,
               ),
             ),
         ],
@@ -937,6 +1074,107 @@ class _MapPolyScreenState extends State<MapPolyScreen>
       ),
     );
   }
+
+  Future<void> drawRouteForSelected(int index) async {
+    debugPrint('drawRouteForSelected called with index: $index');
+
+    final selectedRoute = availableRoutes[index];
+    // Use the selected route directly, not the whole response structure
+    final coords = (selectedRoute['legs'][0]['coordinates'] as List)
+        .map<LatLng>((c) => LatLng(c[1] as double, c[0] as double))
+        .toList();
+
+    // Remove previous lines/markers as in _drawRoute
+    if (_routeLine != null) await mapController?.removeLine(_routeLine!);
+    if (_startSymbol != null) await mapController?.removeSymbol(_startSymbol!);
+    if (_endSymbol != null) await mapController?.removeSymbol(_endSymbol!);
+    if (_startCircle != null) await mapController?.removeCircle(_startCircle!);
+    if (_endCircle != null) await mapController?.removeCircle(_endCircle!);
+
+    polylineCoords = coords;
+    _routeLine = await mapController?.addLine(
+      LineOptions(
+        geometry: coords,
+        lineColor: '#3b82f6',
+        lineWidth: 6,
+        lineOpacity: 0.9,
+      ),
+    );
+    _startCircle = await mapController?.addCircle(
+      CircleOptions(
+        geometry: coords.first,
+        circleRadius: 8,
+        circleColor: '#4CAF50',
+        circleStrokeColor: '#FFFFFF',
+        circleStrokeWidth: 2,
+        circleOpacity: 0.9,
+      ),
+    );
+    try {
+      _endSymbol = await mapController?.addSymbol(
+        SymbolOptions(
+          geometry: coords.last,
+          iconImage: 'end-marker',
+          iconSize: 0.2,
+          iconAnchor: 'bottom',
+        ),
+      );
+    } catch (_) {}
+
+    // Rotate the map to face the user's heading (if available)
+    if (_currentLocation != null &&
+        _userHeading != null &&
+        mapController != null) {
+      final currentZoom = mapController!.cameraPosition?.zoom ?? 15.0;
+      await mapController!.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _currentLocation!,
+            zoom: currentZoom,
+            bearing: _userHeading!,
+            tilt: mapController!.cameraPosition?.tilt ?? 0,
+          ),
+        ),
+        duration: const Duration(milliseconds: 800),
+      );
+    } else {
+      // fallback: fit the camera to show the route
+      await _fitCameraToBounds(coords);
+    }
+  }
+
+  Future<void> _fitCameraToBounds(List<LatLng> coords) async {
+    if (coords.isEmpty || mapController == null) return;
+
+    final southwest = LatLng(
+      coords.map((c) => c.latitude).reduce((a, b) => a < b ? a : b),
+      coords.map((c) => c.longitude).reduce((a, b) => a < b ? a : b),
+    );
+    final northeast = LatLng(
+      coords.map((c) => c.latitude).reduce((a, b) => a > b ? a : b),
+      coords.map((c) => c.longitude).reduce((a, b) => a > b ? a : b),
+    );
+
+    // Calculate bottom padding based on screen height and bottom sheet height
+    final screenHeight = MediaQuery.of(context).size.height;
+    final bottomSheetHeight = screenHeight * 0.45; // 45% as in your sheet
+    final padding = EdgeInsets.fromLTRB(
+      32, // left
+      80, // top
+      32, // right
+      bottomSheetHeight + 32, // bottom
+    );
+
+    await mapController!.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(southwest: southwest, northeast: northeast),
+        left: padding.left,
+        top: padding.top,
+        right: padding.right,
+        bottom: padding.bottom,
+      ),
+    );
+  }
 }
 
 class RouteOptionPanel extends StatelessWidget {
@@ -980,7 +1218,7 @@ class RouteOptionPanel extends StatelessWidget {
                           '$title ',
                           // '${state.latitude} ${state.longitude} ',
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
+                          style: const TextStyle(
                               fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                       ),
@@ -1150,218 +1388,3 @@ class RouteDetailsPanel extends StatelessWidget {
     return '${minutes}m ${secs}s';
   }
 }
-
-///
-///
-///
-///
-
-// class _MapScreenState extends State<MapScreen> { MapLibreMapController? _mapController; Location location = Location(); late LatLng pointA; late LatLng pointB; LatLng? userPosition; List<LatLng> routePoints = []; bool _isTraveling = false; double? bearing; // Store the bearing from A to B @override void initState() { super.initState(); // Define points A and B (replace with your coordinates) pointA = const LatLng(51.5074, -0.1278); // London pointB = const LatLng(51.5150, -0.1410); // Slightly north-west of London _generateRoutePoints(); _calculateBearing(); // Calculate bearing on init _setupLocation(); } // Calculate bearing from point A to point B void _calculateBearing() { final latlong.LatLng a = latlong.LatLng(pointA.latitude, pointA.longitude); final latlong.LatLng b = latlong.LatLng(pointB.latitude, pointB.longitude); bearing = const latlong.Distance().bearing(a, b); // Bearing in degrees } // Simulate a route by interpolating points between A and B void _generateRoutePoints() { const steps = 50; for (int i = 0; i <= steps; i++) { double t = i / steps; double lat = pointA.latitude + (pointB.latitude - pointA.latitude) * t; double lng = pointA.longitude + (pointB.longitude - pointA.longitude) * t; routePoints.add(LatLng(lat, lng)); } } // Set up location permissions Future<void> _setupLocation() async { bool serviceEnabled; PermissionStatus permissionGranted; serviceEnabled = await location.serviceEnabled(); if (!serviceEnabled) { serviceEnabled = await location.requestService(); if (!serviceEnabled) return; } permissionGranted = await location.hasPermission(); if (permissionGranted == PermissionStatus.denied) { permissionGranted = await location.requestPermission(); if (permissionGranted != PermissionStatus.granted) return; } } // Add markers and route on map creation void _onMapCreated(MapLibreMapController controller) { _mapController = controller; // Add markers for point A and B _mapController!.addSymbol( SymbolOptions(geometry: pointA, iconImage: "marker-15", iconSize: 2), ); _mapController!.addSymbol( SymbolOptions(geometry: pointB, iconImage: "marker-15", iconSize: 2), ); // Draw the route as a polyline _mapController!.addLine( LineOptions(geometry: routePoints, lineColor: "#FF0000", lineWidth: 4.0), ); // Zoom in on point A with the correct bearing _zoomOnPointA(); } // Zoom in on point A with the calculated bearing void _zoomOnPointA() { if (bearing == null) return; _mapController!.animateCamera( CameraUpdate.newCameraPosition( CameraPosition( target: pointA, zoom: 15.0, // Zoom level for point A bearing: bearing!, // Orient the map toward point B ), ), duration: const Duration(seconds: 2), // Smooth zoom animation ); } // Simulate travel and zoom in on the user's position void _simulateTravel() async { if (_isTraveling) return; _isTraveling = true; // Ensure the map is zoomed in on point A with the correct bearing before starting _zoomOnPointA(); // Wait for the initial zoom to complete before starting the trip await Future.delayed(const Duration(seconds: 2)); Symbol? userMarker; for (int i = 0; i < routePoints.length; i++) { if (!mounted || !_isTraveling) break; userPosition = routePoints[i]; // Update user marker position if (userMarker != null) { _mapController!.updateSymbol( userMarker, SymbolOptions(geometry: userPosition), ); } else { userMarker = await _mapController!.addSymbol( SymbolOptions( geometry: userPosition, iconImage: "person-15", iconSize: 2, ), ); } // Zoom in on the user's position while maintaining the bearing _mapController!.animateCamera( CameraUpdate.newCameraPosition( CameraPosition( target: userPosition!, zoom: 15.0, bearing: bearing!, // Keep the map oriented toward the destination ), ), duration: const Duration(milliseconds: 500), ); // Simulate movement delay await Future.delayed(const Duration(milliseconds: 200)); } _isTraveling = false; } @override Widget build(BuildContext context) { return Scaffold( appBar: AppBar( title: const Text("Travel from A to B"), ), body: Stack( children: [ MapLibreMap( onMapCreated: _onMapCreated, styleString: "https://tiles.stadiamaps.com/styles/alidade_smooth.json?api_key=YOUR_API_KEY", initialCameraPosition: CameraPosition( target: LatLng( (pointA.latitude + pointB.latitude) / 2, (pointA.longitude + pointB.longitude) / 2, ), zoom: 12.0, ), myLocationEnabled: false, ), Positioned( bottom: 20, left: 20, child: ElevatedButton( onPressed: _simulateTravel, child: const Text("Start Travel"), ), ), ], ), ); } @override void dispose() { _isTraveling = false; super.dispose(); }}
-
-// class Test extends StatefulWidget {
-//   const Test({super.key});
-//
-//   @override
-//   State<Test> createState() => _TestState();
-// }
-//
-// class _TestState extends State<Test> {
-//   MapLibreMapController? _mapController;
-//   late Location location;
-//   late LatLng pointA;
-//   late LatLng pointB;
-//   LatLng? userPosition;
-//   List<LatLng> routePoints = [];
-//   bool _isTraveling = false;
-//   double? bearing; // Store the bearing from A to B
-//   String stadiaApiKey = '8a83c0b9-fbe3-4caa-98d5-d8b60efc67c5';
-//
-//   @override
-//   void initState() {
-//     super.initState();
-//     // Define points A and B (replace with your coordinates)
-//     pointA = const LatLng(51.5074, -0.1278); // London
-//     pointB = const LatLng(51.5150, -0.1410); // Slightly north-west of London
-//     _generateRoutePoints();
-//     _calculateBearing(); // Calculate bearing on init
-//     _requestLocationPermission();
-//   }
-//
-//   // Calculate bearing from point A to point B
-//   void _calculateBearing() {
-//     final latlong.LatLng a = latlong.LatLng(pointA.latitude, pointA.longitude);
-//     final latlong.LatLng b = latlong.LatLng(pointB.latitude, pointB.longitude);
-//     bearing = const latlong.Distance().bearing(a, b); // Bearing in degrees
-//   }
-//
-//   // Simulate a route by interpolating points between A and B
-//   void _generateRoutePoints() {
-//     const steps = 50;
-//     for (int i = 0; i <= steps; i++) {
-//       double t = i / steps;
-//       double lat = pointA.latitude + (pointB.latitude - pointA.latitude) * t;
-//       double lng = pointA.longitude + (pointB.longitude - pointA.longitude) * t;
-//       routePoints.add(LatLng(lat, lng));
-//     }
-//   }
-//
-//   // Set up location permissions
-//   Future<void> _requestLocationPermission() async {
-//     final status = await Permission.locationWhenInUse.request();
-//     if (status.isGranted) {
-//       // await _getCurrentLocation();
-//     } else {
-//       _showPermissionDialog();
-//     }
-//   }
-//
-//   void _showPermissionDialog() {
-//     showDialog(
-//       context: context,
-//       builder: (ctx) => AlertDialog(
-//         title: const Text('Permission Needed'),
-//         content: const Text('Location access is needed for routing.'),
-//         actions: [
-//           TextButton(
-//             onPressed: () {
-//               openAppSettings();
-//               Navigator.of(ctx).pop();
-//             },
-//             child: const Text('Open Settings'),
-//           ),
-//           TextButton(
-//             onPressed: () => Navigator.of(ctx).pop(),
-//             child: const Text('Cancel'),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-//
-//   // Add markers and route on map creation
-//   void _onMapCreated(MapLibreMapController controller) {
-//     _mapController = controller;
-//
-//     // Add markers for point A and B
-//     _mapController!.addSymbol(
-//       SymbolOptions(geometry: pointA, iconImage: "marker-15", iconSize: 2),
-//     );
-//     _mapController!.addSymbol(
-//       SymbolOptions(geometry: pointB, iconImage: "marker-15", iconSize: 2),
-//     );
-//
-//     // Draw the route as a polyline
-//     _mapController!.addLine(
-//       LineOptions(geometry: routePoints, lineColor: "#FF0000", lineWidth: 4.0),
-//     );
-//
-//     // Zoom in on point A with the correct bearing
-//     _zoomOnPointA();
-//   }
-//
-//   // Zoom in on point A with the calculated bearing
-//   void _zoomOnPointA() {
-//     if (bearing == null) return;
-//     _mapController!.animateCamera(
-//       CameraUpdate.newCameraPosition(
-//         CameraPosition(
-//           target: pointA,
-//           zoom: 15.0, // Zoom level for point A
-//           bearing: bearing!, // Orient the map toward point B
-//         ),
-//       ),
-//       duration: const Duration(seconds: 2), // Smooth zoom animation
-//     );
-//   }
-//
-//   // Simulate travel and zoom in on the user's position
-//   void _simulateTravel() async {
-//     if (_isTraveling) return;
-//     _isTraveling = true;
-//
-//     // Ensure the map is zoomed in on point A with the correct bearing before starting
-//     _zoomOnPointA();
-//
-//     // Wait for the initial zoom to complete before starting the trip
-//     await Future.delayed(const Duration(seconds: 2));
-//
-//     Symbol? userMarker;
-//     for (int i = 0; i < routePoints.length; i++) {
-//       if (!mounted || !_isTraveling) break;
-//
-//       userPosition = routePoints[i];
-//
-//       // Update user marker position
-//       if (userMarker != null) {
-//         _mapController!.updateSymbol(
-//           userMarker,
-//           SymbolOptions(geometry: userPosition),
-//         );
-//       } else {
-//         userMarker = await _mapController!.addSymbol(
-//           SymbolOptions(
-//             geometry: userPosition,
-//             iconImage: "person-15",
-//             iconSize: 2,
-//           ),
-//         );
-//       }
-//
-//       // Zoom in on the user's position while maintaining the bearing
-//       _mapController!.animateCamera(
-//         CameraUpdate.newCameraPosition(
-//           CameraPosition(
-//             target: userPosition!,
-//             zoom: 19.0,
-//             bearing: bearing!, // Keep the map oriented toward the destination
-//           ),
-//         ),
-//         duration: const Duration(milliseconds: 500),
-//       );
-//
-//       // Simulate movement delay
-//       await Future.delayed(const Duration(milliseconds: 200));
-//     }
-//     _isTraveling = false;
-//   }
-//
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: const Text("Travel from A to B"),
-//       ),
-//       body: Stack(
-//         children: [
-//           MapLibreMap(
-//             onMapCreated: _onMapCreated,
-//             styleString:
-//                 "https://tiles.stadiamaps.com/styles/alidade_smooth.json?api_key=$stadiaApiKey",
-//             initialCameraPosition: CameraPosition(
-//               target: LatLng(
-//                 (pointA.latitude + pointB.latitude) / 2,
-//                 (pointA.longitude + pointB.longitude) / 2,
-//               ),
-//               zoom: 12.0,
-//             ),
-//             myLocationEnabled: false,
-//           ),
-//           Positioned(
-//             bottom: 20,
-//             left: 20,
-//             child: ElevatedButton(
-//               onPressed: _simulateTravel,
-//               child: const Text("Start Travel"),
-//             ),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-//
-//   @override
-//   void dispose() {
-//     _isTraveling = false;
-//     super.dispose();
-//   }
-// }
