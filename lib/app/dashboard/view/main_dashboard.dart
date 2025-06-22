@@ -277,7 +277,6 @@ class _MapSheetState extends State<MapSheet> {
             duration: const Duration(milliseconds: 200),
             builder: (BuildContext context, double t, Widget? child) {
               final radius = Tween<double>(begin: 16, end: 0).transform(t);
-
               final shadow = ColorTween(
                 begin: Colors.black26,
                 end: Colors.black26.withValues(alpha: 0),
@@ -286,6 +285,7 @@ class _MapSheetState extends State<MapSheet> {
                 begin: Colors.grey[200],
                 end: Colors.grey[200]?.withValues(alpha: 0),
               ).transform(t);
+
               return MediaQuery.removePadding(
                 context: context,
                 removeTop: true,
@@ -322,273 +322,243 @@ class _MapSheetState extends State<MapSheet> {
                               ),
                               child: Column(
                                 children: [
+                                  // Current location pill
                                   Container(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: styles.insets.sm,
+                                    margin:
+                                        const EdgeInsets.symmetric(vertical: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 12),
+                                    decoration: BoxDecoration(
+                                      color: styles.theme.background,
+                                      borderRadius: BorderRadius.circular(32),
                                     ),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
+                                    child: Row(
                                       children: [
-                                        Container(
-                                          margin: const EdgeInsets.symmetric(
-                                              vertical: 8),
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 16, vertical: 12),
-                                          decoration: BoxDecoration(
-                                            color: styles.theme.background,
-                                            borderRadius:
-                                                BorderRadius.circular(32),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              AppIcon(
-                                                Assets.icons.location,
-                                                color: styles.theme.red,
-                                                size: 18,
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                'Current location',
-                                                style: styles.typography.t2
-                                                    .textColor(
-                                                        styles.theme.text),
-                                              ),
-                                            ],
-                                          ),
+                                        AppIcon(
+                                          Assets.icons.location,
+                                          color: styles.theme.red,
+                                          size: 18,
                                         ),
-                                        CustomSearchBar(
-                                          controller: destinationController,
-                                          onChanged: (v) {
-                                            _onSearchChanged(v);
-                                            if (widget.controller.animation
-                                                    .value <=
-                                                0.3) {
-                                              widget.controller
-                                                  .relativeAnimateTo(
-                                                0.9,
-                                                duration: const Duration(
-                                                    milliseconds: 200),
-                                                curve: Curves.easeOut,
-                                              );
-                                            }
-                                          },
-                                          onClear: () {
-                                            destinationController.clear();
-                                            setState(() {
-                                              stadiaSuggestions = [];
-                                            });
-                                          },
-                                          onFocus: () {
-                                            if (widget.controller.animation
-                                                    .value <=
-                                                0.3) {
-                                              widget.controller
-                                                  .relativeAnimateTo(
-                                                0.9,
-                                                duration: const Duration(
-                                                    milliseconds: 200),
-                                                curve: Curves.easeOut,
-                                              );
-                                            }
-                                          },
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Current location',
+                                          style: styles.typography.t2
+                                              .textColor(styles.theme.text),
                                         ),
-                                        if (_suggestions.isNotEmpty)
-                                          SearchSuggestionList(
-                                            suggestions: _suggestions,
-                                            onTap: (suggestion) {
-                                              // Handle suggestion tap here
-                                              debugPrint(
-                                                  'Suggestion tapped: ${suggestion.mainText}');
-                                              // You can call your _onSuggestionSelected(suggestion) if you want
-                                            },
-                                          ),
-                                        if (foundLocation != null &&
-                                            foundLocationName.isNotEmpty)
-                                          Gap(styles.insets.md),
-                                        if (foundLocation != null &&
-                                            foundLocationName.isNotEmpty)
-                                          LocationItem(
-                                            appIcon: Assets.icons.location,
-                                            title: foundLocationName,
-                                            sub:
-                                                '${foundLocation?.latitude.toString()} , ${foundLocation?.longitude.toString()}',
-                                          ).clickable(() {
-                                            if (widget.onSearchedDestination !=
-                                                    null &&
-                                                foundLocation != null) {
-                                              widget.onSearchedDestination!(
-                                                  foundLocation!);
-                                            }
-                                          }),
-                                        if (foundLocation != null &&
-                                            foundLocationName.isNotEmpty)
-                                          Divider(
-                                            thickness: 0.8,
-                                            color: styles.theme.divider,
-                                          ),
                                       ],
                                     ),
                                   ),
-                                  Gap(styles.insets.sm),
+                                  // Search bar
+                                  CustomSearchBar(
+                                    controller: destinationController,
+                                    onChanged: (v) {
+                                      _onSearchChanged(v);
+                                      if (widget.controller.animation.value <=
+                                          0.3) {
+                                        widget.controller.relativeAnimateTo(
+                                          0.9,
+                                          duration:
+                                              const Duration(milliseconds: 200),
+                                          curve: Curves.easeOut,
+                                        );
+                                      }
+                                    },
+                                    onClear: () {
+                                      destinationController.clear();
+                                      setState(() {
+                                        _suggestions = [];
+                                      });
+                                    },
+                                    onFocus: () {
+                                      if (widget.controller.animation.value <=
+                                          0.3) {
+                                        widget.controller.relativeAnimateTo(
+                                          0.9,
+                                          duration:
+                                              const Duration(milliseconds: 200),
+                                          curve: Curves.easeOut,
+                                        );
+                                      }
+                                    },
+                                  ),
+                                  // If suggestions, show only suggestions
+                                  if (_suggestions.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 16),
+                                      child: SearchSuggestionList(
+                                        suggestions: _suggestions,
+                                        onTap: (suggestion) {
+                                          // Handle suggestion tap here
+                                          debugPrint(
+                                              'Suggestion tapped: ${suggestion.mainText}');
+                                        },
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
-                            CustomHorizontalScroll(
-                              child: Row(
-                                children: [
-                                  Gap(styles.insets.md),
-                                  ...List.generate(
-                                    10,
-                                    (index) => Container(
-                                      width: 69,
-                                      height: 74,
-                                      margin: const EdgeInsets.only(right: 8),
-                                      decoration: BoxDecoration(
-                                        color: styles.theme.background,
-                                        borderRadius: BorderRadius.circular(
-                                          styles.corners.sm,
+                            // Only show the rest if there are NO suggestions
+                            if (_suggestions.isEmpty) ...[
+                              // --- Place all your "recent locations", "saved locations", etc. widgets here ---
+                              Gap(styles.insets.sm),
+                              CustomHorizontalScroll(
+                                child: Row(
+                                  children: [
+                                    Gap(styles.insets.md),
+                                    ...List.generate(
+                                      10,
+                                      (index) => Container(
+                                        width: 69,
+                                        height: 74,
+                                        margin: const EdgeInsets.only(right: 8),
+                                        decoration: BoxDecoration(
+                                          color: styles.theme.background,
+                                          borderRadius: BorderRadius.circular(
+                                            styles.corners.sm,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            AppIcon(
+                                              Assets.icons.homeSmile,
+                                              color: styles.theme.primary,
+                                            ),
+                                            const Gap(4),
+                                            Text(
+                                              'Home',
+                                              style: styles.typography.t3
+                                                  .textColor(
+                                                      styles.theme.primary)
+                                                  .medium,
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      child: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          AppIcon(
-                                            Assets.icons.homeSmile,
-                                            color: styles.theme.primary,
-                                          ),
-                                          const Gap(4),
-                                          Text(
-                                            'Home',
-                                            style: styles.typography.t3
-                                                .textColor(styles.theme.primary)
-                                                .medium,
-                                          ),
-                                        ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Gap(styles.insets.md),
+                              CustomContainer(
+                                width: context.widthPx,
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: styles.insets.lg,
+                                ),
+                                borderRadius: BorderRadius.circular(
+                                  styles.corners.lg,
+                                ),
+                                color: styles.theme.background,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Gap(styles.insets.md),
+                                    Text(
+                                      'Saved Locations',
+                                      style: styles.typography.h4
+                                          .textColor(styles.theme.text),
+                                    ),
+                                    Gap(styles.insets.md),
+                                    ProfileActionItemButton(
+                                      onPressed: () {},
+                                      icon: Assets.icons.homeSmile,
+                                      title: 'Home',
+                                      subTitle: 'Address',
+                                      semanticLabel: 'home-action-btn',
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                      ),
+                                      child: Divider(
+                                        color: styles.theme.secondary,
                                       ),
                                     ),
-                                  ),
-                                ],
+                                    ProfileActionItemButton(
+                                      icon: Assets.icons.briefcase,
+                                      title: 'Office',
+                                      subTitle: 'Address',
+                                      semanticLabel: 'office-action-btn',
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                      ),
+                                      child: Divider(
+                                        color: styles.theme.secondary,
+                                      ),
+                                    ),
+                                    ProfileActionItemButton(
+                                      onPressed: () {},
+                                      icon: Assets.icons.plus,
+                                      title: 'Add new location',
+                                      semanticLabel: 'add-action-btn',
+                                    ),
+                                    Gap(styles.insets.md),
+                                  ],
+                                ),
                               ),
-                            ),
-                            Gap(styles.insets.md),
-                            CustomContainer(
-                              width: context.widthPx,
-                              padding: EdgeInsets.symmetric(
-                                horizontal: styles.insets.lg,
+                              Gap(styles.insets.md),
+                              CustomContainer(
+                                width: context.widthPx,
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: styles.insets.lg,
+                                ),
+                                borderRadius: BorderRadius.circular(
+                                  styles.corners.lg,
+                                ),
+                                color: styles.theme.background,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Gap(styles.insets.md),
+                                    Text(
+                                      'recent Locations',
+                                      style: styles.typography.h4
+                                          .textColor(styles.theme.text),
+                                    ),
+                                    Gap(styles.insets.md),
+                                    ProfileActionItemButton(
+                                      onPressed: () {},
+                                      icon: Assets.icons.homeSmile,
+                                      title: 'Home',
+                                      subTitle: 'Address',
+                                      semanticLabel: 'home-action-btn',
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                      ),
+                                      child: Divider(
+                                        color: styles.theme.secondary,
+                                      ),
+                                    ),
+                                    ProfileActionItemButton(
+                                      icon: Assets.icons.briefcase,
+                                      title: 'Office',
+                                      subTitle: 'Address',
+                                      semanticLabel: 'office-action-btn',
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                      ),
+                                      child: Divider(
+                                        color: styles.theme.secondary,
+                                      ),
+                                    ),
+                                    ProfileActionItemButton(
+                                      onPressed: () {},
+                                      icon: Assets.icons.plus,
+                                      title: 'Add new location',
+                                      semanticLabel: 'add-action-btn',
+                                    ),
+                                    Gap(styles.insets.md),
+                                  ],
+                                ),
                               ),
-                              borderRadius: BorderRadius.circular(
-                                styles.corners.lg,
-                              ),
-                              color: styles.theme.background,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Gap(styles.insets.md),
-                                  Text(
-                                    'Saved Locations',
-                                    style: styles.typography.h4
-                                        .textColor(styles.theme.text),
-                                  ),
-                                  Gap(styles.insets.md),
-                                  ProfileActionItemButton(
-                                    onPressed: () {},
-                                    icon: Assets.icons.homeSmile,
-                                    title: 'Home',
-                                    subTitle: 'Address',
-                                    semanticLabel: 'home-action-btn',
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 8,
-                                    ),
-                                    child: Divider(
-                                      color: styles.theme.secondary,
-                                    ),
-                                  ),
-                                  ProfileActionItemButton(
-                                    icon: Assets.icons.briefcase,
-                                    title: 'Office',
-                                    subTitle: 'Address',
-                                    semanticLabel: 'office-action-btn',
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 8,
-                                    ),
-                                    child: Divider(
-                                      color: styles.theme.secondary,
-                                    ),
-                                  ),
-                                  ProfileActionItemButton(
-                                    onPressed: () {},
-                                    icon: Assets.icons.plus,
-                                    title: 'Add new location',
-                                    semanticLabel: 'add-action-btn',
-                                  ),
-                                  Gap(styles.insets.md),
-                                ],
-                              ),
-                            ),
-                            Gap(styles.insets.md),
-                            CustomContainer(
-                              width: context.widthPx,
-                              padding: EdgeInsets.symmetric(
-                                horizontal: styles.insets.lg,
-                              ),
-                              borderRadius: BorderRadius.circular(
-                                styles.corners.lg,
-                              ),
-                              color: styles.theme.background,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Gap(styles.insets.md),
-                                  Text(
-                                    'recent Locations',
-                                    style: styles.typography.h4
-                                        .textColor(styles.theme.text),
-                                  ),
-                                  Gap(styles.insets.md),
-                                  ProfileActionItemButton(
-                                    onPressed: () {},
-                                    icon: Assets.icons.homeSmile,
-                                    title: 'Home',
-                                    subTitle: 'Address',
-                                    semanticLabel: 'home-action-btn',
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 8,
-                                    ),
-                                    child: Divider(
-                                      color: styles.theme.secondary,
-                                    ),
-                                  ),
-                                  ProfileActionItemButton(
-                                    icon: Assets.icons.briefcase,
-                                    title: 'Office',
-                                    subTitle: 'Address',
-                                    semanticLabel: 'office-action-btn',
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 8,
-                                    ),
-                                    child: Divider(
-                                      color: styles.theme.secondary,
-                                    ),
-                                  ),
-                                  ProfileActionItemButton(
-                                    onPressed: () {},
-                                    icon: Assets.icons.plus,
-                                    title: 'Add new location',
-                                    semanticLabel: 'add-action-btn',
-                                  ),
-                                  Gap(styles.insets.md),
-                                ],
-                              ),
-                            ),
+                            ],
                           ],
                         ),
                       ),
