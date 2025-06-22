@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
-import 'package:waze_kibris/app/dashboard/view/main_dashboard.dart';
+import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart'; // For AutocompleteSuggestion
 
 class PlacesService {
@@ -205,5 +205,105 @@ class PlacesService {
       debugPrint(':::::::::::Error fetching route: $e');
       rethrow;
     }
+  }
+
+  Future<List<SearchSuggestion>> fetchGoogleAutocomplete(
+    String query, {
+    double? lat,
+    double? lon,
+    int? radius,
+  }) async {
+    final params = {'text': query};
+    if (lat != null && lon != null) {
+      params['lat'] = lat.toString();
+      params['lon'] = lon.toString();
+    }
+    if (radius != null) {
+      params['radius'] = radius.toString();
+    }
+
+    try {
+      final response = await _dio.get(
+        '$backendBaseUrl/places/googleautocomplete',
+        queryParameters: params,
+        options: Options(headers: {
+          'Content-Type': 'application/json',
+          'X-Request-Source': 'flutter-app',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final dynamic responseData = response.data;
+        List<dynamic>? predictions;
+
+        // Handle the nested structure: data.predictions
+        if (responseData is Map<String, dynamic>) {
+          // First check if there's a 'data' wrapper
+          if (responseData['data'] is Map<String, dynamic>) {
+            final dataMap = responseData['data'] as Map<String, dynamic>;
+            if (dataMap['predictions'] is List) {
+              predictions = dataMap['predictions'] as List<dynamic>;
+            }
+          }
+          // Fallback: check for direct 'predictions' key
+          else if (responseData['predictions'] is List) {
+            predictions = responseData['predictions'] as List<dynamic>;
+          }
+          // Another fallback: check if 'data' is directly a list
+          else if (responseData['data'] is List) {
+            predictions = responseData['data'] as List<dynamic>;
+          }
+        }
+        // Handle case where response is directly a list
+        else if (responseData is List) {
+          predictions = responseData;
+        }
+
+        if (predictions != null && predictions.isNotEmpty) {
+          return predictions.map<SearchSuggestion>((item) {
+            if (item is! Map<String, dynamic>) {
+              throw Exception('Invalid prediction item format');
+            }
+
+            final formatting =
+                item['structured_formatting'] as Map<String, dynamic>? ?? {};
+            return SearchSuggestion(
+              placeId: item['place_id']?.toString() ?? '',
+              mainText: formatting['main_text']?.toString() ?? '',
+              secondaryText: formatting['secondary_text']?.toString() ?? '',
+              distanceMeters: _parseDistanceMeters(item['distance_meters']),
+            );
+          }).toList();
+        } else {
+          // Return empty list instead of throwing exception for no results
+          return <SearchSuggestion>[];
+        }
+      } else {
+        throw Exception(
+            'API Error: ${response.statusCode} - ${response.statusMessage}');
+      }
+    } on DioException catch (e) {
+      debugPrint('Dio error: ${e.response?.data}');
+      if (e.response?.statusCode == 404) {
+        throw Exception('Autocomplete service not found');
+      } else if (e.response?.statusCode == 500) {
+        throw Exception('Server error occurred');
+      }
+      throw Exception('Network error: ${e.message}');
+    } catch (e) {
+      debugPrint('Parsing error: $e');
+      throw Exception('Failed to parse autocomplete response: $e');
+    }
+  }
+
+  // Helper method to safely parse distance meters
+  int _parseDistanceMeters(dynamic distance) {
+    if (distance == null) return 0;
+    if (distance is int) return distance;
+    if (distance is double) return distance.round();
+    if (distance is String) {
+      return int.tryParse(distance) ?? 0;
+    }
+    return 0;
   }
 }
