@@ -9,7 +9,9 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:sheet/sheet.dart';
 import 'package:styled_widget/styled_widget.dart';
 import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
+import 'package:waze_kibris/app/dashboard/view/place_details_screen.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
+import 'package:waze_kibris/app/dashboard/view/route_selection_widget.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart';
@@ -26,6 +28,20 @@ class _MainDashboardState extends State<MainDashboard>
   late SheetController controller;
   mp.MapboxMap? _mapboxMapController;
   StreamSubscription<Position>? _userPositionStream;
+  SearchSuggestion? _activeRouteSuggestion;
+
+  // Pass this callback to MapSheet
+  void _onSuggestionSelected(SearchSuggestion suggestion) {
+    setState(() {
+      _activeRouteSuggestion = suggestion;
+    });
+  }
+
+  void _clearRouteBar() {
+    setState(() {
+      _activeRouteSuggestion = null;
+    });
+  }
 
   @override
   void initState() {
@@ -121,6 +137,19 @@ class _MainDashboardState extends State<MainDashboard>
     );
   }
 
+// void _drawRouteOnMap(DirectionsRoute route) {
+//     if (_mapboxMapController == null) return;
+//     final points = decodePolyline(route.overviewPolyline.points);
+
+//     _mapboxMapController?.addPolyline(
+//       PolylineOptions(
+//         geometry: points,
+//         color: Colors.red,
+//         width: 6,
+//       ),
+//     );
+//   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -135,10 +164,22 @@ class _MainDashboardState extends State<MainDashboard>
             key: const ValueKey('mapWidget'),
             onMapCreated: _onMapCreated,
           ),
+          if (_activeRouteSuggestion != null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 16,
+              left: 16,
+              right: 16,
+              child: RouteBar(
+                start: "YCL", // or your actual start label
+                end: _activeRouteSuggestion!.mainText,
+                onCancel: _clearRouteBar,
+              ),
+            ),
           Positioned.fill(
             top: kToolbarHeight + MediaQuery.of(context).padding.top - 8,
             child: MapSheet(
               controller: controller,
+              onSuggestionSelected: _onSuggestionSelected,
             ),
           ),
         ],
@@ -180,9 +221,11 @@ class MapSheet extends StatefulWidget {
       {required this.controller,
       // required this.mapPolyKey,
       this.onSearchedDestination,
+      this.onSuggestionSelected,
       super.key});
   final SheetController controller;
   final ValueChanged<LatLng>? onSearchedDestination;
+  final ValueChanged<SearchSuggestion>? onSuggestionSelected;
   // final GlobalKey<MapPolyScreenState> mapPolyKey;
 
   @override
@@ -248,6 +291,68 @@ class _MapSheetState extends State<MapSheet> {
       SnackBar(
         content: Text(
             '${placeDetails?['name'] ?? suggestion.name} saved to favorites!'),
+      ),
+    );
+  }
+
+  Future<void> _onSuggestionTap(SearchSuggestion suggestion) async {
+    widget.onSuggestionSelected?.call(suggestion);
+    // Optionally show a loader here
+    await widget.controller.relativeAnimateTo(
+      0.0, // or 0.0 to fully close
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    );
+
+    final details = await _placesService.fetchGooglePlace(suggestion.placeId);
+    if (!mounted) return;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => PlaceDetailsSheet(
+        title: details.name,
+        address: details.formattedAddress,
+        distanceKm: suggestion.distanceMeters / 1000,
+        onSave: () {
+          // Handle save
+          Navigator.of(context).pop();
+        },
+        onShare: () {
+          // Handle share
+          Navigator.of(context).pop();
+        },
+        onMore: () {
+          // Handle more
+          Navigator.of(context).pop();
+        },
+        onSeeAllRoutes: () async {
+          final parentContext = context; // capture before pop
+          // Navigator.of(context).pop();
+
+          final position = await Geolocator.getCurrentPosition();
+          final directions = await _placesService.fetchGoogleDirections(
+            originLat: position.latitude,
+            originLng: position.longitude,
+            destinationPlaceId: details.placeId,
+          );
+
+          print('Directions fetched: ${directions.routes.length} routes');
+
+          await showModalBottomSheet(
+            context: parentContext, // use the captured parent context
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => RouteSelectionSheet(
+              routes: directions.routes,
+              onRouteSelected: (selectedRoute) {
+                //  Navigator.of(context).pop();
+              },
+            ),
+          );
+        },
+        info: details.website, // Optional info string
       ),
     );
   }
@@ -389,8 +494,9 @@ class _MapSheetState extends State<MapSheet> {
                                         suggestions: _suggestions,
                                         onTap: (suggestion) {
                                           // Handle suggestion tap here
+                                          _onSuggestionTap(suggestion);
                                           debugPrint(
-                                              'Suggestion tapped: ${suggestion.mainText}');
+                                              'Suggestion tapped: ${suggestion.placeId}');
                                         },
                                       ),
                                     ),
@@ -399,7 +505,6 @@ class _MapSheetState extends State<MapSheet> {
                             ),
                             // Only show the rest if there are NO suggestions
                             if (_suggestions.isEmpty) ...[
-                              // --- Place all your "recent locations", "saved locations", etc. widgets here ---
                               Gap(styles.insets.sm),
                               CustomHorizontalScroll(
                                 child: Row(

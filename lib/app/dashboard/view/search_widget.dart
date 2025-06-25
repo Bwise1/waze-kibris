@@ -102,7 +102,7 @@ class SearchSuggestion {
   final String placeId;
   final String mainText;
   final String secondaryText;
-  final int distanceMeters;
+  final double distanceMeters;
 }
 
 class SearchSuggestionList extends StatelessWidget {

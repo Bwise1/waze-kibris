@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
+import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart'; // For AutocompleteSuggestion
 
 class PlacesService {
@@ -271,7 +272,8 @@ class PlacesService {
               placeId: item['place_id']?.toString() ?? '',
               mainText: formatting['main_text']?.toString() ?? '',
               secondaryText: formatting['secondary_text']?.toString() ?? '',
-              distanceMeters: _parseDistanceMeters(item['distance_meters']),
+              distanceMeters:
+                  metersToKm(_parseDistanceMeters(item['distance_meters'])),
             );
           }).toList();
         } else {
@@ -296,6 +298,75 @@ class PlacesService {
     }
   }
 
+  Future<GooglePlaceDetails> fetchGooglePlace(String placeId) async {
+    try {
+      final response = await _dio.get(
+        '$backendBaseUrl/places/googleplacedetails',
+        queryParameters: {'place_id': placeId},
+        options: Options(headers: {
+          'Content-Type': 'application/json',
+          'X-Request-Source': 'flutter-app',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final dynamic responseData = response.data;
+        final data = responseData['data'] ?? responseData;
+
+        return GooglePlaceDetails.fromJson(data as Map<String, dynamic>);
+      } else {
+        throw Exception(
+            'Google Place details API Error: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      debugPrint('Google Place details Dio error: ${e.response?.data}');
+      throw Exception('Network error: ${e.message}');
+    } catch (e) {
+      debugPrint('Google Place details parsing error: $e');
+      throw Exception('Parsing error: $e');
+    }
+  }
+
+  Future<DirectionsResponse> fetchGoogleDirections({
+    required double originLat,
+    required double originLng,
+    required String destinationPlaceId,
+  }) async {
+    print('Fetching Google Directions for: '
+        'Origin: ($originLat, $originLng), '
+        'Destination Place ID: $destinationPlaceId');
+    try {
+      final response = await _dio.get(
+        '$backendBaseUrl/places/googledirections',
+        queryParameters: {
+          // 'origin': '$originLat,$originLng',
+          'origin': '9.1538,7.3220',
+          'destination': 'place_id:$destinationPlaceId',
+        },
+        options: Options(headers: {
+          'Content-Type': 'application/json',
+          'X-Request-Source': 'flutter-app',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        print('Google Directions response: ${response.data}');
+        final dynamic responseData = response.data;
+        final data = responseData['data'] ?? responseData;
+        return DirectionsResponse.fromJson(data as Map<String, dynamic>);
+      } else {
+        throw Exception('Google Directions API Error: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      print(e);
+      debugPrint('Google Directions Dio error: ${e.response?.data}');
+      throw Exception('Network error: ${e.message}');
+    } catch (e) {
+      debugPrint('Google Directions parsing error: $e');
+      throw Exception('Parsing error: $e');
+    }
+  }
+
   // Helper method to safely parse distance meters
   int _parseDistanceMeters(dynamic distance) {
     if (distance == null) return 0;
@@ -305,5 +376,58 @@ class PlacesService {
       return int.tryParse(distance) ?? 0;
     }
     return 0;
+  }
+
+  double metersToKm(int meters) {
+    return meters / 1000;
+  }
+
+// Or, if you want a string with 1 decimal:
+  String metersToKmString(int meters) {
+    return (meters / 1000).toStringAsFixed(1);
+  }
+}
+
+class GooglePlaceDetails {
+  GooglePlaceDetails({
+    required this.placeId,
+    required this.name,
+    required this.formattedAddress,
+    required this.lat,
+    required this.lng,
+    this.rating,
+    this.userRatingsTotal,
+    this.phoneNumber,
+    this.website,
+    this.weekdayText,
+  });
+  final String placeId;
+  final String name;
+  final String formattedAddress;
+  final double lat;
+  final double lng;
+  final double? rating;
+  final int? userRatingsTotal;
+  final String? phoneNumber;
+  final String? website;
+  final List<String>? weekdayText;
+
+  factory GooglePlaceDetails.fromJson(Map<String, dynamic> json) {
+    final geometry = json['geometry']?['location'] ?? {};
+    final openingHours = json['opening_hours'] ?? {};
+    return GooglePlaceDetails(
+      placeId: json['place_id'] as String,
+      name: json['name'] as String,
+      formattedAddress: json['formatted_address'] as String,
+      lat: (geometry['lat'] as num?)?.toDouble() ?? 0.0,
+      lng: (geometry['lng'] as num?)?.toDouble() ?? 0.0,
+      rating: (json['rating'] as num?)?.toDouble(),
+      userRatingsTotal: json['user_ratings_total'] as int?,
+      phoneNumber: json['formatted_phone_number'] as String?,
+      website: json['website'] as String?,
+      weekdayText: (openingHours['weekday_text'] as List?)
+          ?.map((e) => e.toString())
+          .toList(),
+    );
   }
 }

@@ -12,6 +12,13 @@ import 'package:flutter/widgets.dart';
 class $AssetsIconsGen {
   const $AssetsIconsGen();
 
+  /// File path: assets/icons/CurrentPosition.png
+  AssetGenImage get currentPositionPng =>
+      const AssetGenImage('assets/icons/CurrentPosition.png');
+
+  /// File path: assets/icons/currentPosition.zip
+  String get currentPositionZip => 'assets/icons/currentPosition.zip';
+
   /// File path: assets/icons/Spotify.png
   AssetGenImage get spotifyPng =>
       const AssetGenImage('assets/icons/Spotify.png');
@@ -205,6 +212,8 @@ class $AssetsIconsGen {
 
   /// List of all assets
   List<dynamic> get values => [
+        currentPositionPng,
+        currentPositionZip,
         spotifyPng,
         spotifySvg,
         accident,
