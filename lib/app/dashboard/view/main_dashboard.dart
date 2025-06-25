@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
@@ -14,6 +15,7 @@ import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/app/dashboard/view/route_selection_widget.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart';
 
 class MainDashboard extends StatefulWidget {
@@ -29,6 +31,8 @@ class _MainDashboardState extends State<MainDashboard>
   mp.MapboxMap? _mapboxMapController;
   StreamSubscription<Position>? _userPositionStream;
   SearchSuggestion? _activeRouteSuggestion;
+
+  mp.PolylineAnnotationManager? polylineAnnotationManager;
 
   // Pass this callback to MapSheet
   void _onSuggestionSelected(SearchSuggestion suggestion) {
@@ -149,6 +153,52 @@ class _MainDashboardState extends State<MainDashboard>
 //       ),
 //     );
 //   }
+
+  Future<void> _drawPolyline(DirectionsRoute route) async {
+    if (polylineAnnotationManager == null) return;
+
+    // Decode the polyline using flutter_polyline_points
+    PolylinePoints polylinePoints = PolylinePoints();
+    List<PointLatLng> decodedPoints =
+        polylinePoints.decodePolyline(route.overviewPolyline.points);
+
+    // Convert to Mapbox Position objects
+    final coordinates =
+        decodedPoints.map((p) => mp.Position(p.longitude, p.latitude)).toList();
+
+    // Remove any existing polylines
+    await polylineAnnotationManager!.deleteAll();
+
+    // Draw the new polyline
+    await polylineAnnotationManager!.create(
+      mp.PolylineAnnotationOptions(
+        geometry: mp.LineString(coordinates: coordinates),
+        lineColor: Colors.red.value, // Use a hex string for color (blue)
+        lineWidth: 5.0,
+      ),
+    );
+
+    // Optionally, zoom to fit the polyline
+    if (coordinates.isNotEmpty && _mapboxMapController != null) {
+      final first = coordinates.first;
+      final last = coordinates.last;
+
+      // final bounds = mp.LatLngBounds(
+      //   southwest: mp.(first.lat, first.lng),
+      //   northeast: mp.LatLng(last.lat, last.lng),
+      // );
+
+      await _mapboxMapController!.flyTo(
+        mp.CameraOptions(
+          // bounds: bounds,
+          padding: mp.MbxEdgeInsets(top: 50, left: 50, bottom: 50, right: 50),
+        ),
+        mp.MapAnimationOptions(
+          duration: 2,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

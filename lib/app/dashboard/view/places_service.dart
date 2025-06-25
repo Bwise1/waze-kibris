@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
@@ -385,6 +387,19 @@ class PlacesService {
 // Or, if you want a string with 1 decimal:
   String metersToKmString(int meters) {
     return (meters / 1000).toStringAsFixed(1);
+  }
+
+  Future<List<Point>> decodeGooglePolyline(String encodedPolyline) async {
+    PolylinePoints polylinePoints = PolylinePoints();
+    List<PointLatLng> decodedPoints =
+        polylinePoints.decodePolyline(encodedPolyline);
+
+    List<Point> mapboxPoints = [];
+    for (var point in decodedPoints) {
+      mapboxPoints
+          .add(Point(coordinates: Position(point.longitude, point.latitude)));
+    }
+    return mapboxPoints;
   }
 }
 
