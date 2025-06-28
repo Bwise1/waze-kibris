@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -230,6 +229,7 @@ class _MainDashboardState extends State<MainDashboard>
             child: MapSheet(
               controller: controller,
               onSuggestionSelected: _onSuggestionSelected,
+              context: context,
             ),
           ),
         ],
@@ -267,15 +267,18 @@ class _MainDashboardState extends State<MainDashboard>
 }
 
 class MapSheet extends StatefulWidget {
-  const MapSheet(
-      {required this.controller,
-      // required this.mapPolyKey,
-      this.onSearchedDestination,
-      this.onSuggestionSelected,
-      super.key});
+  const MapSheet({
+    required this.controller,
+    required this.context,
+    // required this.mapPolyKey,
+    this.onSearchedDestination,
+    this.onSuggestionSelected,
+    super.key,
+  });
   final SheetController controller;
   final ValueChanged<LatLng>? onSearchedDestination;
   final ValueChanged<SearchSuggestion>? onSuggestionSelected;
+  final BuildContext context;
   // final GlobalKey<MapPolyScreenState> mapPolyKey;
 
   @override
@@ -348,56 +351,61 @@ class _MapSheetState extends State<MapSheet> {
   Future<void> _onSuggestionTap(SearchSuggestion suggestion) async {
     widget.onSuggestionSelected?.call(suggestion);
     // Optionally show a loader here
-    await widget.controller.relativeAnimateTo(
-      0.0, // or 0.0 to fully close
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.controller.relativeAnimateTo(
+        0.0, // or 0.0 to fully close
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
 
     final details = await _placesService.fetchGooglePlace(suggestion.placeId);
-    if (!mounted) return;
+    debugPrint('Next...........................${details.name}');
+    if (!widget.context.mounted) return;
 
     await showModalBottomSheet(
-      context: context,
+      context: widget.context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => PlaceDetailsSheet(
+      builder: (contxt) => PlaceDetailsSheet(
+        key: UniqueKey(),
         title: details.name,
         address: details.formattedAddress,
-        distanceKm: suggestion.distanceMeters / 1000,
+        distanceKm: suggestion.distanceMeters / 1000, //
+
         onSave: () {
           // Handle save
-          Navigator.of(context).pop();
+          Navigator.of(contxt).pop();
         },
         onShare: () {
           // Handle share
-          Navigator.of(context).pop();
+          Navigator.of(contxt).pop();
         },
         onMore: () {
           // Handle more
-          Navigator.of(context).pop();
+          Navigator.of(contxt).pop();
         },
         onSeeAllRoutes: () async {
-          final parentContext = context; // capture before pop
-          // Navigator.of(context).pop();
-
           final position = await Geolocator.getCurrentPosition();
+
           final directions = await _placesService.fetchGoogleDirections(
             originLat: position.latitude,
             originLng: position.longitude,
             destinationPlaceId: details.placeId,
           );
+          Navigator.of(contxt).pop(); //pop only after finding location.
+          debugPrint('Directions fetched: ${directions.routes.length} routes');
 
-          print('Directions fetched: ${directions.routes.length} routes');
-
+          ///
           await showModalBottomSheet(
-            context: parentContext, // use the captured parent context
+            context: widget.context, // use the captured parent context
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
-            builder: (context) => RouteSelectionSheet(
+            builder: (modalContext) => RouteSelectionSheet(
               routes: directions.routes,
               onRouteSelected: (selectedRoute) {
-                //  Navigator.of(context).pop();
+                Navigator.of(modalContext).pop();
               },
             ),
           );

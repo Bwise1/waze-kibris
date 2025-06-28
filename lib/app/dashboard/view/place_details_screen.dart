@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:waze_kibris/common.dart';
 
 class RouteBar extends StatelessWidget {
   final String start;
@@ -75,6 +76,7 @@ class PlaceDetailsSheet extends StatelessWidget {
     required this.onMore,
     required this.onSeeAllRoutes,
     this.info,
+    this.isLoading = false,
     super.key,
   });
   final String title;
@@ -85,6 +87,7 @@ class PlaceDetailsSheet extends StatelessWidget {
   final VoidCallback onMore;
   final VoidCallback onSeeAllRoutes;
   final String? info;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -174,9 +177,21 @@ class PlaceDetailsSheet extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
                 onPressed: onSeeAllRoutes,
-                child: const Text(
-                  "See all routes",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      "See all routes",
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                    ),
+                    if (isLoading) ...[
+                      Gap(20),
+                      CustomLoader(
+                        type: LoaderType.spinner,
+                      )
+                    ]
+                  ],
                 ),
               ),
             ),
