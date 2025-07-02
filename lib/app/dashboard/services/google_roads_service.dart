@@ -5,7 +5,7 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 
 class GoogleRoadsService {
   static const String _baseUrl = 'https://roads.googleapis.com/v1';
-  
+
   /// Snap points to roads using Google Roads API
   Future<List<PointLatLng>> snapToRoads(
     List<PointLatLng> points,
@@ -14,12 +14,9 @@ class GoogleRoadsService {
   }) async {
     try {
       // Convert points to path parameter
-      final path = points
-          .map((p) => '${p.latitude},${p.longitude}')
-          .join('|');
+      final path = points.map((p) => '${p.latitude},${p.longitude}').join('|');
 
-      final url = Uri.parse('$_baseUrl/snapToRoads')
-          .replace(queryParameters: {
+      final url = Uri.parse('$_baseUrl/snapToRoads').replace(queryParameters: {
         'path': path,
         'interpolate': interpolate.toString(),
         'key': apiKey,
@@ -34,8 +31,8 @@ class GoogleRoadsService {
         return snappedPoints.map<PointLatLng>((point) {
           final location = point['location'];
           return PointLatLng(
-            location['latitude'],
-            location['longitude'],
+            location['latitude'] as double,
+            location['longitude'] as double,
           );
         }).toList();
       } else {
@@ -56,10 +53,10 @@ class GoogleRoadsService {
     try {
       // First snap to roads to get place IDs
       final snappedResponse = await snapToRoads(points, apiKey);
-      
+
       // This is a simplified version - in practice you'd need to handle place IDs
       // from the snapToRoads response and then call the speedLimits endpoint
-      
+
       return []; // Placeholder
     } catch (e) {
       debugPrint('Error getting speed limits: $e');
@@ -92,8 +89,8 @@ class GoogleRoadsService {
       for (int i = 0; i < decodedPoints.length; i += chunkSize) {
         final chunk = decodedPoints.sublist(
           i,
-          i + chunkSize < decodedPoints.length 
-              ? i + chunkSize 
+          i + chunkSize < decodedPoints.length
+              ? i + chunkSize
               : decodedPoints.length,
         );
 
