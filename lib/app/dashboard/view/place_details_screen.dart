@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:waze_kibris/app/dashboard/view/route_bar.dart';
 import 'package:waze_kibris/common.dart';
 
 class RouteBar extends StatelessWidget {
@@ -149,17 +150,17 @@ class PlaceDetailsSheet extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.blue[50],
+                  color: styles.theme.secondary,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline,
-                        color: Colors.blue, size: 18),
+                    Icon(Icons.info_outline,
+                        color: styles.theme.primary, size: 18),
                     const SizedBox(width: 8),
                     Text(
                       info!,
-                      style: const TextStyle(color: Colors.blue),
+                      style: TextStyle(color: styles.theme.primary),
                     ),
                   ],
                 ),
@@ -187,7 +188,7 @@ class PlaceDetailsSheet extends StatelessWidget {
                     ),
                     if (isLoading) ...[
                       Gap(20),
-                      CustomLoader(
+                      const CustomLoader(
                         type: LoaderType.spinner,
                       )
                     ]
@@ -223,12 +224,4 @@ class PlaceDetailsSheet extends StatelessWidget {
       ),
     );
   }
-}
-
-String getInitials(String input) {
-  return input
-      .split(' ')
-      .where((word) => word.isNotEmpty)
-      .map((word) => word[0].toUpperCase())
-      .join();
 }

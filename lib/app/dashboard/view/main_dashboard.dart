@@ -1,21 +1,22 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_polyline_points/flutter_polyline_points.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:sheet/sheet.dart';
-import 'package:styled_widget/styled_widget.dart';
+import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
-import 'package:waze_kibris/app/dashboard/view/place_details_screen.dart';
-import 'package:waze_kibris/app/dashboard/view/places_service.dart';
-import 'package:waze_kibris/app/dashboard/view/route_selection_widget.dart';
+import 'package:waze_kibris/app/dashboard/view/map_app_bar.dart';
+import 'package:waze_kibris/app/dashboard/view/map_controller_mixin.dart';
+import 'package:waze_kibris/app/dashboard/view/map_sheet.dart';
+import 'package:waze_kibris/app/dashboard/view/navigation_overlay.dart';
+import 'package:waze_kibris/app/dashboard/view/route_bar.dart';
+import 'package:waze_kibris/app/dashboard/view/route_overview.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/dialog_route.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart';
+import 'package:waze_kibris/core/widgets/buttons/app_button.dart';
+import 'package:waze_kibris/app/dashboard/view/map_controller_mixin.dart';
 
 class MainDashboard extends StatefulWidget {
   const MainDashboard({super.key});
@@ -25,15 +26,28 @@ class MainDashboard extends StatefulWidget {
 }
 
 class _MainDashboardState extends State<MainDashboard>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, MapControllerMixin {
   late SheetController controller;
-  mp.MapboxMap? _mapboxMapController;
-  StreamSubscription<Position>? _userPositionStream;
+  late NavigationBloc _navigationBloc;
   SearchSuggestion? _activeRouteSuggestion;
 
-  mp.PolylineAnnotationManager? polylineAnnotationManager;
+  @override
+  NavigationBloc get navigationBloc => _navigationBloc;
 
-  // Pass this callback to MapSheet
+  @override
+  void initState() {
+    super.initState();
+    _navigationBloc = NavigationBloc();
+    setupPositionTracking();
+    controller = SheetController();
+  }
+
+  @override
+  void dispose() {
+    _navigationBloc.close();
+    super.dispose();
+  }
+
   void _onSuggestionSelected(SearchSuggestion suggestion) {
     setState(() {
       _activeRouteSuggestion = suggestion;
@@ -46,855 +60,230 @@ class _MainDashboardState extends State<MainDashboard>
     });
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _setupPositionTracking();
-    controller = SheetController();
-  }
+  void _startNavigation(DirectionsRoute route) {
+    _navigationBloc.add(NavigationStarted(route: route));
+    setIsFollowingUser(true);
 
-  @override
-  void dispose() {
-    _userPositionStream?.cancel();
-    _mapboxMapController?.dispose();
-    super.dispose();
-  }
+    // Initialize snap-to-road with route data
+    initializeSnapToRoad(route);
 
-  void _onMapCreated(mp.MapboxMap controller) {
-    setState(() {
-      _mapboxMapController = controller;
-    });
-
-    // Enable gestures and location component
-    _mapboxMapController?.gestures
-        .updateSettings(mp.GesturesSettings(pinchToZoomEnabled: true));
-    _mapboxMapController?.location.updateSettings(
-      mp.LocationComponentSettings(
-        enabled: true,
-        puckBearingEnabled: true,
-
-        // puckBearingSource: mp.PuckBearingSource.HEADING, // Or COURSE
-        pulsingEnabled: true,
-      ),
-    );
-  }
-
-  Future<void> _setupPositionTracking() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      // Consider showing a dialog to the user to enable location services
-      return Future.error('Location services are disabled.');
-    }
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        // Handle the case where the user denies permission
-        return Future.error('Location permissions are denied');
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      // Handle the case where permissions are permanently denied
-      return Future.error(
-          'Location permissions are permanently denied, we cannot request permissions.');
-    }
-
-    // Settings for the position stream
-    const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10, // Update every 10 meters
+    // Close the sheet when navigation starts
+    controller.relativeAnimateTo(
+      0.0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
     );
 
-    // Cancel any existing stream
-    _userPositionStream?.cancel();
-
-    // Listen to the user's position stream
-    _userPositionStream =
-        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (Position? position) {
-        if (position != null && _mapboxMapController != null) {
-          // Center the map on the user's location and update the bearing
-          _mapboxMapController?.setCamera(
-            mp.CameraOptions(
-              center: mp.Point(
-                coordinates: mp.Position(
-                  position.longitude,
-                  position.latitude,
-                ),
-              ),
-              zoom: 16.0, // A closer zoom level
-              bearing: position
-                  .heading, // Set the map's bearing to the user's heading
-            ),
-          );
-        }
-      },
-      onError: (error) {
-        // Handle stream errors, e.g., location services are turned off
-      },
-    );
+    // Update map for navigation mode
+    updateMapForNavigationMode(true);
   }
 
-// void _drawRouteOnMap(DirectionsRoute route) {
-//     if (_mapboxMapController == null) return;
-//     final points = decodePolyline(route.overviewPolyline.points);
-
-//     _mapboxMapController?.addPolyline(
-//       PolylineOptions(
-//         geometry: points,
-//         color: Colors.red,
-//         width: 6,
-//       ),
-//     );
-//   }
-
-  Future<void> _drawPolyline(DirectionsRoute route) async {
-    if (polylineAnnotationManager == null) return;
-
-    // Decode the polyline using flutter_polyline_points
-    PolylinePoints polylinePoints = PolylinePoints();
-    List<PointLatLng> decodedPoints =
-        polylinePoints.decodePolyline(route.overviewPolyline.points);
-
-    // Convert to Mapbox Position objects
-    final coordinates =
-        decodedPoints.map((p) => mp.Position(p.longitude, p.latitude)).toList();
-
-    // Remove any existing polylines
-    await polylineAnnotationManager!.deleteAll();
-
-    // Draw the new polyline
-    await polylineAnnotationManager!.create(
-      mp.PolylineAnnotationOptions(
-        geometry: mp.LineString(coordinates: coordinates),
-        lineColor: Colors.red.value, // Use a hex string for color (blue)
-        lineWidth: 5.0,
-      ),
-    );
-
-    // Optionally, zoom to fit the polyline
-    if (coordinates.isNotEmpty && _mapboxMapController != null) {
-      final first = coordinates.first;
-      final last = coordinates.last;
-
-      // final bounds = mp.LatLngBounds(
-      //   southwest: mp.(first.lat, first.lng),
-      //   northeast: mp.LatLng(last.lat, last.lng),
-      // );
-
-      await _mapboxMapController!.flyTo(
-        mp.CameraOptions(
-          // bounds: bounds,
-          padding: mp.MbxEdgeInsets(top: 50, left: 50, bottom: 50, right: 50),
-        ),
-        mp.MapAnimationOptions(
-          duration: 2,
-        ),
-      );
-    }
+  void _endNavigation() {
+    _navigationBloc.add(NavigationStopped());
+    updateMapForNavigationMode(false);
+    clearRoutePolyline();
+    clearSnapToRoad();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      backgroundColor: Colors.grey[200],
-      appBar: MapAppBar(
-        controller: controller,
-      ),
-      body: Stack(
-        children: [
-          mp.MapWidget(
-            key: const ValueKey('mapWidget'),
-            onMapCreated: _onMapCreated,
+    return BlocProvider.value(
+      value: _navigationBloc,
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        backgroundColor: Colors.grey[200],
+        // Fixed AppBar issue - wrap BlocBuilder in PreferredSize
+        appBar: PreferredSize(
+          preferredSize: const Size.fromHeight(kToolbarHeight),
+          child: BlocBuilder<NavigationBloc, NavigationState>(
+            builder: (context, state) {
+              // Hide app bar during navigation
+              if (state is NavigationInProgress && !state.isOverviewVisible) {
+                return AppBar(
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  toolbarHeight: 0,
+                  automaticallyImplyLeading: false,
+                );
+              }
+              return MapAppBar(controller: controller);
+            },
           ),
-          if (_activeRouteSuggestion != null)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 16,
-              left: 16,
-              right: 16,
-              child: RouteBar(
-                start: "YCL", // or your actual start label
-                end: _activeRouteSuggestion!.mainText,
-                onCancel: _clearRouteBar,
-              ),
-            ),
-          Positioned.fill(
-            top: kToolbarHeight + MediaQuery.of(context).padding.top - 8,
-            child: MapSheet(
-              controller: controller,
-              onSuggestionSelected: _onSuggestionSelected,
-              context: context,
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: Column(mainAxisSize: MainAxisSize.min, children: [
-        FloatingActionButton(
-          onPressed: () {
-            // _toggleRouteOptionStates(RouteFetchState.nowInDestination);
-            // _toggleDetails();
+        ),
+        body: BlocListener<NavigationBloc, NavigationState>(
+          listener: (context, state) {
+            if (state is NavigationInProgress) {
+              // Handle navigation state changes
+              if (state.isNavigationComplete) {
+                _showNavigationCompleteDialog();
+              }
+            }
           },
-          heroTag: 'add-report',
-          backgroundColor: styles.theme.yellow,
-          child: IconBtn(
-            icon: Assets.icons.alertTriangle,
-            onPressed: () => CustomDialogRoutes.showBottomSheet<bool>(
-              context,
-              const ReportEventModal(),
-            ),
-            semanticLabel: '',
-            bgColor: styles.theme.yellow,
-            color: styles.theme.black,
-          ),
-        ),
-        const SizedBox(height: 10),
-        const SizedBox(height: 10),
-        FloatingActionButton(
-          // onPressed: _getCurrentLocation,
-          onPressed: () {},
-          heroTag: 'location',
-          child: const Icon(Icons.my_location),
-        ),
-      ]),
-    );
-  }
-}
-
-class MapSheet extends StatefulWidget {
-  const MapSheet({
-    required this.controller,
-    required this.context,
-    // required this.mapPolyKey,
-    this.onSearchedDestination,
-    this.onSuggestionSelected,
-    super.key,
-  });
-  final SheetController controller;
-  final ValueChanged<LatLng>? onSearchedDestination;
-  final ValueChanged<SearchSuggestion>? onSuggestionSelected;
-  final BuildContext context;
-  // final GlobalKey<MapPolyScreenState> mapPolyKey;
-
-  @override
-  State<MapSheet> createState() => _MapSheetState();
-}
-
-class _MapSheetState extends State<MapSheet> {
-  final TextEditingController destinationController = TextEditingController();
-
-  LatLng? foundLocation;
-  String foundLocationName = '';
-  List<Map<String, dynamic>> suggestions = [];
-  bool isSearching = false;
-  Timer? _debounceTimer;
-  List<AutocompleteSuggestion> stadiaSuggestions = [];
-  final PlacesService _placesService = PlacesService();
-
-  List<SearchSuggestion> _suggestions = [];
-
-  void _onSearchChanged(String query) {
-    _debounceTimer?.cancel();
-
-    if (query.isEmpty) {
-      setState(() {
-        _suggestions = [];
-        isSearching = false;
-      });
-      return;
-    }
-
-    setState(() => isSearching = true);
-
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
-      try {
-        // Get user's current location (replace with your actual values)
-        final position = await Geolocator.getCurrentPosition();
-        final results = await _placesService.fetchGoogleAutocomplete(
-          query,
-          lat: position.latitude,
-          lon: position.longitude,
-          radius: 5000,
-        );
-
-        setState(() {
-          _suggestions = results ?? [];
-
-          isSearching = false;
-        });
-      } catch (e) {
-        debugPrint('Error fetching suggestions: $e');
-        setState(() {
-          _suggestions = [];
-          isSearching = false;
-        });
-      }
-    });
-  }
-
-  void _saveLocation(
-      AutocompleteSuggestion suggestion, Map<String, dynamic>? placeDetails) {
-    // Handle saving location to favorites/saved locations
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-            '${placeDetails?['name'] ?? suggestion.name} saved to favorites!'),
-      ),
-    );
-  }
-
-  Future<void> _onSuggestionTap(SearchSuggestion suggestion) async {
-    widget.onSuggestionSelected?.call(suggestion);
-    // Optionally show a loader here
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.controller.relativeAnimateTo(
-        0.0, // or 0.0 to fully close
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
-    });
-
-    final details = await _placesService.fetchGooglePlace(suggestion.placeId);
-    debugPrint('Next...........................${details.name}');
-    if (!widget.context.mounted) return;
-
-    await showModalBottomSheet(
-      context: widget.context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (contxt) => PlaceDetailsSheet(
-        key: UniqueKey(),
-        title: details.name,
-        address: details.formattedAddress,
-        distanceKm: suggestion.distanceMeters / 1000, //
-
-        onSave: () {
-          // Handle save
-          Navigator.of(contxt).pop();
-        },
-        onShare: () {
-          // Handle share
-          Navigator.of(contxt).pop();
-        },
-        onMore: () {
-          // Handle more
-          Navigator.of(contxt).pop();
-        },
-        onSeeAllRoutes: () async {
-          final position = await Geolocator.getCurrentPosition();
-
-          final directions = await _placesService.fetchGoogleDirections(
-            originLat: position.latitude,
-            originLng: position.longitude,
-            destinationPlaceId: details.placeId,
-          );
-          Navigator.of(contxt).pop(); //pop only after finding location.
-          debugPrint('Directions fetched: ${directions.routes.length} routes');
-
-          ///
-          await showModalBottomSheet(
-            context: widget.context, // use the captured parent context
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (modalContext) => RouteSelectionSheet(
-              routes: directions.routes,
-              onRouteSelected: (selectedRoute) {
-                Navigator.of(modalContext).pop();
-              },
-            ),
-          );
-        },
-        info: details.website, // Optional info string
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    destinationController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Sheet(
-      backgroundColor: Colors.transparent,
-      initialExtent: 120,
-      controller: widget.controller,
-      physics: const SnapSheetPhysics(
-        stops: <double>[0.3, 1],
-      ),
-      child: AnimatedBuilder(
-        animation: widget.controller.animation,
-        builder: (BuildContext context, Widget? child) {
-          final sheetBar = widget.controller.animation.value > 0.95;
-          return TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: 0, end: sheetBar ? 1 : 0),
-            duration: const Duration(milliseconds: 200),
-            builder: (BuildContext context, double t, Widget? child) {
-              final radius = Tween<double>(begin: 16, end: 0).transform(t);
-              final shadow = ColorTween(
-                begin: Colors.black26,
-                end: Colors.black26.withValues(alpha: 0),
-              ).transform(t);
-              final barColor = ColorTween(
-                begin: Colors.grey[200],
-                end: Colors.grey[200]?.withValues(alpha: 0),
-              ).transform(t);
-
-              return MediaQuery.removePadding(
-                context: context,
-                removeTop: true,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(radius),
-                      topRight: Radius.circular(radius),
-                    ),
-                    color: Colors.white,
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(color: shadow!, blurRadius: 12),
-                    ],
+          child: BlocBuilder<NavigationBloc, NavigationState>(
+            builder: (context, state) {
+              return Stack(
+                children: [
+                  // Map widget
+                  mp.MapWidget(
+                    key: const ValueKey('mapWidget'),
+                    onMapCreated: onMapCreated,
                   ),
-                  child: Column(
-                    children: <Widget>[
-                      Container(
-                        margin: const EdgeInsets.all(8),
-                        width: 36,
-                        height: 4,
-                        color: barColor,
-                        alignment: Alignment.center,
+
+                  // Show route bar if there's an active suggestion and not navigating
+                  if (_activeRouteSuggestion != null &&
+                      state is! NavigationInProgress)
+                    Positioned(
+                      top: kToolbarHeight +
+                          MediaQuery.of(context).padding.top -
+                          100,
+                      left: 16,
+                      right: 16,
+                      child: RouteBar(
+                        start: "Current Location",
+                        end: _activeRouteSuggestion!.mainText,
+                        onCancel: _clearRouteBar,
                       ),
-                      Expanded(
-                        child: ListView(
-                          shrinkWrap: true,
-                          primary: true,
-                          physics: const BouncingScrollPhysics(),
-                          children: [
-                            Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: styles.insets.md,
-                                vertical: styles.insets.sm,
-                              ),
-                              child: Column(
-                                children: [
-                                  // Current location pill
-                                  Container(
-                                    margin:
-                                        const EdgeInsets.symmetric(vertical: 8),
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 16, vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: styles.theme.background,
-                                      borderRadius: BorderRadius.circular(32),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        AppIcon(
-                                          Assets.icons.location,
-                                          color: styles.theme.red,
-                                          size: 18,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          'Current location',
-                                          style: styles.typography.t2
-                                              .textColor(styles.theme.text),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  // Search bar
-                                  CustomSearchBar(
-                                    controller: destinationController,
-                                    onChanged: (v) {
-                                      _onSearchChanged(v);
-                                      if (widget.controller.animation.value <=
-                                          0.3) {
-                                        widget.controller.relativeAnimateTo(
-                                          0.9,
-                                          duration:
-                                              const Duration(milliseconds: 200),
-                                          curve: Curves.easeOut,
-                                        );
-                                      }
-                                    },
-                                    onClear: () {
-                                      destinationController.clear();
-                                      setState(() {
-                                        _suggestions = [];
-                                      });
-                                    },
-                                    onFocus: () {
-                                      if (widget.controller.animation.value <=
-                                          0.3) {
-                                        widget.controller.relativeAnimateTo(
-                                          0.9,
-                                          duration:
-                                              const Duration(milliseconds: 200),
-                                          curve: Curves.easeOut,
-                                        );
-                                      }
-                                    },
-                                  ),
-                                  // If suggestions, show only suggestions
-                                  if (_suggestions.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 16),
-                                      child: SearchSuggestionList(
-                                        suggestions: _suggestions,
-                                        onTap: (suggestion) {
-                                          // Handle suggestion tap here
-                                          _onSuggestionTap(suggestion);
-                                          debugPrint(
-                                              'Suggestion tapped: ${suggestion.placeId}');
-                                        },
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            // Only show the rest if there are NO suggestions
-                            if (_suggestions.isEmpty) ...[
-                              Gap(styles.insets.sm),
-                              CustomHorizontalScroll(
-                                child: Row(
-                                  children: [
-                                    Gap(styles.insets.md),
-                                    ...List.generate(
-                                      10,
-                                      (index) => Container(
-                                        width: 69,
-                                        height: 74,
-                                        margin: const EdgeInsets.only(right: 8),
-                                        decoration: BoxDecoration(
-                                          color: styles.theme.background,
-                                          borderRadius: BorderRadius.circular(
-                                            styles.corners.sm,
-                                          ),
-                                        ),
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            AppIcon(
-                                              Assets.icons.homeSmile,
-                                              color: styles.theme.primary,
-                                            ),
-                                            const Gap(4),
-                                            Text(
-                                              'Home',
-                                              style: styles.typography.t3
-                                                  .textColor(
-                                                      styles.theme.primary)
-                                                  .medium,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Gap(styles.insets.md),
-                              CustomContainer(
-                                width: context.widthPx,
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: styles.insets.lg,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  styles.corners.lg,
-                                ),
-                                color: styles.theme.background,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Gap(styles.insets.md),
-                                    Text(
-                                      'Saved Locations',
-                                      style: styles.typography.h4
-                                          .textColor(styles.theme.text),
-                                    ),
-                                    Gap(styles.insets.md),
-                                    ProfileActionItemButton(
-                                      onPressed: () {},
-                                      icon: Assets.icons.homeSmile,
-                                      title: 'Home',
-                                      subTitle: 'Address',
-                                      semanticLabel: 'home-action-btn',
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Divider(
-                                        color: styles.theme.secondary,
-                                      ),
-                                    ),
-                                    ProfileActionItemButton(
-                                      icon: Assets.icons.briefcase,
-                                      title: 'Office',
-                                      subTitle: 'Address',
-                                      semanticLabel: 'office-action-btn',
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Divider(
-                                        color: styles.theme.secondary,
-                                      ),
-                                    ),
-                                    ProfileActionItemButton(
-                                      onPressed: () {},
-                                      icon: Assets.icons.plus,
-                                      title: 'Add new location',
-                                      semanticLabel: 'add-action-btn',
-                                    ),
-                                    Gap(styles.insets.md),
-                                  ],
-                                ),
-                              ),
-                              Gap(styles.insets.md),
-                              CustomContainer(
-                                width: context.widthPx,
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: styles.insets.lg,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  styles.corners.lg,
-                                ),
-                                color: styles.theme.background,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Gap(styles.insets.md),
-                                    Text(
-                                      'recent Locations',
-                                      style: styles.typography.h4
-                                          .textColor(styles.theme.text),
-                                    ),
-                                    Gap(styles.insets.md),
-                                    ProfileActionItemButton(
-                                      onPressed: () {},
-                                      icon: Assets.icons.homeSmile,
-                                      title: 'Home',
-                                      subTitle: 'Address',
-                                      semanticLabel: 'home-action-btn',
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Divider(
-                                        color: styles.theme.secondary,
-                                      ),
-                                    ),
-                                    ProfileActionItemButton(
-                                      icon: Assets.icons.briefcase,
-                                      title: 'Office',
-                                      subTitle: 'Address',
-                                      semanticLabel: 'office-action-btn',
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Divider(
-                                        color: styles.theme.secondary,
-                                      ),
-                                    ),
-                                    ProfileActionItemButton(
-                                      onPressed: () {},
-                                      icon: Assets.icons.plus,
-                                      title: 'Add new location',
-                                      semanticLabel: 'add-action-btn',
-                                    ),
-                                    Gap(styles.insets.md),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ],
+                    ),
+
+                  // Show navigation UI when in navigation mode
+                  if (state is NavigationInProgress) ...[
+                    if (state.isOverviewVisible)
+                      RouteOverviewWidget(
+                        navigationState: state,
+                        onBackToNavigation: () {
+                          _navigationBloc.add(NavigationOverviewToggled());
+                          setIsFollowingUser(true);
+                        },
+                      )
+                    else
+                      NavigationOverlay(
+                        navigationState: state,
+                        onEndNavigation: _endNavigation,
+                        onToggleOverview: () {
+                          _navigationBloc.add(NavigationOverviewToggled());
+                          if (!state.isOverviewVisible) {
+                            // Switching to overview mode
+                            setIsFollowingUser(false);
+                          } else {
+                            // Switching back to navigation mode
+                            setIsFollowingUser(true);
+                          }
+                        },
+                      ),
+                  ],
+
+                  // Show bottom sheet only when not navigating
+                  if (state is! NavigationInProgress)
+                    Positioned.fill(
+                      top: kToolbarHeight +
+                          MediaQuery.of(context).padding.top -
+                          8,
+                      child: MapSheet(
+                        controller: controller,
+                        onSuggestionSelected: _onSuggestionSelected,
+                        onDrawPolyline: drawPolyline,
+                        onStartNavigation: _startNavigation,
+                        context: context,
+                      ),
+                    ),
+
+                  // Re-center button during navigation
+                  if (state is NavigationInProgress && !state.isOverviewVisible)
+                    Positioned(
+                      right: 16,
+                      bottom: 120,
+                      child: FloatingActionButton(
+                        mini: true,
+                        onPressed: () {
+                          setIsFollowingUser(true);
+                        },
+                        backgroundColor: isFollowingUser
+                            ? styles.theme.primary
+                            : Colors.white,
+                        child: Icon(
+                          Icons.my_location,
+                          color: isFollowingUser
+                              ? Colors.white
+                              : styles.theme.primary,
                         ),
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                ],
               );
             },
-          );
-        },
-      ),
-    );
-  }
-}
-
-class MapAppBar extends StatefulWidget implements PreferredSizeWidget {
-  const MapAppBar({required this.controller, super.key});
-  final SheetController controller;
-  @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
-  @override
-  State<MapAppBar> createState() => _MapAppBarState();
-}
-
-class _MapAppBarState extends State<MapAppBar> {
-  bool scrolled = false;
-  @override
-  void initState() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.controller.animation.addListener(() {
-        final animationValue = widget.controller.animation.value;
-        if (animationValue > 0.3) {
-          setState(() {
-            scrolled = true;
-          });
-        } else {
-          setState(() {
-            scrolled = false;
-          });
-        }
-      });
-    });
-
-    super.initState();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        return SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, -1), // Start outside the top of the screen
-            end: Offset.zero, // Slide into position
-          ).animate(animation),
-          child: FadeTransition(
-            opacity: animation,
-            child: child,
           ),
-        );
-      },
-      child: scrolled
-          ? AppBar(
-              key: const ValueKey('scrolled'),
-              elevation: 1,
-              systemOverlayStyle: SystemUiOverlayStyle.dark,
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black,
-              automaticallyImplyLeading: false,
-              leadingWidth: 50 + styles.insets.sm,
-              leading: BackBtn.close(
-                onPressed: () async {
-                  await widget.controller.relativeAnimateTo(
-                    0.3,
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeOut,
-                  );
-                },
-              ).padding(left: 16, top: 4),
-            )
-          : AnimatedBuilder(
-              key: const ValueKey('nonScrolled'),
-              animation: widget.controller.animation,
-              builder: (BuildContext context, Widget? child) {
-                final sheetBar = widget.controller.animation.value > 0.98;
-                return TweenAnimationBuilder<double>(
-                  tween: Tween<double>(begin: 0, end: sheetBar ? 1 : 0),
-                  duration: const Duration(milliseconds: 200),
-                  builder: (BuildContext context, double t, Widget? child) {
-                    return AnimatedOpacity(
-                      duration: const Duration(milliseconds: 200),
-                      opacity: 1,
-                      child: Container(
-                        margin: EdgeInsets.only(
-                          top: context.mq.padding.top,
-                        ),
-                        height: kToolbarHeight,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            // Assets.icons.spotifyPng.image(),
-                            const SizedBox(),
-                            // IconBtn(
-                            //   icon: Assets.icons.alertTriangle,
-                            //   onPressed: () =>
-                            //       CustomDialogRoutes.showBottomSheet<bool>(
-                            //     context,
-                            //     const ReportEventModal(),
-                            //   ),
-                            //   semanticLabel: '',
-                            //   bgColor: styles.theme.yellow,
-                            //   color: styles.theme.black,
-                            // ),
-                          ],
-                        ),
-                      ),
+        ),
+        floatingActionButton: BlocBuilder<NavigationBloc, NavigationState>(
+          builder: (context, state) {
+            // Hide FABs during navigation
+            if (state is NavigationInProgress) {
+              return const SizedBox.shrink();
+            }
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton(
+                  onPressed: () {
+                    CustomDialogRoutes.showBottomSheet<bool>(
+                      context,
+                      const ReportEventModal(),
                     );
                   },
-                );
-              },
-            ),
-    );
-  }
-}
-
-class LocationItem extends StatelessWidget {
-  const LocationItem(
-      {required this.title, required this.sub, super.key, this.appIcon});
-  final String title;
-  final String sub;
-  final String? appIcon;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        children: [
-          Container(
-            height: 40,
-            width: 40,
-            decoration: BoxDecoration(
-              color: styles.theme.background,
-              borderRadius: BorderRadius.circular(styles.corners.sm),
-              boxShadow: styles.shadows.md,
-            ),
-            child: AppIcon(
-              appIcon ?? Assets.icons.homeSmile,
-              color: styles.theme.grey,
-              size: 18,
-            ),
-          ),
-          Gap(styles.insets.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              spacing: styles.insets.xxs,
-              children: [
-                Text(
-                  title,
-                  style:
-                      styles.typography.t2.textColor(styles.theme.black).medium,
+                  heroTag: 'add-report',
+                  backgroundColor: styles.theme.yellow,
+                  child: IconBtn(
+                    icon: Assets.icons.alertTriangle,
+                    onPressed: () => CustomDialogRoutes.showBottomSheet<bool>(
+                      context,
+                      const ReportEventModal(),
+                    ),
+                    semanticLabel: '',
+                    bgColor: styles.theme.yellow,
+                    color: styles.theme.black,
+                  ),
                 ),
-                Text(
-                  sub,
-                  style: styles.typography.t3.textColor(styles.theme.caption),
+                const SizedBox(height: 10),
+                FloatingActionButton(
+                  onPressed: () {
+                    setIsFollowingUser(true);
+                  },
+                  heroTag: 'location',
+                  backgroundColor:
+                      isFollowingUser ? styles.theme.primary : Colors.white,
+                  child: Icon(
+                    Icons.my_location,
+                    color:
+                        isFollowingUser ? Colors.white : styles.theme.primary,
+                  ),
                 ),
               ],
-            ),
-          ),
-        ],
+            );
+          },
+        ),
       ),
+    );
+  }
+
+  void _showNavigationCompleteDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('🎉 Destination Reached!'),
+          content:
+              const Text('You have successfully reached your destination.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _endNavigation();
+              },
+              child: const Text('Done'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

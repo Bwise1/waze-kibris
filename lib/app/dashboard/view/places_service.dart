@@ -341,8 +341,8 @@ class PlacesService {
       final response = await _dio.get(
         '$backendBaseUrl/places/googledirections',
         queryParameters: {
-          // 'origin': '$originLat,$originLng',
-          'origin': '9.1538,7.3220',
+          'origin': '$originLat,$originLng',
+          // 'origin': '9.1538,7.3220',
           'destination': 'place_id:$destinationPlaceId',
         },
         options: Options(headers: {
