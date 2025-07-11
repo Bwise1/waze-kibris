@@ -226,7 +226,7 @@ class ProfileActionItemButton extends StatelessWidget {
     this.subTitle = '',
     this.trailing,
     this.titleStyle,
-    this.titleColor,
+    this.titleColor,  this.isImageFile=false,
   });
   final String icon;
   final String title;
@@ -236,6 +236,7 @@ class ProfileActionItemButton extends StatelessWidget {
   final Color? titleColor;
   final VoidCallback? onPressed;
   final String semanticLabel;
+  final bool isImageFile;
   @override
   Widget build(BuildContext context) {
     return AppBtn.basic(
@@ -246,6 +247,8 @@ class ProfileActionItemButton extends StatelessWidget {
         children: [
           Row(
             children: [
+
+              isImageFile==true?SizedBox(height:30,width: 30,child: Image.asset(icon) ,):
               AppIcon(
                 icon,
                 size: 20,

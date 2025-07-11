@@ -1,5 +1,6 @@
 import 'dart:developer';
 
+import 'package:flutter/cupertino.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
@@ -19,6 +20,8 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
     on<GetNearByReports>(_onRequestNearByReport);
     on<VoteOnReport>(_onVoteOnReport);
     on<GetVotesOnReport>(_onGetVotesOnReportRequest);
+    on<SaveLocation>(_onSaveLocationRequest);
+    on<GetSavedLocations>(_onGetSavedLocationRequest);
     on<SubmitReportRequested>(_onSubmitReportRequested);
     on<ClearExpiredToken>(_onClearExpiredToken);
   }
@@ -97,12 +100,37 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
           ),
         );
       }
+
       emit(ReportError(message: e.toString()));
     }
   }
 
   //
   Future<void> _onVoteOnReport(
+    VoteOnReport event,
+    Emitter<ReportState> emit,
+  ) async {
+    try {
+      emit(const ReportLoading());
+      // final response = await _reportRepository.voteOnReport(
+      //   event.reportType,
+      //   event.reportID,
+      // );
+
+      // emit(
+      //   AuthSuccess(
+
+      //     message: response.message,
+      //     user: response.data?.user,
+      //     token: response.data?.token,
+      //   ),
+      // );
+    } catch (e) {
+      emit(ReportError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onSaveLocation(
     VoteOnReport event,
     Emitter<ReportState> emit,
   ) async {
@@ -132,12 +160,81 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
     try {
       emit(const ReportLoading());
       final response = await _reportRepository.getVotesOnReport(event.reportID);
+
       if (response.statusCode == 404) {
         emit(const ReportError(message: 'Reports not available.'));
+
         return;
       }
       emit(
         GetVotesOnReportSuccess(
+          message: response.message,
+          statusCode: response.statusCode,
+          status: response.status,
+          data: response.data,
+        ),
+      );
+    } catch (e) {
+      emit(ReportError(message: e.toString()));
+      if (e.toString() == 'Exception: token-expired') {
+        authBloc.add(
+          AuthEvent.refreshTokenRequested(
+            onRefreshToken: () {},
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _onGetSavedLocationRequest(
+    GetSavedLocations event,
+    Emitter<ReportState> emit,
+  ) async {
+    try {
+      emit(const SaveLocationLoading());
+      final response = await _reportRepository.getSavedLocations();
+      debugPrint(response.data.toString());
+      if (response.statusCode == 404) {
+        emit(const ReportError(message: 'no saved location available.'));
+
+        return;
+      }
+      emit(
+        GetSavedLocationsSuccess(
+          message: response.message,
+          statusCode: response.statusCode,
+          status: response.status,
+          data: response.data,
+        ),
+      );
+    } catch (e) {
+      emit(ReportError(message: e.toString()));
+      if (e.toString() == 'Exception: token-expired') {
+        authBloc.add(
+          AuthEvent.refreshTokenRequested(
+            onRefreshToken: () {},
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _onSaveLocationRequest(
+    SaveLocation event,
+    Emitter<ReportState> emit,
+  ) async {
+    try {
+      emit(const SaveLocationLoading());
+      final response = await _reportRepository.saveLocation(
+          event.locationName, event.lat, event.lng);
+      if (response.statusCode == 404) {
+        emit(const ReportError(message: 'Could not save location'));
+        return;
+      }
+
+      ///successfully save location
+      emit(
+        SaveLocationSuccess(
           message: response.message,
           statusCode: response.statusCode,
           status: response.status,

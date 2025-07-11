@@ -13,11 +13,8 @@ class $AssetsIconsGen {
   const $AssetsIconsGen();
 
   /// File path: assets/icons/CurrentPosition.png
-  AssetGenImage get currentPositionPng =>
+  AssetGenImage get currentPosition =>
       const AssetGenImage('assets/icons/CurrentPosition.png');
-
-  /// File path: assets/icons/currentPosition.zip
-  String get currentPositionZip => 'assets/icons/currentPosition.zip';
 
   /// File path: assets/icons/Spotify.png
   AssetGenImage get spotifyPng =>
@@ -87,6 +84,18 @@ class $AssetsIconsGen {
   /// File path: assets/icons/flag_marker.svg
   String get flagMarker => 'assets/icons/flag_marker.svg';
 
+  /// File path: assets/icons/food.png
+  AssetGenImage get food => const AssetGenImage('assets/icons/food.png');
+
+  /// File path: assets/icons/food_bg.png
+  AssetGenImage get foodBg => const AssetGenImage('assets/icons/food_bg.png');
+
+  /// File path: assets/icons/gas.png
+  AssetGenImage get gas => const AssetGenImage('assets/icons/gas.png');
+
+  /// File path: assets/icons/gas_bg.png
+  AssetGenImage get gasBg => const AssetGenImage('assets/icons/gas_bg.png');
+
   /// File path: assets/icons/globe.svg
   String get globe => 'assets/icons/globe.svg';
 
@@ -106,8 +115,19 @@ class $AssetsIconsGen {
   /// File path: assets/icons/home.svg
   String get home => 'assets/icons/home.svg';
 
+  /// File path: assets/icons/home_bg.png
+  AssetGenImage get homeBg => const AssetGenImage('assets/icons/home_bg.png');
+
   /// File path: assets/icons/home_smile.svg
   String get homeSmile => 'assets/icons/home_smile.svg';
+
+  /// File path: assets/icons/hospital.png
+  AssetGenImage get hospital =>
+      const AssetGenImage('assets/icons/hospital.png');
+
+  /// File path: assets/icons/hospital_bg.png
+  AssetGenImage get hospitalBg =>
+      const AssetGenImage('assets/icons/hospital_bg.png');
 
   /// File path: assets/icons/light.svg
   String get light => 'assets/icons/light.svg';
@@ -118,6 +138,12 @@ class $AssetsIconsGen {
   /// File path: assets/icons/location_pin.png
   AssetGenImage get locationPin =>
       const AssetGenImage('assets/icons/location_pin.png');
+
+  /// File path: assets/icons/mall.png
+  AssetGenImage get mall => const AssetGenImage('assets/icons/mall.png');
+
+  /// File path: assets/icons/mall_bg.png
+  AssetGenImage get mallBg => const AssetGenImage('assets/icons/mall_bg.png');
 
   /// File path: assets/icons/map-marker.png
   AssetGenImage get mapMarker =>
@@ -135,6 +161,12 @@ class $AssetsIconsGen {
   /// File path: assets/icons/navigate.png
   AssetGenImage get navigate =>
       const AssetGenImage('assets/icons/navigate.png');
+
+  /// File path: assets/icons/park.png
+  AssetGenImage get park => const AssetGenImage('assets/icons/park.png');
+
+  /// File path: assets/icons/park_bg.png
+  AssetGenImage get parkBg => const AssetGenImage('assets/icons/park_bg.png');
 
   /// File path: assets/icons/person.svg
   String get person => 'assets/icons/person.svg';
@@ -212,8 +244,7 @@ class $AssetsIconsGen {
 
   /// List of all assets
   List<dynamic> get values => [
-        currentPositionPng,
-        currentPositionZip,
+        currentPosition,
         spotifyPng,
         spotifySvg,
         accident,
@@ -235,21 +266,32 @@ class $AssetsIconsGen {
         close,
         coordinate,
         flagMarker,
+        food,
+        foodBg,
+        gas,
+        gasBg,
         globe,
         googleAssistant,
         google,
         homeLineRegular,
         homeLine,
         home,
+        homeBg,
         homeSmile,
+        hospital,
+        hospitalBg,
         light,
         location,
         locationPin,
+        mall,
+        mallBg,
         mapMarker,
         microphone,
         moon,
         mylpin,
         navigate,
+        park,
+        parkBg,
         person,
         plus,
         pointMarker,

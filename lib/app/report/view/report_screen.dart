@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
@@ -42,7 +41,6 @@ class _ReportScreenState extends State<ReportScreen> {
           );
     }
   }
-
 
   String _output = '';
   @override
@@ -156,7 +154,7 @@ class _ReportScreenState extends State<ReportScreen> {
               if (state is GetReportSuccess && state.data.isEmpty) {
                 RSnackBar.error(
                   'No current report close to you at the moment.',
-                );
+                ).show(context);
               } else if (state is GetReportSuccess && state.data.isNotEmpty) {
                 RSnackBar.error(
                   '${state.data.length}',

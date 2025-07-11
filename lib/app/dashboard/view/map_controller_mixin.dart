@@ -43,7 +43,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     });
   }
 
-  void onMapCreated(mp.MapboxMap controller) {
+  void   onMapCreated(mp.MapboxMap controller) {
     setState(() {
       _mapboxMapController = controller;
     });

@@ -185,3 +185,92 @@ class SubmitReportResponse extends Equatable {
         data,
       ];
 }
+
+@JsonSerializable()
+class SaveLocationResponse extends Equatable {
+  const SaveLocationResponse({
+    required this.message,
+    required this.statusCode,
+    required this.status,
+    required this.data,
+  });
+
+  factory SaveLocationResponse.fromJson(Map<String, dynamic> json) =>
+      _$SaveLocationResponseFromJson(json);
+
+  final String message;
+  final String status;
+  @JsonKey(name: 'status_code')
+  final int statusCode;
+  final Map<String, dynamic> data;
+
+  Map<String, dynamic> toJson() => _$SaveLocationResponseToJson(this);
+
+  @override
+  List<Object?> get props => [
+        message,
+        status,
+        statusCode,
+        data,
+      ];
+}
+
+@JsonSerializable()
+class GetSavedLocationsResponse extends Equatable {
+  const GetSavedLocationsResponse({
+    required this.message,
+    required this.statusCode,
+    required this.status,
+    required this.data,
+  });
+
+  factory GetSavedLocationsResponse.fromJson(Map<String, dynamic> json) =>
+      _$GetSavedLocationsResponseFromJson(json);
+
+  final String message;
+  final String status;
+  @JsonKey(name: 'status_code')
+  final int statusCode;
+  final List<SavedLocations> data;
+
+  Map<String, dynamic> toJson() => _$GetSavedLocationsResponseToJson(this);
+
+  @override
+  List<Object?> get props => [
+        message,
+        status,
+        statusCode,
+        data,
+      ];
+}
+
+@JsonSerializable()
+class SavedLocations extends Equatable {
+  const SavedLocations({
+    required this.id,
+    required this.name,
+    required this.address,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  factory SavedLocations.fromJson(Map<String, dynamic> json) =>
+      _$SavedLocationsFromJson(json);
+
+  final int id;
+
+  final String name;
+  final String address;
+  final double latitude;
+  final double longitude;
+
+  Map<String, dynamic> toJson() => _$SavedLocationsToJson(this);
+
+  @override
+  List<Object?> get props => [
+        name,
+        address,
+        longitude,
+        latitude,
+      ];
+}

@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/core/res/store_keys.dart';
@@ -11,6 +12,7 @@ abstract class ReportRepository {
     int radius,
   );
   Future<GetReportsResponse> getVotesOnReport(int reportID);
+  Future<GetSavedLocationsResponse> getSavedLocations();
   Future<GetReportsResponse> voteOnReport(
     String voteType,
     int reportID,
@@ -19,6 +21,11 @@ abstract class ReportRepository {
     double latitude,
     double longitude,
     String type,
+  );
+  Future<SaveLocationResponse> saveLocation(
+    String locationName,
+    double lat,
+    double lng,
   );
 }
 
@@ -75,6 +82,26 @@ class ReportRepositoryImpl implements ReportRepository {
   }
 
   @override
+  Future<GetSavedLocationsResponse> getSavedLocations() async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/saved-locations',
+        options: Options(
+          headers: {
+            'Authorization':
+                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
+          },
+        ),
+      );
+      debugPrint(response.data.toString());
+
+      return GetSavedLocationsResponse.fromJson(response.data!);
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  @override
   Future<GetReportsResponse> getVotesOnReport(int id) {
     throw UnimplementedError();
   }
@@ -93,6 +120,27 @@ class ReportRepositoryImpl implements ReportRepository {
         data: {'vote_type': voteType},
       );
       return GetReportsResponse.fromJson(response.data!);
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  @override
+  Future<SaveLocationResponse> saveLocation(
+      String locationName, double lat, double lng) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/saved-locations',
+        options: Options(
+          headers: {
+            'Authorization':
+                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
+          },
+        ),
+        data: {"name": locationName, "latitude": lat, "longitude": lng},
+      );
+      debugPrint(response.data.toString());
+      return SaveLocationResponse.fromJson(response.data!);
     } on DioException catch (e) {
       throw _handleDioError(e);
     }

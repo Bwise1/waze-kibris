@@ -20,6 +20,10 @@ class ReportLoading extends ReportState {
   const ReportLoading();
 }
 
+class SaveLocationLoading extends ReportState {
+  const SaveLocationLoading();
+}
+
 class LoadedReportByID extends ReportState {
   const LoadedReportByID();
 }
@@ -95,6 +99,42 @@ class GetVotesOnReportSuccess extends ReportState {
   final int statusCode;
 
   final List<ReportData> data;
+
+  @override
+  List<Object?> get props => [message, data, status, statusCode];
+}
+
+class SaveLocationSuccess extends ReportState {
+  const SaveLocationSuccess({
+    required this.data,
+    required this.message,
+    required this.status,
+    required this.statusCode,
+  });
+
+  final String message;
+  final String status;
+  final int statusCode;
+
+  final Map<String, dynamic> data;
+
+  @override
+  List<Object?> get props => [message, data, status, statusCode];
+}
+
+class GetSavedLocationsSuccess extends ReportState {
+  const GetSavedLocationsSuccess({
+    required this.data,
+    required this.message,
+    required this.status,
+    required this.statusCode,
+  });
+
+  final String message;
+  final String status;
+  final int statusCode;
+
+  final List<SavedLocations> data;
 
   @override
   List<Object?> get props => [message, data, status, statusCode];

@@ -44,6 +44,22 @@ abstract class ReportsEvent extends Equatable {
     );
   }
 
+  factory ReportsEvent.saveLocation({
+    required String locationName,
+    required double lat,
+    required double lng,
+  }) {
+    return SaveLocation(
+      locationName: locationName,
+      lat: lat,
+      lng: lng,
+    );
+  }
+
+  factory ReportsEvent.getSavedLocations() {
+    return const GetSavedLocations();
+  }
+
   factory ReportsEvent.clearExpiredToken() {
     return const ClearExpiredToken();
   }
@@ -119,6 +135,26 @@ class GetVotesOnReport extends ReportsEvent {
   List<Object?> get props => [
         reportID,
       ];
+}
+
+class SaveLocation extends ReportsEvent {
+  const SaveLocation(
+      {required this.locationName, required this.lat, required this.lng});
+
+  final String locationName;
+  final double lat;
+  final double lng;
+
+  @override
+  List<Object?> get props => [
+        locationName,
+        lat,
+        lng,
+      ];
+}
+
+class GetSavedLocations extends ReportsEvent {
+  const GetSavedLocations();
 }
 
 class ClearExpiredToken extends ReportsEvent {

@@ -114,3 +114,59 @@ Map<String, dynamic> _$SubmitReportResponseToJson(
       'status_code': instance.statusCode,
       'data': instance.data,
     };
+
+SaveLocationResponse _$SaveLocationResponseFromJson(
+        Map<String, dynamic> json) =>
+    SaveLocationResponse(
+      message: json['message'] as String,
+      statusCode: (json['status_code'] as num).toInt(),
+      status: json['status'] as String,
+      data: json['data'] as Map<String, dynamic>,
+    );
+
+Map<String, dynamic> _$SaveLocationResponseToJson(
+        SaveLocationResponse instance) =>
+    <String, dynamic>{
+      'message': instance.message,
+      'status': instance.status,
+      'status_code': instance.statusCode,
+      'data': instance.data,
+    };
+
+GetSavedLocationsResponse _$GetSavedLocationsResponseFromJson(
+        Map<String, dynamic> json) =>
+    GetSavedLocationsResponse(
+      message: json['message'] as String,
+      statusCode: (json['status_code'] as num).toInt(),
+      status: json['status'] as String,
+      data: (json['data'] as List<dynamic>)
+          .map((e) => SavedLocations.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+
+Map<String, dynamic> _$GetSavedLocationsResponseToJson(
+        GetSavedLocationsResponse instance) =>
+    <String, dynamic>{
+      'message': instance.message,
+      'status': instance.status,
+      'status_code': instance.statusCode,
+      'data': instance.data,
+    };
+
+SavedLocations _$SavedLocationsFromJson(Map<String, dynamic> json) =>
+    SavedLocations(
+      id: (json['id'] as num).toInt(),
+      name: json['name'] as String,
+      address: json['address'] as String,
+      latitude: (json['latitude'] as num).toDouble(),
+      longitude: (json['longitude'] as num).toDouble(),
+    );
+
+Map<String, dynamic> _$SavedLocationsToJson(SavedLocations instance) =>
+    <String, dynamic>{
+      'id': instance.id,
+      'name': instance.name,
+      'address': instance.address,
+      'latitude': instance.latitude,
+      'longitude': instance.longitude,
+    };

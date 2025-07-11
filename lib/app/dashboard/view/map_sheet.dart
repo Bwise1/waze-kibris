@@ -1,14 +1,17 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sheet/sheet.dart';
-import 'package:styled_widget/styled_widget.dart';
 import 'package:waze_kibris/app/dashboard/view/place_details_screen.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/app/dashboard/view/route_selection_widget.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/bloc/reports/report_state.dart';
+import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
+import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart';
 
@@ -46,6 +49,13 @@ class _MapSheetState extends State<MapSheet> {
   final PlacesService _placesService = PlacesService();
 
   List<SearchSuggestion> _suggestions = [];
+
+  @override
+  void initState() {
+    super.initState();
+
+    getSavedLocation(context);
+  }
 
   void _onSearchChanged(String query) {
     _debounceTimer?.cancel();
@@ -107,8 +117,16 @@ class _MapSheetState extends State<MapSheet> {
         title: details.name,
         address: details.formattedAddress,
         distanceKm: suggestion.distanceMeters / 1000,
-        onSave: () {
-          Navigator.of(contxt).pop();
+        onSave: () async {
+          final position = await Geolocator.getCurrentPosition();
+
+          await showModalBottomSheet(
+            context: widget.context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (modalContext) =>
+                SelectAndSaveLocation(position: position),
+          );
         },
         onShare: () {
           Navigator.of(contxt).pop();
@@ -154,6 +172,14 @@ class _MapSheetState extends State<MapSheet> {
         info: details.website,
       ),
     );
+  }
+
+  Future<void> getSavedLocation(BuildContext context) async {
+    if (context.mounted) {
+      context.read<ReportsBloc>().add(
+            ReportsEvent.getSavedLocations(),
+          );
+    }
   }
 
   @override
@@ -308,38 +334,20 @@ class _MapSheetState extends State<MapSheet> {
                                 child: Row(
                                   children: [
                                     Gap(styles.insets.md),
-                                    ...List.generate(
-                                      10,
-                                      (index) => Container(
-                                        width: 69,
-                                        height: 74,
-                                        margin: const EdgeInsets.only(right: 8),
-                                        decoration: BoxDecoration(
-                                          color: styles.theme.background,
-                                          borderRadius: BorderRadius.circular(
-                                            styles.corners.sm,
-                                          ),
-                                        ),
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            AppIcon(
-                                              Assets.icons.homeSmile,
-                                              color: styles.theme.primary,
-                                            ),
-                                            const Gap(4),
-                                            Text(
-                                              'Home',
-                                              style: styles.typography.t3
-                                                  .textColor(
-                                                      styles.theme.primary)
-                                                  .medium,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
+
+                                    ///
+                                    //         const Gap(4),
+                                    //         Text(
+                                    //           'Home',
+                                    //           style: styles.typography.t3
+                                    //               .textColor(
+                                    //                   styles.theme.primary)
+                                    //               .medium,
+                                    //         ),
+                                    //       ],
+                                    //     ),
+                                    //   ),
+                                    // ),
                                   ],
                                 ),
                               ),
@@ -347,6 +355,7 @@ class _MapSheetState extends State<MapSheet> {
                               // Saved locations section
                               CustomContainer(
                                 width: context.widthPx,
+                                height: 400,
                                 padding: EdgeInsets.symmetric(
                                   horizontal: styles.insets.lg,
                                 ),
@@ -364,13 +373,170 @@ class _MapSheetState extends State<MapSheet> {
                                           .textColor(styles.theme.text),
                                     ),
                                     Gap(styles.insets.md),
-                                    ProfileActionItemButton(
-                                      onPressed: () {},
-                                      icon: Assets.icons.homeSmile,
-                                      title: 'Home',
-                                      subTitle: 'Address',
-                                      semanticLabel: 'home-action-btn',
+
+                                    ///.................................
+                                    ///
+                                    ///
+                                    BlocConsumer<ReportsBloc, ReportState>(
+                                      listener: (context, state) {
+                                        if (state is GetSavedLocationsSuccess &&
+                                            state.data.isEmpty) {
+                                          RSnackBar.error(
+                                            'you have no save location.',
+                                          ).show(context);
+                                        }
+                                      },
+                                      builder: (context, state) {
+                                        if (state is ReportInitial) {
+                                          return SizedBox();
+
+                                          ///if the state of the bloc is in its initial stage ;
+                                        } else if (state
+                                                is GetSavedLocationsSuccess &&
+                                            state.data.isNotEmpty) {
+                                          return Expanded(
+                                            child: ListView.builder(
+                                              itemCount: state.data.length,
+                                              itemBuilder: (context, index) {
+                                                return Padding(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 20),
+                                                  child: Column(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .spaceBetween,
+                                                    children: [
+                                                      ProfileActionItemButton(
+                                                        onPressed: () {},
+                                                        isImageFile: true,
+                                                        icon: getIconType(
+                                                          state
+                                                              .data[index].name,
+                                                        ),
+                                                        title: state
+                                                            .data[index].name,
+                                                        subTitle: state
+                                                            .data[index]
+                                                            .address,
+                                                        semanticLabel:
+                                                            'home-action-btn',
+                                                      ),
+                                                      Padding(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                          vertical: 8,
+                                                        ),
+                                                        child: Divider(
+                                                          color: styles
+                                                              .theme.secondary,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ).clickable(() {
+                                                  ///get some logic done here
+                                                });
+                                              },
+                                            ),
+                                          );
+                                        } else if (state is ReportLoading) {
+                                          return Expanded(
+                                            child: Center(
+                                              child: SizedBox(
+                                                height: 40,
+                                                width: 40,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  color: styles.theme.primary,
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        } else {
+                                          return const Expanded(
+                                            child: SizedBox(),
+                                            // child: Center(
+                                            //   child: Column(
+                                            //     mainAxisSize: MainAxisSize.min,
+                                            //     children: [
+                                            //
+                                            //
+                                            //       Gap(53 * styles.scale),
+                                            //       TextButton(
+                                            //         onPressed: () async {
+                                            //           if (state is GetVotesOnReportSuccess) {
+                                            //             // RSnackBar.error('Hey${state.data.length}')
+                                            //             //     .show(context);
+                                            //           } else {
+                                            //             RSnackBar.error('Hey Nothing here').show(context);
+                                            //           }
+                                            //           final position =
+                                            //           await UserCoordinates.getAndSetUserCoordinate(
+                                            //             context,
+                                            //           );
+                                            //           RSnackBar.error(position!.longitude.toString())
+                                            //               .show(context);
+                                            //
+                                            //           if (context.mounted) {
+                                            //             // print(
+                                            //             //   "${position!.latitude.toString()}"
+                                            //             //   "${position.longitude.toString()}",
+                                            //             // );
+                                            //             // RSnackBar.error(
+                                            //             //         "${position!.latitude.toString()} ${position.longitude.toString()}")
+                                            //             //     .show(context);
+                                            //             context.read<ReportsBloc>().add(
+                                            //               ReportsEvent.getNearByReports(
+                                            //                 radius: endRangeVal.toInt(),
+                                            //                 lat: position!.latitude.toString(),
+                                            //                 long: position.longitude.toString(),
+                                            //               ),
+                                            //             );
+                                            //           }
+                                            //         },
+                                            //         style: TextButton.styleFrom(
+                                            //           backgroundColor: styles.theme.divider,
+                                            //         ),
+                                            //         child: const Icon(
+                                            //           size: 35,
+                                            //           Icons.search_rounded,
+                                            //           // color: styles.theme.grey,
+                                            //         ),
+                                            //       ),
+                                            //     ],
+                                            //   ),
+                                            // ),
+                                          );
+                                        }
+                                      },
                                     ),
+
+                                    ///
+                                    ///.................................
+                                    // Gap(styles.insets.md),
+                                    // ProfileActionItemButton(
+                                    //   onPressed: () {},
+                                    //   icon: Assets.icons.homeSmile,
+                                    //   title: 'Home',
+                                    //   subTitle: 'Address',
+                                    //   semanticLabel: 'home-action-btn',
+                                    // ),
+                                    // Padding(
+                                    //   padding: const EdgeInsets.symmetric(
+                                    //     vertical: 8,
+                                    //   ),
+                                    //   child: Divider(
+                                    //     color: styles.theme.secondary,
+                                    //   ),
+                                    // ),
+                                    // ProfileActionItemButton(
+                                    //   icon: Assets.icons.briefcase,
+                                    //   title: 'Office',
+                                    //   subTitle: 'Address',
+                                    //   semanticLabel: 'office-action-btn',
+                                    // ),
                                     Padding(
                                       padding: const EdgeInsets.symmetric(
                                         vertical: 8,
@@ -379,22 +545,24 @@ class _MapSheetState extends State<MapSheet> {
                                         color: styles.theme.secondary,
                                       ),
                                     ),
+
+                                    Gap(styles.insets.md),
                                     ProfileActionItemButton(
-                                      icon: Assets.icons.briefcase,
-                                      title: 'Office',
-                                      subTitle: 'Address',
-                                      semanticLabel: 'office-action-btn',
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Divider(
-                                        color: styles.theme.secondary,
-                                      ),
-                                    ),
-                                    ProfileActionItemButton(
-                                      onPressed: () {},
+                                      onPressed: () {
+                                        // getSavedLocation(context);
+                                        //   final position = await Geolocator
+                                        //       .getCurrentPosition();
+                                        //
+                                        //   await showModalBottomSheet(
+                                        //     context: widget.context,
+                                        //     isScrollControlled: true,
+                                        //     backgroundColor: Colors.transparent,
+                                        //     builder: (modalContext) =>
+                                        //         SelectAndSaveLocation(
+                                        //       position: position,
+                                        //     ),
+                                        //   );
+                                      },
                                       icon: Assets.icons.plus,
                                       title: 'Add new location',
                                       semanticLabel: 'add-action-btn',
@@ -460,6 +628,269 @@ class _MapSheetState extends State<MapSheet> {
             },
           );
         },
+      ),
+    );
+  }
+
+  String getIconType(String type) {
+    if (type == 'Home') {
+      return Assets.icons.homeBg.path;
+    }
+    if (type == 'Hospital') {
+      return Assets.icons.hospital.path;
+    }
+    if (type == 'Park') {
+      return Assets.icons.park.path;
+    }
+    if (type == 'Gas') {
+      return Assets.icons.gas.path;
+    }
+    if (type == 'Food') {
+      return Assets.icons.food.path;
+    } else {
+      return Assets.icons.homeBg.path;
+    }
+  }
+}
+
+class SelectAndSaveLocation extends StatefulWidget {
+  const SelectAndSaveLocation({super.key, required this.position});
+  final Position position;
+  @override
+  State<SelectAndSaveLocation> createState() => _SelectAndSaveLocationState();
+}
+
+class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
+  var locationName = '';
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Material(
+        borderRadius: const BorderRadius.only(
+          topRight: Radius.circular(15),
+          topLeft: Radius.circular(15),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          child: BlocConsumer<ReportsBloc, ReportState>(
+            listener: (blocContext, state) {
+              if (state is SaveLocationSuccess) {
+                // print(".......................");
+                RSnackBar.success(
+                  'Location has been saved successfully.',
+                ).show(context);
+                Navigator.of(context).pop();
+              }
+            },
+            builder: (context, state) {
+              return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Gap(40),
+                    Text(
+                      'Select appropriate location Name',
+                      style: styles.typography.h3.textColor(styles.theme.text),
+                    ),
+                    const Gap(20),
+                    SizedBox(
+                      height: 100,
+                      child: ListView(
+                        clipBehavior: Clip.none,
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        children: [
+                          const Gap(30),
+                          LocationItem(
+                            key: UniqueKey(),
+                            onSelect: () {
+                              setState(() {
+                                locationName = 'Home';
+                              });
+                              // WidgetsBinding
+                              //     .instance
+                              //     .addPostFrameCallback(
+                              //         (_) {
+                              //   Navigator.of(
+                              //           context)
+                              //       .pop();
+                              // });
+                            },
+                            image: Assets.icons.homeBg
+                                .image(width: 35, height: 35),
+                            bgImagePath: Assets.icons.homeBg.path,
+                            locationName: 'Home',
+                            isSelected: locationName == 'Home' ? true : false,
+                          ),
+                          LocationItem(
+                              key: UniqueKey(),
+                              onSelect: () {
+                                setState(() {
+                                  locationName = 'Gas';
+                                });
+                                // WidgetsBinding
+                                //     .instance
+                                //     .addPostFrameCallback(
+                                //         (_) {
+                                //   Navigator.of(context)
+                                //       .pop();
+                                // });
+                              },
+                              image:
+                                  Assets.icons.gas.image(width: 35, height: 35),
+                              bgImagePath: Assets.icons.gasBg.path,
+                              locationName: 'Gas',
+                              isSelected: locationName == 'Gas' ? true : false),
+                          LocationItem(
+                              key: UniqueKey(),
+                              onSelect: () {
+                                setState(() {
+                                  locationName = 'Food';
+                                });
+                              },
+                              image: Assets.icons.food
+                                  .image(width: 35, height: 35),
+                              bgImagePath: Assets.icons.foodBg.path,
+                              locationName: 'Food',
+                              isSelected:
+                                  locationName == 'Food' ? true : false),
+                          LocationItem(
+                              key: UniqueKey(),
+                              onSelect: () {
+                                setState(() {
+                                  locationName = 'Hospital';
+                                });
+                              },
+                              image: Assets.icons.hospital
+                                  .image(width: 35, height: 35),
+                              bgImagePath: Assets.icons.hospitalBg.path,
+                              locationName: 'Hospital',
+                              isSelected:
+                                  locationName == 'Hospital' ? true : false),
+                          LocationItem(
+                              key: UniqueKey(),
+                              onSelect: () {
+                                setState(() {
+                                  locationName = 'Park';
+                                });
+                              },
+                              image: Assets.icons.park
+                                  .image(width: 35, height: 35),
+                              bgImagePath: Assets.icons.parkBg.path,
+                              locationName: 'Park',
+                              isSelected:
+                                  locationName == 'Park' ? true : false),
+                        ],
+                      ),
+                    ),
+                    const Gap(50),
+                    PrimaryButton(
+                      textColor: styles.theme.white,
+                      isLoading: state is SaveLocationLoading,
+                      onPressed: () {
+                        if (locationName == '') {
+                          RSnackBar.info(
+                            'Please select a location name to save this location.',
+                          );
+                        } else {
+                          context.read<ReportsBloc>().add(
+                                ReportsEvent.saveLocation(
+                                  locationName: locationName,
+                                  lat: widget.position.latitude,
+                                  lng: widget.position.longitude,
+                                ),
+                              );
+                        }
+                        // context.read<AuthBloc>().add(
+                        //   AuthEvent.loginRequested(
+                        //     email: _emailController.text,
+                        //   ),
+                        // );
+                      },
+                      text: 'Save',
+                    ),
+                  ]);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class LocationItem extends StatelessWidget {
+  const LocationItem({
+    required this.onSelect,
+    super.key,
+    required this.image,
+    required this.bgImagePath,
+    required this.locationName,
+    required this.isSelected,
+  });
+  final VoidCallback onSelect;
+  final Widget image;
+  final String bgImagePath;
+  final String locationName;
+  final bool isSelected;
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onSelect,
+      child: AnimatedContainer(
+        height: 371,
+        width: 74,
+        margin: EdgeInsets.only(right: 20),
+        decoration: BoxDecoration(
+          color: styles.theme.white,
+          border: Border.all(color: const Color(0xffFFDBDB), width: 1.5),
+          borderRadius: BorderRadius.circular(5),
+          boxShadow: [
+            BoxShadow(
+              color: isSelected
+                  ? styles.theme.primary.withValues(alpha: 0.4)
+                  : styles.theme.grey.withValues(alpha: 0.2),
+              offset: const Offset(-0.4, 4),
+              blurRadius: 4,
+              spreadRadius: 1,
+            ),
+          ],
+          image: DecorationImage(
+              image: AssetImage(
+                bgImagePath,
+              ),
+              fit: BoxFit.cover),
+        ),
+        duration: Duration(
+          seconds: 8,
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              height: 351,
+              width: 74,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(3),
+                color: Colors.white.withValues(alpha: 0.85),
+              ),
+            ),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 6.0),
+                  child: image,
+                ),
+                const Gap(4),
+                Text(
+                  locationName,
+                  style: styles.typography.t3.medium,
+                ),
+              ], //
+            ),
+          ],
+        ),
       ),
     );
   }
