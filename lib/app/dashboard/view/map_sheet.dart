@@ -49,11 +49,10 @@ class _MapSheetState extends State<MapSheet> {
   final PlacesService _placesService = PlacesService();
 
   List<SearchSuggestion> _suggestions = [];
-
+  bool getLocationLoading = false;
   @override
   void initState() {
     super.initState();
-
     getSavedLocation(context);
   }
 
@@ -105,6 +104,7 @@ class _MapSheetState extends State<MapSheet> {
       );
     });
 
+
     final details = await _placesService.fetchGooglePlace(suggestion.placeId);
     if (!widget.context.mounted) return;
 
@@ -118,14 +118,13 @@ class _MapSheetState extends State<MapSheet> {
         address: details.formattedAddress,
         distanceKm: suggestion.distanceMeters / 1000,
         onSave: () async {
-          final position = await Geolocator.getCurrentPosition();
-
           await showModalBottomSheet(
             context: widget.context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
-            builder: (modalContext) =>
-                SelectAndSaveLocation(position: position),
+            builder: (modalContext) => SelectAndSaveLocation(
+              position: LatLng(details.lat, details.lng),
+            ),
           );
         },
         onShare: () {
@@ -318,6 +317,7 @@ class _MapSheetState extends State<MapSheet> {
                                       child: SearchSuggestionList(
                                         suggestions: _suggestions,
                                         onTap: (suggestion) {
+
                                           _onSuggestionTap(suggestion);
                                           debugPrint(
                                               'Suggestion tapped: ${suggestion.placeId}');
@@ -515,57 +515,46 @@ class _MapSheetState extends State<MapSheet> {
 
                                     ///
                                     ///.................................
-                                    // Gap(styles.insets.md),
-                                    // ProfileActionItemButton(
-                                    //   onPressed: () {},
-                                    //   icon: Assets.icons.homeSmile,
-                                    //   title: 'Home',
-                                    //   subTitle: 'Address',
-                                    //   semanticLabel: 'home-action-btn',
-                                    // ),
-                                    // Padding(
-                                    //   padding: const EdgeInsets.symmetric(
-                                    //     vertical: 8,
-                                    //   ),
-                                    //   child: Divider(
-                                    //     color: styles.theme.secondary,
-                                    //   ),
-                                    // ),
-                                    // ProfileActionItemButton(
-                                    //   icon: Assets.icons.briefcase,
-                                    //   title: 'Office',
-                                    //   subTitle: 'Address',
-                                    //   semanticLabel: 'office-action-btn',
-                                    // ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Divider(
-                                        color: styles.theme.secondary,
-                                      ),
-                                    ),
 
                                     Gap(styles.insets.md),
-                                    ProfileActionItemButton(
-                                      onPressed: () {
-                                        // getSavedLocation(context);
-                                        //   final position = await Geolocator
-                                        //       .getCurrentPosition();
-                                        //
-                                        //   await showModalBottomSheet(
-                                        //     context: widget.context,
-                                        //     isScrollControlled: true,
-                                        //     backgroundColor: Colors.transparent,
-                                        //     builder: (modalContext) =>
-                                        //         SelectAndSaveLocation(
-                                        //       position: position,
-                                        //     ),
-                                        //   );
-                                      },
-                                      icon: Assets.icons.plus,
-                                      title: 'Add new location',
-                                      semanticLabel: 'add-action-btn',
+                                    Row(
+                                      children: [
+                                        ProfileActionItemButton(
+                                          onPressed: () async {
+                                            setState(() {
+                                              getLocationLoading = true;
+                                            });
+
+                                            final position = await Geolocator
+                                                .getCurrentPosition();
+                                            setState(() {
+                                              getLocationLoading = false;
+                                            });
+                                            await showModalBottomSheet(
+                                              context: widget.context,
+                                              isScrollControlled: true,
+                                              backgroundColor:
+                                                  Colors.transparent,
+                                              builder: (modalContext) =>
+                                                  SelectAndSaveLocation(
+                                                position: LatLng(
+                                                    position.latitude,
+                                                    position.longitude),
+                                              ),
+                                            );
+                                          },
+                                          icon: Assets.icons.plus,
+                                          title: 'Add new location',
+                                          semanticLabel: 'add-action-btn',
+                                        ),
+                                        if (getLocationLoading) ...[
+                                          Gap(10),
+                                          SizedBox(
+                                              height: 15,
+                                              width: 15,
+                                              child: CustomLoader())
+                                        ],
+                                      ],
                                     ),
                                     Gap(styles.insets.md),
                                   ],
@@ -655,7 +644,7 @@ class _MapSheetState extends State<MapSheet> {
 
 class SelectAndSaveLocation extends StatefulWidget {
   const SelectAndSaveLocation({super.key, required this.position});
-  final Position position;
+  final LatLng position;
   @override
   State<SelectAndSaveLocation> createState() => _SelectAndSaveLocationState();
 }
