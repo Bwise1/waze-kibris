@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
@@ -9,6 +10,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/services/snap_to_road_service.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
+import 'package:waze_kibris/gen/assets.gen.dart';
 
 mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   mp.MapboxMap? _mapboxMapController;
@@ -277,8 +279,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     // Get adaptive marker size
     final markerSize = await _getAdaptiveMarkerSize();
-    
-    // Add start marker
+
+    // Load and add destination marker image to map style
+    await _addDestinationImageToStyle();
+
+    // Add start marker (using default marker)
     await pointAnnotationManager!.create(
       mp.PointAnnotationOptions(
         geometry: mp.Point(
@@ -290,7 +295,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       ),
     );
 
-    // Add end marker
+    // Add destination marker (using custom destination icon)
     await pointAnnotationManager!.create(
       mp.PointAnnotationOptions(
         geometry: mp.Point(
@@ -298,7 +303,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           points.last.longitude,
           points.last.latitude,
         )),
-        iconSize: markerSize * 1.2, // End marker slightly larger
+        iconSize: markerSize * 1.2, // Destination marker slightly larger
+        iconImage: 'destination-marker', // Reference the added image by ID
       ),
     );
   }
@@ -318,11 +324,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     try {
       final cameraState = await _mapboxMapController?.getCameraState();
       if (cameraState == null) return 1.0;
-      
+
       final zoom = cameraState.zoom;
       final currentState = navigationBloc.state;
       final isNavigating = currentState is NavigationInProgress;
-      
+
       // Adaptive marker sizing based on actual icon dimensions
       if (zoom >= 19) {
         // Very close zoom - 4x size (128w)
@@ -700,7 +706,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
         // Update markers with adaptive sizing
         await _updateMarkersForZoom();
-        
+
         // Update last width to prevent unnecessary future updates
         _lastPolylineWidth = newWidth;
       }
@@ -711,16 +717,16 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Update markers with adaptive sizing for current zoom level
   Future<void> _updateMarkersForZoom() async {
-    if (pointAnnotationManager == null || 
-        _currentPolylinePoints == null || 
+    if (pointAnnotationManager == null ||
+        _currentPolylinePoints == null ||
         _currentPolylinePoints!.isEmpty) return;
-    
+
     try {
       final markerSize = await _getAdaptiveMarkerSize();
-      
+
       // Clear existing markers
       await pointAnnotationManager!.deleteAll();
-      
+
       // Recreate markers with adaptive sizing
       await _addRouteMarkers(_currentPolylinePoints!);
     } catch (e) {
@@ -736,16 +742,17 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   /// Force immediate navigation zoom without delays
   void forceNavigationZoom() async {
     if (_mapboxMapController == null) return;
-    
+
     try {
       // Get current position immediately
       final currentPosition = await Geolocator.getCurrentPosition();
-      
+
       // Immediately zoom to navigation level
       await _mapboxMapController?.easeTo(
         mp.CameraOptions(
           center: mp.Point(
-            coordinates: mp.Position(currentPosition.longitude, currentPosition.latitude),
+            coordinates: mp.Position(
+                currentPosition.longitude, currentPosition.latitude),
           ),
           zoom: 18.0, // Navigation zoom level
           bearing: currentPosition.heading,
@@ -753,7 +760,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         ),
         mp.MapAnimationOptions(duration: 500), // Faster animation
       );
-      
+
       // Immediately update polyline width without debouncing
       _updatePolylineWidth();
     } catch (e) {
@@ -773,11 +780,91 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _snapToRoadService.clearRoute();
   }
 
-  /// Load location puck image from assets
+  /// Load location puck image from assets with proper resolution handling
   Future<Uint8List> _loadLocationPuckImage() async {
+    // Force load the 4.0x resolution for maximum sharpness
     final ByteData byteData =
-        await rootBundle.load('assets/icons/CurrentPosition.png');
+        await rootBundle.load('assets/icons/4.0x/CurrentPosition.png');
     return byteData.buffer.asUint8List();
+  }
+
+  // /// Load destination marker image from assets with proper resolution handling
+  // Future<Uint8List> _loadDestinationImage() async {
+  //   // Force load the 4.0x resolution for maximum sharpness (same as CurrentPosition)
+  //   final ByteData byteData =
+  //       await rootBundle.load('assets/icons/destination.png');
+  //   return byteData.buffer.asUint8List();
+  // }
+
+  // /// Add destination marker image to map style
+  // Future<void> _addDestinationImageToStyle() async {
+  //   if (_mapboxMapController == null) return;
+
+  //   try {
+  //     // Load the destination image
+  //     final destinationImageBytes = await _loadDestinationImage();
+
+  //     // Create MbxImage from the bytes (adjusted to match LocationPuck size)
+  //     final mbxImage = mp.MbxImage(
+  //       width: 48,
+  //       height: 48,
+  //       data: destinationImageBytes,
+  //     );
+
+  //     // Add image to map style with a unique ID
+  //     await _mapboxMapController!.style.addStyleImage(
+  //       'destination-marker',
+  //       1.0, // Scale factor
+  //       mbxImage,
+  //       false, // SDF (Signed Distance Field) - false for bitmap images
+  //       [], // StretchX - empty for normal images
+  //       [], // StretchY - empty for normal images
+  //       null, // Content - null for normal images
+  //     );
+  //   } catch (e) {
+  //     debugPrint('Error adding destination image to style: $e');
+  //   }
+  // }
+
+  Future<void> _addDestinationImageToStyle() async {
+    if (_mapboxMapController == null) return;
+
+    // Get the device's pixel ratio
+    final double devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+
+    try {
+      // 1. Load the raw byte data from the asset
+      // Flutter's asset bundle will automatically handle selecting the correct
+      // resolution (e.g., from /2.0x or /3.0x folders)
+      final ByteData byteData =
+          await rootBundle.load('assets/icons/2.0x/destination.png');
+      final Uint8List imageBytes = byteData.buffer.asUint8List();
+
+      // 2. Decode the image to get its actual width and height
+      final codec = await ui.instantiateImageCodec(imageBytes);
+      final frameInfo = await codec.getNextFrame();
+      final ui.Image image = frameInfo.image;
+
+      // 3. Create MbxImage with the *correct* dimensions
+      final mbxImage = mp.MbxImage(
+        width: image.width,
+        height: image.height,
+        data: imageBytes,
+      );
+
+      // 4. Add the correctly sized image to the map style
+      await _mapboxMapController!.style.addStyleImage(
+        'destination-marker',
+        devicePixelRatio, // Use device pixel ratio for perfect scaling
+        mbxImage,
+        false,
+        [], // StretchX - empty for normal images
+        [], // StretchY - empty for normal images
+        null, // Content - null for normal images
+      );
+    } catch (e) {
+      debugPrint('Error adding destination image to style: $e');
+    }
   }
 
   /// Setup location puck with custom image
@@ -797,7 +884,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
               ['linear'],
               ['zoom'],
               10.0,
-              0.6,
+              1.0,
               20.0,
               1.0
             ]),
