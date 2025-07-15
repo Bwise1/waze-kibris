@@ -8,13 +8,15 @@ import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/repositories/report_repository.dart';
 import 'package:waze_kibris/core/res/store_keys.dart';
+import 'package:waze_kibris/core/services/recent_locations_service.dart';
+import 'package:waze_kibris/core/services/local_storage.dart';
 
 class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
   ReportsBloc({
     required ReportRepository reportRepository,
     required this.authBloc,
   })  : _reportRepository = reportRepository,
-        // _localStorage = localStorage ?? getIt<ILocalStorage>(),
+        _recentLocationsService = RecentLocationsService(getIt<ILocalStorage>()),
         super(const ReportInitial()) {
     on<GetReportByID>(_onRequestReportByID);
     on<GetNearByReports>(_onRequestNearByReport);
@@ -22,11 +24,16 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
     on<GetVotesOnReport>(_onGetVotesOnReportRequest);
     on<SaveLocation>(_onSaveLocationRequest);
     on<GetSavedLocations>(_onGetSavedLocationRequest);
+    on<GetRecentLocations>(_onGetRecentLocations);
+    on<AddRecentLocation>(_onAddRecentLocation);
+    on<RemoveRecentLocation>(_onRemoveRecentLocation);
+    on<ClearRecentLocations>(_onClearRecentLocations);
     on<SubmitReportRequested>(_onSubmitReportRequested);
     on<ClearExpiredToken>(_onClearExpiredToken);
   }
 
   final ReportRepository _reportRepository;
+  final RecentLocationsService _recentLocationsService;
   final AuthBloc authBloc;
   // final ILocalStorage _localStorage;
   Future<void> _onRequestReportByID(
@@ -316,6 +323,67 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
     Emitter<ReportState> emit,
   ) async {
     await getIt<ILocalStorage>().delete(StoreKeys.wazeToken);
+  }
+
+  Future<void> _onGetRecentLocations(
+    GetRecentLocations event,
+    Emitter<ReportState> emit,
+  ) async {
+    try {
+      emit(const RecentLocationsLoading());
+      final recentLocations = await _recentLocationsService.getRecentLocations();
+      emit(GetRecentLocationsSuccess(data: recentLocations));
+    } catch (e) {
+      emit(ReportError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onAddRecentLocation(
+    AddRecentLocation event,
+    Emitter<ReportState> emit,
+  ) async {
+    try {
+      debugPrint('🔥 BLoC: Adding recent location ${event.location.name}');
+      await _recentLocationsService.addRecentLocation(event.location);
+      emit(const AddRecentLocationSuccess());
+      
+      // Refresh the recent locations list
+      final recentLocations = await _recentLocationsService.getRecentLocations();
+      debugPrint('🔥 BLoC: Retrieved ${recentLocations.length} recent locations');
+      emit(GetRecentLocationsSuccess(data: recentLocations));
+    } catch (e) {
+      debugPrint('❌ BLoC: Error adding recent location: $e');
+      emit(ReportError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onRemoveRecentLocation(
+    RemoveRecentLocation event,
+    Emitter<ReportState> emit,
+  ) async {
+    try {
+      await _recentLocationsService.removeRecentLocation(event.placeId);
+      emit(const RemoveRecentLocationSuccess());
+      
+      // Refresh the recent locations list
+      final recentLocations = await _recentLocationsService.getRecentLocations();
+      emit(GetRecentLocationsSuccess(data: recentLocations));
+    } catch (e) {
+      emit(ReportError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onClearRecentLocations(
+    ClearRecentLocations event,
+    Emitter<ReportState> emit,
+  ) async {
+    try {
+      await _recentLocationsService.clearRecentLocations();
+      emit(const ClearRecentLocationsSuccess());
+      emit(const GetRecentLocationsSuccess(data: []));
+    } catch (e) {
+      emit(ReportError(message: e.toString()));
+    }
   }
 
   // Future<void> _onGetProfileRequested(

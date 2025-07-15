@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sheet/sheet.dart';
@@ -14,6 +15,7 @@ import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart';
+import 'package:waze_kibris/core/models/location/recent_location.dart';
 
 class MapSheet extends StatefulWidget {
   const MapSheet({
@@ -50,10 +52,15 @@ class _MapSheetState extends State<MapSheet> {
 
   List<SearchSuggestion> _suggestions = [];
   bool getLocationLoading = false;
+  List<RecentLocation> _recentLocations = [];
+  bool _recentLocationsLoading = false;
+  int _buildCounter = 0;
+  int _recentBuildCounter = 0;
   @override
   void initState() {
     super.initState();
     getSavedLocation(context);
+    getRecentLocations(context);
   }
 
   void _onSearchChanged(String query) {
@@ -104,9 +111,24 @@ class _MapSheetState extends State<MapSheet> {
       );
     });
 
-
     final details = await _placesService.fetchGooglePlace(suggestion.placeId);
     if (!widget.context.mounted) return;
+
+    // Add to recent locations when user selects a place
+    final recentLocation = RecentLocation(
+      placeId: suggestion.placeId,
+      name: details.name,
+      address: details.formattedAddress,
+      latitude: details.lat,
+      longitude: details.lng,
+      lastVisited: DateTime.now(),
+    );
+
+    if (widget.context.mounted) {
+      widget.context.read<ReportsBloc>().add(
+            ReportsEvent.addRecentLocation(location: recentLocation),
+          );
+    }
 
     await showModalBottomSheet(
       context: widget.context,
@@ -144,8 +166,9 @@ class _MapSheetState extends State<MapSheet> {
             );
 
             Navigator.of(contxt).pop();
-            debugPrint('Directions fetched: ${directions.routes.length} routes');
-            
+            debugPrint(
+                'Directions fetched: ${directions.routes.length} routes');
+
             if (directions.routes.isNotEmpty) {
               // Draw the first route by default
               final String encodedPolyline =
@@ -160,6 +183,7 @@ class _MapSheetState extends State<MapSheet> {
                 backgroundColor: Colors.transparent,
                 builder: (modalContext) => RouteSelectionSheet(
                   routes: directions.routes,
+                  placeDetails: details, // Pass place details
                   onRouteSelected: (selectedRoute) {
                     // Always redraw polyline when route is selected
                     widget.onDrawPolyline?.call(
@@ -171,6 +195,8 @@ class _MapSheetState extends State<MapSheet> {
                     widget.onDrawPolyline?.call(
                       selectedRoute.overviewPolyline.points,
                     );
+
+                    // Recent location saving is now handled in RouteSelectionSheet
                     widget.onStartNavigation?.call(selectedRoute);
                   },
                 ),
@@ -211,6 +237,15 @@ class _MapSheetState extends State<MapSheet> {
     }
   }
 
+  Future<void> getRecentLocations(BuildContext context) async {
+    if (context.mounted) {
+      debugPrint('🔥 UI: Requesting recent locations from BLoC');
+      context.read<ReportsBloc>().add(
+            ReportsEvent.getRecentLocations(),
+          );
+    }
+  }
+
   @override
   void dispose() {
     _debounceTimer?.cancel();
@@ -220,435 +255,454 @@ class _MapSheetState extends State<MapSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Sheet(
-      backgroundColor: Colors.transparent,
-      initialExtent: 120,
-      controller: widget.controller,
-      physics: const SnapSheetPhysics(
-        stops: <double>[0.3, 1],
-      ),
-      child: AnimatedBuilder(
-        animation: widget.controller.animation,
-        builder: (BuildContext context, Widget? child) {
-          final sheetBar = widget.controller.animation.value > 0.95;
-          return TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: 0, end: sheetBar ? 1 : 0),
-            duration: const Duration(milliseconds: 200),
-            builder: (BuildContext context, double t, Widget? child) {
-              final radius = Tween<double>(begin: 16, end: 0).transform(t);
-              final shadow = ColorTween(
-                begin: Colors.black26,
-                end: Colors.black26.withValues(alpha: 0),
-              ).transform(t);
-              final barColor = ColorTween(
-                begin: Colors.grey[200],
-                end: Colors.grey[200]?.withValues(alpha: 0),
-              ).transform(t);
+    _buildCounter++;
+    debugPrint('🔥 MapSheet build() called - Count: $_buildCounter');
 
-              return MediaQuery.removePadding(
-                context: context,
-                removeTop: true,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(radius),
-                      topRight: Radius.circular(radius),
-                    ),
-                    color: Colors.white,
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(color: shadow!, blurRadius: 12),
-                    ],
-                  ),
-                  child: Column(
-                    children: <Widget>[
-                      Container(
-                        margin: const EdgeInsets.all(8),
-                        width: 36,
-                        height: 4,
-                        color: barColor,
-                        alignment: Alignment.center,
+    return BlocListener<ReportsBloc, ReportState>(
+        listener: (context, state) {
+          if (state is GetRecentLocationsSuccess) {
+            debugPrint(
+                '🔥 UI: BlocListener - Recent locations updated: ${state.data.length} items');
+            setState(() {
+              _recentLocations = state.data;
+              _recentLocationsLoading = false;
+              _recentBuildCounter++;
+            });
+          } else if (state is RecentLocationsLoading) {
+            setState(() {
+              _recentLocationsLoading = true;
+              _recentBuildCounter++;
+            });
+          }
+        },
+        child: Sheet(
+          backgroundColor: Colors.transparent,
+          initialExtent: 120,
+          controller: widget.controller,
+          physics: const SnapSheetPhysics(
+            stops: <double>[0.3, 1],
+          ),
+          child: AnimatedBuilder(
+            animation: widget.controller.animation,
+            builder: (BuildContext context, Widget? child) {
+              final sheetBar = widget.controller.animation.value > 0.95;
+              return TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: sheetBar ? 1 : 0),
+                duration: const Duration(milliseconds: 200),
+                builder: (BuildContext context, double t, Widget? child) {
+                  final radius = Tween<double>(begin: 16, end: 0).transform(t);
+                  final shadow = ColorTween(
+                    begin: Colors.black26,
+                    end: Colors.black26.withValues(alpha: 0),
+                  ).transform(t);
+                  final barColor = ColorTween(
+                    begin: Colors.grey[200],
+                    end: Colors.grey[200]?.withValues(alpha: 0),
+                  ).transform(t);
+
+                  return MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(radius),
+                          topRight: Radius.circular(radius),
+                        ),
+                        color: Colors.white,
+                        boxShadow: <BoxShadow>[
+                          BoxShadow(color: shadow!, blurRadius: 12),
+                        ],
                       ),
-                      Expanded(
-                        child: ListView(
-                          shrinkWrap: true,
-                          primary: true,
-                          physics: const BouncingScrollPhysics(),
-                          children: [
-                            Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: styles.insets.md,
-                                vertical: styles.insets.sm,
-                              ),
-                              child: Column(
-                                children: [
-                                  // Current location pill
-                                  Container(
-                                    margin:
-                                        const EdgeInsets.symmetric(vertical: 8),
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 16, vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: styles.theme.background,
-                                      borderRadius: BorderRadius.circular(32),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        AppIcon(
-                                          Assets.icons.location,
-                                          color: styles.theme.red,
-                                          size: 18,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          'Current location',
-                                          style: styles.typography.t2
-                                              .textColor(styles.theme.text),
-                                        ),
-                                      ],
-                                    ),
+                      child: Column(
+                        children: <Widget>[
+                          Container(
+                            margin: const EdgeInsets.all(8),
+                            width: 36,
+                            height: 4,
+                            color: barColor,
+                            alignment: Alignment.center,
+                          ),
+                          Expanded(
+                            child: ListView(
+                              shrinkWrap: true,
+                              primary: true,
+                              physics: const BouncingScrollPhysics(),
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: styles.insets.md,
+                                    vertical: styles.insets.sm,
                                   ),
-                                  // Search bar
-                                  CustomSearchBar(
-                                    controller: destinationController,
-                                    onChanged: (v) {
-                                      _onSearchChanged(v);
-                                      if (widget.controller.animation.value <=
-                                          0.3) {
-                                        widget.controller.relativeAnimateTo(
-                                          0.9,
-                                          duration:
-                                              const Duration(milliseconds: 200),
-                                          curve: Curves.easeOut,
-                                        );
-                                      }
-                                    },
-                                    onClear: () {
-                                      destinationController.clear();
-                                      setState(() {
-                                        _suggestions = [];
-                                      });
-                                    },
-                                    onFocus: () {
-                                      if (widget.controller.animation.value <=
-                                          0.3) {
-                                        widget.controller.relativeAnimateTo(
-                                          0.9,
-                                          duration:
-                                              const Duration(milliseconds: 200),
-                                          curve: Curves.easeOut,
-                                        );
-                                      }
-                                    },
-                                  ),
-                                  // If suggestions, show only suggestions
-                                  if (_suggestions.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 16),
-                                      child: SearchSuggestionList(
-                                        suggestions: _suggestions,
-                                        onTap: (suggestion) {
-
-                                          _onSuggestionTap(suggestion);
-                                          debugPrint(
-                                              'Suggestion tapped: ${suggestion.placeId}');
+                                  child: Column(
+                                    children: [
+                                      // Current location pill
+                                      Container(
+                                        margin: const EdgeInsets.symmetric(
+                                            vertical: 8),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 12),
+                                        decoration: BoxDecoration(
+                                          color: styles.theme.background,
+                                          borderRadius:
+                                              BorderRadius.circular(32),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            AppIcon(
+                                              Assets.icons.location,
+                                              color: styles.theme.red,
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'Current location',
+                                              style: styles.typography.t2
+                                                  .textColor(styles.theme.text),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Search bar
+                                      CustomSearchBar(
+                                        controller: destinationController,
+                                        onChanged: (v) {
+                                          _onSearchChanged(v);
+                                          if (widget
+                                                  .controller.animation.value <=
+                                              0.3) {
+                                            widget.controller.relativeAnimateTo(
+                                              0.9,
+                                              duration: const Duration(
+                                                  milliseconds: 200),
+                                              curve: Curves.easeOut,
+                                            );
+                                          }
+                                        },
+                                        onClear: () {
+                                          destinationController.clear();
+                                          setState(() {
+                                            _suggestions = [];
+                                          });
+                                        },
+                                        onFocus: () {
+                                          if (widget
+                                                  .controller.animation.value <=
+                                              0.3) {
+                                            widget.controller.relativeAnimateTo(
+                                              0.9,
+                                              duration: const Duration(
+                                                  milliseconds: 200),
+                                              curve: Curves.easeOut,
+                                            );
+                                          }
                                         },
                                       ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            // Only show the rest if there are NO suggestions
-                            if (_suggestions.isEmpty) ...[
-                              Gap(styles.insets.sm),
-                              CustomHorizontalScroll(
-                                child: Row(
-                                  children: [
-                                    Gap(styles.insets.md),
-
-                                    ///
-                                    //         const Gap(4),
-                                    //         Text(
-                                    //           'Home',
-                                    //           style: styles.typography.t3
-                                    //               .textColor(
-                                    //                   styles.theme.primary)
-                                    //               .medium,
-                                    //         ),
-                                    //       ],
-                                    //     ),
-                                    //   ),
-                                    // ),
-                                  ],
-                                ),
-                              ),
-                              Gap(styles.insets.md),
-                              // Saved locations section
-                              CustomContainer(
-                                width: context.widthPx,
-                                height: 400,
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: styles.insets.lg,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  styles.corners.lg,
-                                ),
-                                color: styles.theme.background,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Gap(styles.insets.md),
-                                    Text(
-                                      'Saved Locations',
-                                      style: styles.typography.h4
-                                          .textColor(styles.theme.text),
-                                    ),
-                                    Gap(styles.insets.md),
-
-                                    ///.................................
-                                    ///
-                                    ///
-                                    BlocConsumer<ReportsBloc, ReportState>(
-                                      listener: (context, state) {
-                                        if (state is GetSavedLocationsSuccess &&
-                                            state.data.isEmpty) {
-                                          RSnackBar.error(
-                                            'you have no save location.',
-                                          ).show(context);
-                                        }
-                                      },
-                                      builder: (context, state) {
-                                        if (state is ReportInitial) {
-                                          return SizedBox();
-
-                                          ///if the state of the bloc is in its initial stage ;
-                                        } else if (state
-                                                is GetSavedLocationsSuccess &&
-                                            state.data.isNotEmpty) {
-                                          return Expanded(
-                                            child: ListView.builder(
-                                              itemCount: state.data.length,
-                                              itemBuilder: (context, index) {
-                                                return Padding(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                      horizontal: 20),
-                                                  child: Column(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment
-                                                            .spaceBetween,
-                                                    children: [
-                                                      ProfileActionItemButton(
-                                                        onPressed: () {},
-                                                        isImageFile: true,
-                                                        icon: getIconType(
-                                                          state
-                                                              .data[index].name,
-                                                        ),
-                                                        title: state
-                                                            .data[index].name,
-                                                        subTitle: state
-                                                            .data[index]
-                                                            .address,
-                                                        semanticLabel:
-                                                            'home-action-btn',
-                                                      ),
-                                                      Padding(
-                                                        padding:
-                                                            const EdgeInsets
-                                                                .symmetric(
-                                                          vertical: 8,
-                                                        ),
-                                                        child: Divider(
-                                                          color: styles
-                                                              .theme.secondary,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ).clickable(() {
-                                                  ///get some logic done here
-                                                });
-                                              },
-                                            ),
-                                          );
-                                        } else if (state is ReportLoading) {
-                                          return Expanded(
-                                            child: Center(
-                                              child: SizedBox(
-                                                height: 40,
-                                                width: 40,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  color: styles.theme.primary,
-                                                ),
-                                              ),
-                                            ),
-                                          );
-                                        } else {
-                                          return const Expanded(
-                                            child: SizedBox(),
-                                            // child: Center(
-                                            //   child: Column(
-                                            //     mainAxisSize: MainAxisSize.min,
-                                            //     children: [
-                                            //
-                                            //
-                                            //       Gap(53 * styles.scale),
-                                            //       TextButton(
-                                            //         onPressed: () async {
-                                            //           if (state is GetVotesOnReportSuccess) {
-                                            //             // RSnackBar.error('Hey${state.data.length}')
-                                            //             //     .show(context);
-                                            //           } else {
-                                            //             RSnackBar.error('Hey Nothing here').show(context);
-                                            //           }
-                                            //           final position =
-                                            //           await UserCoordinates.getAndSetUserCoordinate(
-                                            //             context,
-                                            //           );
-                                            //           RSnackBar.error(position!.longitude.toString())
-                                            //               .show(context);
-                                            //
-                                            //           if (context.mounted) {
-                                            //             // print(
-                                            //             //   "${position!.latitude.toString()}"
-                                            //             //   "${position.longitude.toString()}",
-                                            //             // );
-                                            //             // RSnackBar.error(
-                                            //             //         "${position!.latitude.toString()} ${position.longitude.toString()}")
-                                            //             //     .show(context);
-                                            //             context.read<ReportsBloc>().add(
-                                            //               ReportsEvent.getNearByReports(
-                                            //                 radius: endRangeVal.toInt(),
-                                            //                 lat: position!.latitude.toString(),
-                                            //                 long: position.longitude.toString(),
-                                            //               ),
-                                            //             );
-                                            //           }
-                                            //         },
-                                            //         style: TextButton.styleFrom(
-                                            //           backgroundColor: styles.theme.divider,
-                                            //         ),
-                                            //         child: const Icon(
-                                            //           size: 35,
-                                            //           Icons.search_rounded,
-                                            //           // color: styles.theme.grey,
-                                            //         ),
-                                            //       ),
-                                            //     ],
-                                            //   ),
-                                            // ),
-                                          );
-                                        }
-                                      },
-                                    ),
-
-                                    ///
-                                    ///.................................
-
-                                    Gap(styles.insets.md),
-                                    Row(
-                                      children: [
-                                        ProfileActionItemButton(
-                                          onPressed: () async {
-                                            setState(() {
-                                              getLocationLoading = true;
-                                            });
-
-                                            final position = await Geolocator
-                                                .getCurrentPosition();
-                                            setState(() {
-                                              getLocationLoading = false;
-                                            });
-                                            await showModalBottomSheet(
-                                              context: widget.context,
-                                              isScrollControlled: true,
-                                              backgroundColor:
-                                                  Colors.transparent,
-                                              builder: (modalContext) =>
-                                                  SelectAndSaveLocation(
-                                                position: LatLng(
-                                                    position.latitude,
-                                                    position.longitude),
-                                              ),
-                                            );
-                                          },
-                                          icon: Assets.icons.plus,
-                                          title: 'Add new location',
-                                          semanticLabel: 'add-action-btn',
+                                      // If suggestions, show only suggestions
+                                      if (_suggestions.isNotEmpty)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 16),
+                                          child: SearchSuggestionList(
+                                            suggestions: _suggestions,
+                                            onTap: (suggestion) {
+                                              _onSuggestionTap(suggestion);
+                                              debugPrint(
+                                                  'Suggestion tapped: ${suggestion.placeId}');
+                                            },
+                                          ),
                                         ),
-                                        if (getLocationLoading) ...[
-                                          Gap(10),
-                                          SizedBox(
-                                              height: 15,
-                                              width: 15,
-                                              child: CustomLoader())
-                                        ],
+                                    ],
+                                  ),
+                                ),
+                                // Only show the rest if there are NO suggestions
+                                if (_suggestions.isEmpty) ...[
+                                  Gap(styles.insets.sm),
+                                  CustomHorizontalScroll(
+                                    child: Row(
+                                      children: [
+                                        Gap(styles.insets.md),
+
+                                        ///
+                                        //         const Gap(4),
+                                        //         Text(
+                                        //           'Home',
+                                        //           style: styles.typography.t3
+                                        //               .textColor(
+                                        //                   styles.theme.primary)
+                                        //               .medium,
+                                        //         ),
+                                        //       ],
+                                        //     ),
+                                        //   ),
+                                        // ),
                                       ],
                                     ),
-                                    Gap(styles.insets.md),
-                                  ],
-                                ),
-                              ),
-                              Gap(styles.insets.md),
-                              // Recent locations section
-                              CustomContainer(
-                                width: context.widthPx,
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: styles.insets.lg,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  styles.corners.lg,
-                                ),
-                                color: styles.theme.background,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Gap(styles.insets.md),
-                                    Text(
-                                      'Recent Locations',
-                                      style: styles.typography.h4
-                                          .textColor(styles.theme.text),
+                                  ),
+                                  // Gap(styles.insets.md),
+                                  // Saved locations section
+                                  CustomContainer(
+                                    width: context.widthPx,
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: styles.insets.lg,
                                     ),
-                                    Gap(styles.insets.md),
-                                    ProfileActionItemButton(
-                                      onPressed: () {},
-                                      icon: Assets.icons.homeSmile,
-                                      title: 'Recent Place 1',
-                                      subTitle: 'Address',
-                                      semanticLabel: 'recent-1-btn',
+                                    borderRadius: BorderRadius.circular(
+                                      styles.corners.lg,
                                     ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Divider(
-                                        color: styles.theme.secondary,
-                                      ),
+                                    color: styles.theme.background,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Gap(styles.insets.md),
+                                        Text(
+                                          'Saved Locations',
+                                          style: styles.typography.h4
+                                              .textColor(styles.theme.text),
+                                        ),
+                                        Gap(styles.insets.md),
+
+                                        ///.................................
+                                        ///
+                                        ///
+                                        BlocConsumer<ReportsBloc, ReportState>(
+                                          listener: (context, state) {
+                                            if (state
+                                                    is GetSavedLocationsSuccess &&
+                                                state.data.isEmpty) {
+                                              RSnackBar.error(
+                                                'you have no save location.',
+                                              ).show(context);
+                                            }
+                                          },
+                                          builder: (context, state) {
+                                            if (state is ReportInitial) {
+                                              return SizedBox();
+
+                                              ///if the state of the bloc is in its initial stage ;
+                                            } else if (state
+                                                    is GetSavedLocationsSuccess &&
+                                                state.data.isNotEmpty) {
+                                              return SizedBox(
+                                                height:
+                                                    200, // Height for approximately 3 items
+                                                child: ListView.builder(
+                                                  itemCount: state.data.length,
+                                                  itemBuilder:
+                                                      (context, index) {
+                                                    return Padding(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 20),
+                                                      child: Column(
+                                                        mainAxisAlignment:
+                                                            MainAxisAlignment
+                                                                .spaceBetween,
+                                                        children: [
+                                                          ProfileActionItemButton(
+                                                            onPressed: () {},
+                                                            isImageFile: true,
+                                                            icon: getIconType(
+                                                              state.data[index]
+                                                                  .name,
+                                                            ),
+                                                            title: state
+                                                                .data[index]
+                                                                .name,
+                                                            subTitle: state
+                                                                .data[index]
+                                                                .address,
+                                                            semanticLabel:
+                                                                'home-action-btn',
+                                                          ),
+                                                          Padding(
+                                                            padding:
+                                                                const EdgeInsets
+                                                                    .symmetric(
+                                                              vertical: 8,
+                                                            ),
+                                                            child: Divider(
+                                                              color: styles
+                                                                  .theme
+                                                                  .secondary,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ).clickable(() {
+                                                      ///get some logic done here
+                                                    });
+                                                  },
+                                                ),
+                                              );
+                                            } else if (state is ReportLoading) {
+                                              return SizedBox(
+                                                height: 240,
+                                                child: Center(
+                                                  child: SizedBox(
+                                                    height: 40,
+                                                    width: 40,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                      color:
+                                                          styles.theme.primary,
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            } else {
+                                              return const SizedBox(
+                                                height: 240,
+                                                child: SizedBox(),
+                                                // child: Center(
+                                                //   child: Column(
+                                                //     mainAxisSize: MainAxisSize.min,
+                                                //     children: [
+                                                //
+                                                //
+                                                //       Gap(53 * styles.scale),
+                                                //       TextButton(
+                                                //         onPressed: () async {
+                                                //           if (state is GetVotesOnReportSuccess) {
+                                                //             // RSnackBar.error('Hey${state.data.length}')
+                                                //             //     .show(context);
+                                                //           } else {
+                                                //             RSnackBar.error('Hey Nothing here').show(context);
+                                                //           }
+                                                //           final position =
+                                                //           await UserCoordinates.getAndSetUserCoordinate(
+                                                //             context,
+                                                //           );
+                                                //           RSnackBar.error(position!.longitude.toString())
+                                                //               .show(context);
+                                                //
+                                                //           if (context.mounted) {
+                                                //             // print(
+                                                //             //   "${position!.latitude.toString()}"
+                                                //             //   "${position.longitude.toString()}",
+                                                //             // );
+                                                //             // RSnackBar.error(
+                                                //             //         "${position!.latitude.toString()} ${position.longitude.toString()}")
+                                                //             //     .show(context);
+                                                //             context.read<ReportsBloc>().add(
+                                                //               ReportsEvent.getNearByReports(
+                                                //                 radius: endRangeVal.toInt(),
+                                                //                 lat: position!.latitude.toString(),
+                                                //                 long: position.longitude.toString(),
+                                                //               ),
+                                                //             );
+                                                //           }
+                                                //         },
+                                                //         style: TextButton.styleFrom(
+                                                //           backgroundColor: styles.theme.divider,
+                                                //         ),
+                                                //         child: const Icon(
+                                                //           size: 35,
+                                                //           Icons.search_rounded,
+                                                //           // color: styles.theme.grey,
+                                                //         ),
+                                                //       ),
+                                                //     ],
+                                                //   ),
+                                                // ),
+                                              );
+                                            }
+                                          },
+                                        ),
+
+                                        ///
+                                        ///.................................
+                                        Row(
+                                          children: [
+                                            ProfileActionItemButton(
+                                              onPressed: () async {
+                                                setState(() {
+                                                  getLocationLoading = true;
+                                                });
+
+                                                final position =
+                                                    await Geolocator
+                                                        .getCurrentPosition();
+                                                setState(() {
+                                                  getLocationLoading = false;
+                                                });
+                                                await showModalBottomSheet(
+                                                  context: widget.context,
+                                                  isScrollControlled: true,
+                                                  backgroundColor:
+                                                      Colors.transparent,
+                                                  builder: (modalContext) =>
+                                                      SelectAndSaveLocation(
+                                                    position: LatLng(
+                                                        position.latitude,
+                                                        position.longitude),
+                                                  ),
+                                                );
+                                              },
+                                              icon: Assets.icons.plus,
+                                              title: 'Add new location',
+                                              semanticLabel: 'add-action-btn',
+                                            ),
+                                            if (getLocationLoading) ...[
+                                              Gap(10),
+                                              const SizedBox(
+                                                  height: 15,
+                                                  width: 15,
+                                                  child: CustomLoader()),
+                                            ],
+                                          ],
+                                        ),
+                                        Gap(styles.insets.md),
+                                      ],
                                     ),
-                                    ProfileActionItemButton(
-                                      icon: Assets.icons.briefcase,
-                                      title: 'Recent Place 2',
-                                      subTitle: 'Address',
-                                      semanticLabel: 'recent-2-btn',
+                                  ),
+                                  Gap(styles.insets.md),
+                                  // Recent locations section
+                                  CustomContainer(
+                                    width: context.widthPx,
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: styles.insets.lg,
                                     ),
-                                    Gap(styles.insets.md),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
+                                    borderRadius: BorderRadius.circular(
+                                      styles.corners.lg,
+                                    ),
+                                    color: styles.theme.background,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Gap(styles.insets.md),
+                                        Text(
+                                          'Recent Locations',
+                                          style: styles.typography.h4
+                                              .textColor(styles.theme.text),
+                                        ),
+                                        Gap(styles.insets.md),
+
+                                        // Recent locations widget
+                                        _RecentLocationsWidget(
+                                          locations: _recentLocations,
+                                          isLoading: _recentLocationsLoading,
+                                          buildCounter: _recentBuildCounter,
+                                        ),
+
+                                        Gap(styles.insets.md),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               );
             },
-          );
-        },
-      ),
-    );
+          ),
+        ));
   }
 
   String getIconType(String type) {
@@ -912,5 +966,160 @@ class LocationItem extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _RecentLocationsWidget extends StatelessWidget {
+  const _RecentLocationsWidget({
+    required this.locations,
+    required this.isLoading,
+    required this.buildCounter,
+  });
+
+  final List<RecentLocation> locations;
+  final bool isLoading;
+  final int buildCounter;
+
+  @override
+  Widget build(BuildContext context) {
+    debugPrint(
+        '🔥 _RecentLocationsWidget build() called - Counter: $buildCounter - ${locations.length} items');
+
+    if (isLoading) {
+      return const SizedBox(
+        height: 100,
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (locations.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Center(
+          child: Text(
+            'No recent locations yet',
+            style: styles.typography.t3
+                .textColor(styles.theme.text.withOpacity(0.6)),
+          ),
+        ),
+      );
+    }
+
+    return RepaintBoundary(
+      child: SizedBox(
+        height: 200,
+        child: ListView.builder(
+          itemCount: locations.length,
+          itemExtent:
+              56, // Further reduced height for each item to prevent overflow
+          itemBuilder: (context, index) {
+            final location = locations[index];
+            return _RecentLocationItem(
+              key: ValueKey(location.placeId),
+              location: location,
+              showDivider: index < locations.length - 1,
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentLocationItem extends StatelessWidget {
+  const _RecentLocationItem({
+    required this.location,
+    required this.showDivider,
+    super.key,
+  });
+
+  final RecentLocation location;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () {
+              // Handle recent location tap
+              // You can navigate to this location or show details
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  // Icon
+                  AppIcon(
+                    _getSvgIcon(location.category ?? 'location'),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 16),
+
+                  // Text content with proper overflow handling
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          location.name,
+                          style: styles.typography.t2.medium,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                        if (location.address.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            location.address,
+                            style: styles.typography.t3.textColor(
+                              styles.theme.text.withOpacity(0.6),
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (showDivider)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Divider(
+                color: styles.theme.secondary,
+                height: 1,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _getSvgIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'home':
+        return Assets.icons.homeBg.path;
+      case 'hospital':
+      case 'medical':
+        return Assets.icons.hospital.path;
+      case 'park':
+        return Assets.icons.park.path;
+      case 'gas':
+      case 'fuel':
+        return Assets.icons.gas.path;
+      case 'food':
+      case 'restaurant':
+        return Assets.icons.food.path;
+      case 'location':
+      default:
+        return 'assets/icons/recent_places.svg';
+    }
   }
 }

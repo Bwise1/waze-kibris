@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:waze_kibris/core/models/location/recent_location.dart';
 
 abstract class ReportsEvent extends Equatable {
   const ReportsEvent();
@@ -58,6 +59,26 @@ abstract class ReportsEvent extends Equatable {
 
   factory ReportsEvent.getSavedLocations() {
     return const GetSavedLocations();
+  }
+
+  factory ReportsEvent.getRecentLocations() {
+    return const GetRecentLocations();
+  }
+
+  factory ReportsEvent.addRecentLocation({
+    required RecentLocation location,
+  }) {
+    return AddRecentLocation(location: location);
+  }
+
+  factory ReportsEvent.removeRecentLocation({
+    required String placeId,
+  }) {
+    return RemoveRecentLocation(placeId: placeId);
+  }
+
+  factory ReportsEvent.clearRecentLocations() {
+    return const ClearRecentLocations();
   }
 
   factory ReportsEvent.clearExpiredToken() {
@@ -155,6 +176,32 @@ class SaveLocation extends ReportsEvent {
 
 class GetSavedLocations extends ReportsEvent {
   const GetSavedLocations();
+}
+
+class GetRecentLocations extends ReportsEvent {
+  const GetRecentLocations();
+}
+
+class AddRecentLocation extends ReportsEvent {
+  const AddRecentLocation({required this.location});
+
+  final RecentLocation location;
+
+  @override
+  List<Object?> get props => [location];
+}
+
+class RemoveRecentLocation extends ReportsEvent {
+  const RemoveRecentLocation({required this.placeId});
+
+  final String placeId;
+
+  @override
+  List<Object?> get props => [placeId];
+}
+
+class ClearRecentLocations extends ReportsEvent {
+  const ClearRecentLocations();
 }
 
 class ClearExpiredToken extends ReportsEvent {

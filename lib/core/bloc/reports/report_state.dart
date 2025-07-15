@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
+import 'package:waze_kibris/core/models/location/recent_location.dart';
 
 abstract class ReportState extends Equatable {
   const ReportState();
@@ -138,6 +139,33 @@ class GetSavedLocationsSuccess extends ReportState {
 
   @override
   List<Object?> get props => [message, data, status, statusCode];
+}
+
+class RecentLocationsLoading extends ReportState {
+  const RecentLocationsLoading();
+}
+
+class GetRecentLocationsSuccess extends ReportState {
+  const GetRecentLocationsSuccess({
+    required this.data,
+  });
+
+  final List<RecentLocation> data;
+
+  @override
+  List<Object?> get props => [data];
+}
+
+class AddRecentLocationSuccess extends ReportState {
+  const AddRecentLocationSuccess();
+}
+
+class RemoveRecentLocationSuccess extends ReportState {
+  const RemoveRecentLocationSuccess();
+}
+
+class ClearRecentLocationsSuccess extends ReportState {
+  const ClearRecentLocationsSuccess();
 }
 
 //

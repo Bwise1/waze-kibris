@@ -85,6 +85,7 @@ class _MainDashboardState extends State<MainDashboard>
     updateMapForNavigationMode(false);
     clearRoutePolyline();
     clearSnapToRoad();
+    _clearRouteBar(); // Also dismiss the route bar when ending navigation
   }
 
   @override
