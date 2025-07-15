@@ -20,7 +20,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   bool _isFollowingUser = true;
   Timer? _cameraResetTimer;
   Timer? _cameraUpdateTimer;
+  Timer? _polylineUpdateTimer;
   Position? _lastCameraPosition;
+  double _lastPolylineWidth = 0.0;
 
   // Track current polyline for adaptive width updates
   String? _currentPolylineEncodedString;
@@ -273,6 +275,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   Future<void> _addRouteMarkers(List<PointLatLng> points) async {
     if (pointAnnotationManager == null || points.isEmpty) return;
 
+    // Get adaptive marker size
+    final markerSize = await _getAdaptiveMarkerSize();
+    
     // Add start marker
     await pointAnnotationManager!.create(
       mp.PointAnnotationOptions(
@@ -281,7 +286,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           points.first.longitude,
           points.first.latitude,
         )),
-        iconSize: 1.0, // 32px - optimal visibility for start marker
+        iconSize: markerSize,
       ),
     );
 
@@ -293,7 +298,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           points.last.longitude,
           points.last.latitude,
         )),
-        iconSize: 1.2, // 36px - slightly larger for destination emphasis
+        iconSize: markerSize * 1.2, // End marker slightly larger
       ),
     );
   }
@@ -307,6 +312,46 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _currentPolylinePoints = null;
   }
 
+  /// Calculates adaptive marker size based on zoom level
+  /// Size mapping: 1x=48w, 2x=64w, 3x=96w, 4x=128w
+  Future<double> _getAdaptiveMarkerSize() async {
+    try {
+      final cameraState = await _mapboxMapController?.getCameraState();
+      if (cameraState == null) return 1.0;
+      
+      final zoom = cameraState.zoom;
+      final currentState = navigationBloc.state;
+      final isNavigating = currentState is NavigationInProgress;
+      
+      // Adaptive marker sizing based on actual icon dimensions
+      if (zoom >= 19) {
+        // Very close zoom - 4x size (128w)
+        return isNavigating ? 4.0 : 3.5;
+      } else if (zoom >= 18) {
+        // Close zoom - 3x size (96w)
+        return isNavigating ? 3.0 : 2.5;
+      } else if (zoom >= 16) {
+        // Medium-close zoom - 2x size (64w)
+        return isNavigating ? 2.0 : 1.8;
+      } else if (zoom >= 14) {
+        // Medium zoom - 1.5x size (between 48w and 64w)
+        return isNavigating ? 1.5 : 1.3;
+      } else if (zoom >= 12) {
+        // Medium-far zoom - 1x size (48w)
+        return isNavigating ? 1.0 : 0.9;
+      } else if (zoom >= 10) {
+        // Far zoom - smaller than 1x
+        return isNavigating ? 0.8 : 0.7;
+      } else {
+        // Very far zoom - minimal size
+        return isNavigating ? 0.6 : 0.5;
+      }
+    } catch (e) {
+      debugPrint('Error getting camera state for adaptive marker size: $e');
+      return 1.0;
+    }
+  }
+
   /// Calculate adaptive line width based on zoom level (Waze-style with limits)
   Future<double> _getAdaptiveLineWidth() async {
     if (_mapboxMapController == null) return 8.0;
@@ -317,43 +362,43 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       final currentState = navigationBloc.state;
       final isNavigating = currentState is NavigationInProgress;
 
-      // Waze-style adaptive width with realistic road width limits
+      // Waze-style adaptive width - thicker and more visible
       double baseWidth;
 
       if (zoom >= 19) {
-        // Maximum detail - fill most of road width but not excessive
-        baseWidth = isNavigating ? 16.0 : 12.0;
+        // Maximum detail - very thick like Waze
+        baseWidth = isNavigating ? 24.0 : 18.0;
       } else if (zoom >= 18) {
-        // Very close zoom - prominent but controlled
-        baseWidth = isNavigating ? 14.0 : 10.0;
+        // Very close zoom - thick navigation line
+        baseWidth = isNavigating ? 20.0 : 16.0;
       } else if (zoom >= 17) {
-        // Close zoom - good visibility
-        baseWidth = isNavigating ? 12.0 : 8.0;
+        // Close zoom - prominent visibility
+        baseWidth = isNavigating ? 18.0 : 14.0;
       } else if (zoom >= 16) {
-        // Medium-close zoom - standard navigation width
-        baseWidth = isNavigating ? 10.0 : 7.0;
+        // Medium-close zoom - standard thick navigation
+        baseWidth = isNavigating ? 16.0 : 12.0;
       } else if (zoom >= 15) {
-        // Medium zoom - balanced
-        baseWidth = isNavigating ? 8.0 : 6.0;
+        // Medium zoom - still thick
+        baseWidth = isNavigating ? 14.0 : 10.0;
       } else if (zoom >= 14) {
-        // Medium-far zoom - visible but not dominant
-        baseWidth = isNavigating ? 6.0 : 4.0;
+        // Medium-far zoom - visible thickness
+        baseWidth = isNavigating ? 12.0 : 8.0;
       } else if (zoom >= 12) {
-        // Far zoom - much thinner
-        baseWidth = isNavigating ? 4.0 : 3.0;
+        // Far zoom - thinner but still visible
+        baseWidth = isNavigating ? 10.0 : 6.0;
       } else if (zoom >= 10) {
-        // Very far zoom - very thin
-        baseWidth = isNavigating ? 3.0 : 2.0;
+        // Very far zoom - moderate thickness
+        baseWidth = isNavigating ? 8.0 : 4.0;
       } else if (zoom >= 8) {
-        // Overview level - minimal thickness
-        baseWidth = isNavigating ? 2.0 : 1.5;
+        // Overview level - thin but visible
+        baseWidth = isNavigating ? 6.0 : 3.0;
       } else {
-        // Maximum zoom out - extremely thin
-        baseWidth = isNavigating ? 1.5 : 1.0;
+        // Maximum zoom out - minimal but visible
+        baseWidth = isNavigating ? 4.0 : 2.0;
       }
 
       // Apply maximum width limit to prevent overly thick lines
-      const double maxWidth = 18.0; // Prevents polyline from being too wide
+      const double maxWidth = 28.0; // Allows thicker Waze-style lines
       const double minWidth = 1.0; // Allows very thin lines when zoomed out
 
       return baseWidth.clamp(minWidth, maxWidth);
@@ -427,6 +472,29 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     );
 
     _userPositionStream?.cancel();
+
+    // Get current position immediately and move camera to user location
+    try {
+      Position currentPosition = await Geolocator.getCurrentPosition(
+          // locationSettings: locationSettings,
+          );
+
+      // Move camera to user location immediately with Waze-like zoom
+      _mapboxMapController?.easeTo(
+        mp.CameraOptions(
+          center: mp.Point(
+            coordinates: mp.Position(
+                currentPosition.longitude, currentPosition.latitude),
+          ),
+          zoom: 16.0, // Waze-style zoom level
+          bearing: 0.0,
+          pitch: 0.0,
+        ),
+        mp.MapAnimationOptions(duration: 1000),
+      );
+    } catch (e) {
+      debugPrint('Error getting current position: $e');
+    }
 
     _userPositionStream =
         Geolocator.getPositionStream(locationSettings: locationSettings).listen(
@@ -516,11 +584,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           bearing: position.heading, // Follow user's heading direction
           pitch: 0.0, // Flat view like Waze, no 3D tilt
         ),
-        mp.MapAnimationOptions(duration: 800),
+        mp.MapAnimationOptions(duration: 1500),
       )
           .then((_) {
-        // Update polyline width after camera change
-        _updatePolylineWidth();
+        // Update polyline width after camera change (debounced)
+        _debouncedUpdatePolylineWidth();
       });
     } else if (currentState is NavigationInProgress &&
         currentState.isOverviewVisible) {
@@ -535,29 +603,31 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           bearing: 0.0,
           pitch: 0.0,
         ),
-        mp.MapAnimationOptions(duration: 800),
+        mp.MapAnimationOptions(duration: 1500),
       )
           .then((_) {
-        // Update polyline width after camera change
-        _updatePolylineWidth();
+        // Update polyline width after camera change (debounced)
+        _debouncedUpdatePolylineWidth();
       });
     } else {
-      // Normal browsing mode: flat top-down view
-      _mapboxMapController
-          ?.easeTo(
-        mp.CameraOptions(
-          center: mp.Point(
-            coordinates: mp.Position(position.longitude, position.latitude),
+      // Normal browsing mode: update position and bearing but preserve zoom
+      _mapboxMapController?.getCameraState().then((currentCamera) {
+        _mapboxMapController
+            ?.easeTo(
+          mp.CameraOptions(
+            center: mp.Point(
+              coordinates: mp.Position(position.longitude, position.latitude),
+            ),
+            zoom: currentCamera?.zoom, // Preserve current zoom level
+            bearing: position.heading, // Update bearing for map rotation
+            pitch: 0.0, // Keep flat view
           ),
-          zoom: 16.0,
-          bearing: 0.0,
-          pitch: 0.0,
-        ),
-        mp.MapAnimationOptions(duration: 800),
-      )
-          .then((_) {
-        // Update polyline width after camera change
-        _updatePolylineWidth();
+          mp.MapAnimationOptions(duration: 1500),
+        )
+            .then((_) {
+          // Update polyline width after camera change
+          _updatePolylineWidth();
+        });
       });
     }
   }
@@ -569,6 +639,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     // and can be manually triggered when needed
   }
 
+  /// Debounced polyline width update to prevent excessive recreations
+  void _debouncedUpdatePolylineWidth() {
+    _polylineUpdateTimer?.cancel();
+    _polylineUpdateTimer = Timer(const Duration(milliseconds: 50), () {
+      _updatePolylineWidth();
+    });
+  }
+
   /// Update polyline width based on current zoom level
   void _updatePolylineWidth() async {
     if (polylineAnnotationManager == null || _currentPolylinePoints == null)
@@ -577,6 +655,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     try {
       // Calculate new width
       final newWidth = await _getAdaptiveLineWidth();
+
+      // Only update if width actually changed significantly
+      if ((newWidth - _lastPolylineWidth).abs() < 1.0) {
+        return; // Skip update if width change is minimal
+      }
 
       // Only update if we have polyline data stored
       if (_currentPolylinePoints != null &&
@@ -615,16 +698,67 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           ),
         );
 
-        // Note: Skip recreating markers during width updates to reduce flicker
+        // Update markers with adaptive sizing
+        await _updateMarkersForZoom();
+        
+        // Update last width to prevent unnecessary future updates
+        _lastPolylineWidth = newWidth;
       }
     } catch (e) {
       debugPrint('Error updating polyline width: $e');
     }
   }
 
+  /// Update markers with adaptive sizing for current zoom level
+  Future<void> _updateMarkersForZoom() async {
+    if (pointAnnotationManager == null || 
+        _currentPolylinePoints == null || 
+        _currentPolylinePoints!.isEmpty) return;
+    
+    try {
+      final markerSize = await _getAdaptiveMarkerSize();
+      
+      // Clear existing markers
+      await pointAnnotationManager!.deleteAll();
+      
+      // Recreate markers with adaptive sizing
+      await _addRouteMarkers(_currentPolylinePoints!);
+    } catch (e) {
+      debugPrint('Error updating markers for zoom: $e');
+    }
+  }
+
   /// Manually trigger polyline width update (can be called when user manually zooms)
   void updatePolylineWidthForZoom() {
     _updatePolylineWidth();
+  }
+
+  /// Force immediate navigation zoom without delays
+  void forceNavigationZoom() async {
+    if (_mapboxMapController == null) return;
+    
+    try {
+      // Get current position immediately
+      final currentPosition = await Geolocator.getCurrentPosition();
+      
+      // Immediately zoom to navigation level
+      await _mapboxMapController?.easeTo(
+        mp.CameraOptions(
+          center: mp.Point(
+            coordinates: mp.Position(currentPosition.longitude, currentPosition.latitude),
+          ),
+          zoom: 18.0, // Navigation zoom level
+          bearing: currentPosition.heading,
+          pitch: 0.0,
+        ),
+        mp.MapAnimationOptions(duration: 500), // Faster animation
+      );
+      
+      // Immediately update polyline width without debouncing
+      _updatePolylineWidth();
+    } catch (e) {
+      debugPrint('Error forcing navigation zoom: $e');
+    }
   }
 
   /// Initialize snap-to-road service with route data
@@ -681,6 +815,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _userPositionStream?.cancel();
     _cameraResetTimer?.cancel();
     _cameraUpdateTimer?.cancel();
+    _polylineUpdateTimer?.cancel();
     _mapboxMapController?.dispose();
     super.dispose();
   }

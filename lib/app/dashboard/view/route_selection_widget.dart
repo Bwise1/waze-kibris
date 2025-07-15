@@ -332,9 +332,7 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
       _isStartingNavigation = true;
     });
 
-    // Add a small delay for better UX
-    await Future.delayed(const Duration(milliseconds: 500));
-
+    // Removed delay for immediate navigation start
     if (widget.onStartNavigation != null) {
       widget.onStartNavigation!(_selectedRoute);
     }

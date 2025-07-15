@@ -24,10 +24,6 @@ PODS:
     - MapboxCommon (= 24.12.0)
     - MapboxCoreMaps (= 11.12.0)
     - Turf (= 4.0.0)
-  - MapLibre (6.5.0)
-  - maplibre_gl (0.0.1):
-    - Flutter
-    - MapLibre (= 6.5.0)
   - path_provider_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -51,7 +47,6 @@ DEPENDENCIES:
   - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
   - location (from `.symlinks/plugins/location/ios`)
   - mapbox_maps_flutter (from `.symlinks/plugins/mapbox_maps_flutter/ios`)
-  - maplibre_gl (from `.symlinks/plugins/maplibre_gl/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
@@ -63,7 +58,6 @@ SPEC REPOS:
     - MapboxCommon
     - MapboxCoreMaps
     - MapboxMaps
-    - MapLibre
     - Turf
 
 EXTERNAL SOURCES:
@@ -81,8 +75,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/location/ios"
   mapbox_maps_flutter:
     :path: ".symlinks/plugins/mapbox_maps_flutter/ios"
-  maplibre_gl:
-    :path: ".symlinks/plugins/maplibre_gl/ios"
   path_provider_foundation:
     :path: ".symlinks/plugins/path_provider_foundation/darwin"
   permission_handler_apple:
@@ -105,8 +97,6 @@ SPEC CHECKSUMS:
   MapboxCommon: 5be9807f4d03e616ecf470ab8202f0d88ecbd459
   MapboxCoreMaps: 036e9ce8711450a368304e30adc0156383357096
   MapboxMaps: 9539e2193f6723b3179d1e8243aac5abf9b0e365
-  MapLibre: 0ebfa9329d313cec8bf0a5ba5a336a1dc903785e
-  maplibre_gl: eab61cca6e1cfa9187249bacd3f08b51e8cd8ae9
   path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
   permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
   shared_preferences_foundation: 9e1978ff2562383bd5676f64ec4e9aa8fa06a6f7

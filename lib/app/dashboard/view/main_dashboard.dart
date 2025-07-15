@@ -62,6 +62,9 @@ class _MainDashboardState extends State<MainDashboard>
     // Update map for navigation mode FIRST
     updateMapForNavigationMode(true);
 
+    // Immediately zoom to navigation level
+    forceNavigationZoom();
+
     // Start navigation
     _navigationBloc.add(NavigationStarted(route: route));
     setIsFollowingUser(true);
@@ -126,6 +129,14 @@ class _MainDashboardState extends State<MainDashboard>
                   mp.MapWidget(
                     key: const ValueKey('mapWidget'),
                     onMapCreated: onMapCreated,
+                    // initialCameraPosition: mp.CameraOptions(
+                    //   center: mp.Point(
+                    //     coordinates: mp.Position(33.3792, 35.2036), // Cyprus center
+                    //   ),
+                    //   zoom: 16.0, // Waze-style zoom level
+                    //   bearing: 0.0,
+                    //   pitch: 0.0,
+                    // ),
                   ),
 
                   // Show route bar if there's an active suggestion and not navigating

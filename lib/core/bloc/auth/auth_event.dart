@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:latlong2/latlong.dart';
 
 abstract class AuthEvent extends Equatable {
   const AuthEvent();

@@ -15,23 +15,34 @@ class MapAppBar extends StatefulWidget implements PreferredSizeWidget {
 
 class _MapAppBarState extends State<MapAppBar> {
   bool scrolled = false;
+  late VoidCallback _animationListener;
+  
   @override
   void initState() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.controller.animation.addListener(() {
-        final animationValue = widget.controller.animation.value;
-        if (animationValue > 0.3) {
-          setState(() {
-            scrolled = true;
-          });
-        } else {
-          setState(() {
-            scrolled = false;
-          });
-        }
-      });
-    });
     super.initState();
+    _animationListener = () {
+      if (!mounted) return; // Prevent setState after dispose
+      final animationValue = widget.controller.animation.value;
+      if (animationValue > 0.3) {
+        setState(() {
+          scrolled = true;
+        });
+      } else {
+        setState(() {
+          scrolled = false;
+        });
+      }
+    };
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.controller.animation.addListener(_animationListener);
+    });
+  }
+  
+  @override
+  void dispose() {
+    widget.controller.animation.removeListener(_animationListener);
+    super.dispose();
   }
 
   @override

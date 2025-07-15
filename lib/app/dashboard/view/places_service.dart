@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart'
+    show Point, Position;
+
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart'; // For AutocompleteSuggestion
@@ -274,7 +276,8 @@ class PlacesService {
               placeId: item['place_id']?.toString() ?? '',
               mainText: formatting['main_text']?.toString() ?? '',
               secondaryText: formatting['secondary_text']?.toString() ?? '',
-              distanceMeters: _parseDistanceMeters(item['distance_meters']).toDouble(),
+              distanceMeters:
+                  _parseDistanceMeters(item['distance_meters']).toDouble(),
             );
           }).toList();
         } else {

@@ -36,7 +36,6 @@ dependencies:
   latlong2: ^0.9.1
   location: ^8.0.0
   mapbox_maps_flutter: ^2.8.0
-  maplibre_gl: ^0.21.0
   modal_bottom_sheet: ^3.0.0
   permission_handler: ^12.0.0+1
   pinput: ^5.0.0

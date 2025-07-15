@@ -208,11 +208,23 @@ class NavigationUtils {
     double currentSpeedMps,
     List<DirectionsStep> remainingSteps,
   ) {
-    // If we have current speed and it's reasonable, use it for near-term estimate
-    if (currentSpeedMps > 0 && currentSpeedMps < 50) {
-      // Max 180 km/h sanity check
+    // Always use route duration for initial calculation to avoid unrealistic times
+    // Only use current speed if it's reasonable AND we're not just starting
+    if (currentSpeedMps > 2.0 && currentSpeedMps < 50) {
+      // Min 2 m/s (7.2 km/h) to avoid walking/stationary speeds
       final timeBasedOnSpeed = remainingDistanceMeters / currentSpeedMps;
-      return timeBasedOnSpeed.round();
+      
+      // Get route-based duration for comparison
+      int totalDuration = 0;
+      for (final step in remainingSteps) {
+        totalDuration += step.duration.value;
+      }
+      
+      // Use the more realistic estimate (not too different from route calculation)
+      final speedBasedTime = timeBasedOnSpeed.round();
+      if ((speedBasedTime - totalDuration).abs() < totalDuration * 0.5) {
+        return speedBasedTime;
+      }
     }
 
     // Fallback to step durations (from route calculation)
