@@ -1,7 +1,3 @@
-
-
-
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
@@ -18,9 +14,7 @@ import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/dialog_route.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
-import 'package:waze_kibris/core/models/places/places_response.dart';
 import 'package:waze_kibris/core/widgets/buttons/app_button.dart';
-import 'package:waze_kibris/app/dashboard/view/map_controller_mixin.dart';
 
 class MainDashboard extends StatefulWidget {
   const MainDashboard({super.key});
@@ -65,6 +59,10 @@ class _MainDashboardState extends State<MainDashboard>
   }
 
   void _startNavigation(DirectionsRoute route) {
+    // Update map for navigation mode FIRST
+    updateMapForNavigationMode(true);
+
+    // Start navigation
     _navigationBloc.add(NavigationStarted(route: route));
     setIsFollowingUser(true);
 
@@ -77,9 +75,6 @@ class _MainDashboardState extends State<MainDashboard>
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOut,
     );
-
-    // Update map for navigation mode
-    updateMapForNavigationMode(true);
   }
 
   void _endNavigation() {

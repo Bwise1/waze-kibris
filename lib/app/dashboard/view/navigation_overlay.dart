@@ -1,4 +1,5 @@
 // Updated navigation_overlay.dart - Using NavigationUtils
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/view/navigation_utils.dart'; // Import the utils
@@ -25,6 +26,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
   late AnimationController _slideController;
   bool _isMuted = false;
   final Set<String> _announcedSteps = <String>{};
+  Timer? _updateTimer;
 
   @override
   void initState() {
@@ -38,10 +40,20 @@ class _NavigationOverlayState extends State<NavigationOverlay>
       duration: NavigationUtils.maneuverTransitionDuration,
       vsync: this,
     );
+
+    // Start timer for real-time updates every second
+    _updateTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          // Force rebuild to update distance display in real-time
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
+    _updateTimer?.cancel();
     _pulseController.dispose();
     _slideController.dispose();
     super.dispose();
@@ -60,6 +72,14 @@ class _NavigationOverlayState extends State<NavigationOverlay>
 
       // Check if we should announce the new step
       _checkVoiceAnnouncement();
+    }
+
+    // Force rebuild when distance to next maneuver changes
+    if (oldWidget.navigationState.distanceToNextManeuver !=
+        widget.navigationState.distanceToNextManeuver) {
+      setState(() {
+        // Update banner with new distance
+      });
     }
   }
 

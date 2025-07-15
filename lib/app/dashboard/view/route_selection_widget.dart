@@ -44,11 +44,21 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
   }
 
   String _formatDistance(int distanceMeters) {
-    final km = distanceMeters / 1000;
-    if (km < 10) {
-      return '${km.toStringAsFixed(1)}km';
+    if (distanceMeters < 1000) {
+      // Show in meters for distances under 1km
+      return '${distanceMeters}m';
     } else {
-      return '${km.round()}km';
+      final km = distanceMeters / 1000;
+      if (km < 10) {
+        // Show one decimal place for distances under 10km
+        return '${km.toStringAsFixed(1)} km';
+      } else if (km < 100) {
+        // Show one decimal place for distances under 100km
+        return '${km.toStringAsFixed(1)} km';
+      } else {
+        // Round to nearest km for longer distances
+        return '${km.round()} km';
+      }
     }
   }
 
@@ -73,6 +83,31 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
               ),
             ),
 
+            // Header with route options info
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: Row(
+                children: [
+                  Text(
+                    'Route Options',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  Spacer(),
+                  Text(
+                    'Driving distance',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
             // Routes list
             Flexible(
               child: ListView.builder(
@@ -88,6 +123,7 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                       setState(() {
                         _selectedRoute = route;
                       });
+                      // Always call onRouteSelected to update polyline immediately
                       widget.onRouteSelected(route);
                     },
                     child: Container(
@@ -126,7 +162,7 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                                   children: [
                                     Text(
                                       _formatDuration(
-                                          route.legs.first.duration.value),
+                                          route.legs.first.duration?.value ?? 0),
                                       style: TextStyle(
                                         color: isSelected
                                             ? Colors.red
@@ -138,7 +174,7 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                                     const Spacer(),
                                     Text(
                                       _formatDistance(
-                                          route.legs.first.distance.value),
+                                          route.legs.first.distance?.value ?? 0),
                                       style: const TextStyle(
                                         color: Colors.black54,
                                         fontWeight: FontWeight.bold,

@@ -43,7 +43,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     });
   }
 
-  void   onMapCreated(mp.MapboxMap controller) {
+  void onMapCreated(mp.MapboxMap controller) {
     setState(() {
       _mapboxMapController = controller;
     });
@@ -94,7 +94,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     final locationPuckBytes = await _loadLocationPuckImage();
 
     if (isNavigating) {
-      // Navigation mode: enhanced location tracking like Waze
+      // Navigation mode: enhanced location tracking like Waze with larger, more visible icon
       await _mapboxMapController?.location.updateSettings(
         mp.LocationComponentSettings(
           enabled: true,
@@ -108,7 +108,13 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
                 ['linear'],
                 ['zoom'],
                 10.0,
-                0.6,
+                1.0,
+                14.0,
+                1.0,
+                16.0,
+                1.0,
+                18.0,
+                1.0,
                 20.0,
                 1.0
               ]),
@@ -120,7 +126,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         ),
       );
     } else {
-      // Normal mode: standard location display
+      // Normal mode: smaller, standard location display
       await _mapboxMapController?.location.updateSettings(
         mp.LocationComponentSettings(
           enabled: true,
@@ -133,14 +139,20 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
                 ['linear'],
                 ['zoom'],
                 10.0,
-                0.6,
+                1.0,
+                14.0,
+                1.0,
+                16.0,
+                1.0,
+                18.0,
+                1.0,
                 20.0,
                 1.0
               ]),
             ),
           ),
-          pulsingColor: 0xFFFF0000,
-          pulsingEnabled: true,
+          pulsingColor: 0xFF4285F4, // Blue for normal mode
+          pulsingEnabled: false, // No pulsing in normal mode
           showAccuracyRing: true,
         ),
       );
@@ -168,18 +180,38 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _currentPolylineEncodedString = encodedPolyline;
     _currentPolylinePoints = decodedPoints;
 
-    final List<mp.Position> geometry =
-        decodedPoints.map((p) => mp.Position(p.longitude, p.latitude)).toList();
+    // Apply Waze-style smoothing to the polyline points
+    final smoothedPoints = _smoothPolylinePoints(decodedPoints);
+
+    final List<mp.Position> geometry = smoothedPoints
+        .map((p) => mp.Position(p.longitude, p.latitude))
+        .toList();
 
     // Get adaptive line width based on current zoom level
     final adaptiveWidth = await _getAdaptiveLineWidth();
 
+    // Create main route polyline with Waze-style properties
     await polylineAnnotationManager!.create(
       mp.PolylineAnnotationOptions(
         geometry: mp.LineString(coordinates: geometry),
-        lineColor: 0xFFFF0000, // Project's primary red color
+        lineColor: 0xFFFF0000, // Keep original red color
         lineWidth: adaptiveWidth,
-        lineOpacity: 0.8,
+        lineOpacity: 0.9, // Higher opacity for better visibility
+        lineJoin: mp.LineJoin.ROUND, // Smooth rounded joins at turns
+        // lineCap: mp.LineCap.ROUND,   // Rounded end caps
+        lineBlur: 0.5, // Subtle blur for smoother appearance
+      ),
+    );
+
+    // Add route border/outline for better road definition (like Waze)
+    await polylineAnnotationManager!.create(
+      mp.PolylineAnnotationOptions(
+        geometry: mp.LineString(coordinates: geometry),
+        lineColor: 0xFFCC0000, // Darker red border
+        lineWidth: adaptiveWidth + 2.0, // Slightly wider for border effect
+        lineOpacity: 0.6,
+        lineJoin: mp.LineJoin.ROUND,
+        //  lineCap: mp.LineCap.ROUND,
       ),
     );
 
@@ -188,6 +220,54 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     // Fit camera to route bounds
     await _fitCameraToRoute(decodedPoints);
+  }
+
+  /// Smooth polyline points for better curve representation (Waze-style)
+  List<PointLatLng> _smoothPolylinePoints(List<PointLatLng> points) {
+    if (points.length < 3) return points;
+
+    List<PointLatLng> smoothed = [];
+    smoothed.add(points.first); // Keep first point
+
+    for (int i = 1; i < points.length - 1; i++) {
+      final prev = points[i - 1];
+      final current = points[i];
+      final next = points[i + 1];
+
+      // Calculate distances
+      final distToPrev = _calculateDistance(prev, current);
+      final distToNext = _calculateDistance(current, next);
+
+      // Only smooth if points are close enough (avoid smoothing long straight segments)
+      if (distToPrev < 100 && distToNext < 100) {
+        // Apply gentle smoothing factor
+        const smoothingFactor = 0.15;
+
+        final smoothedLat = current.latitude +
+            smoothingFactor *
+                ((prev.latitude + next.latitude) / 2 - current.latitude);
+        final smoothedLng = current.longitude +
+            smoothingFactor *
+                ((prev.longitude + next.longitude) / 2 - current.longitude);
+
+        smoothed.add(PointLatLng(smoothedLat, smoothedLng));
+      } else {
+        smoothed.add(current); // Keep original point for long segments
+      }
+    }
+
+    smoothed.add(points.last); // Keep last point
+    return smoothed;
+  }
+
+  /// Calculate distance between two points in meters
+  double _calculateDistance(PointLatLng point1, PointLatLng point2) {
+    return Geolocator.distanceBetween(
+      point1.latitude,
+      point1.longitude,
+      point2.latitude,
+      point2.longitude,
+    );
   }
 
   Future<void> _addRouteMarkers(List<PointLatLng> points) async {
@@ -201,7 +281,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           points.first.longitude,
           points.first.latitude,
         )),
-        iconSize: 0.8,
+        iconSize: 1.0, // 32px - optimal visibility for start marker
       ),
     );
 
@@ -213,7 +293,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           points.last.longitude,
           points.last.latitude,
         )),
-        iconSize: 0.8,
+        iconSize: 1.2, // 36px - slightly larger for destination emphasis
       ),
     );
   }
@@ -227,9 +307,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _currentPolylinePoints = null;
   }
 
-  /// Calculate adaptive line width based on zoom level (Waze-style)
+  /// Calculate adaptive line width based on zoom level (Waze-style with limits)
   Future<double> _getAdaptiveLineWidth() async {
-    if (_mapboxMapController == null) return 6.0;
+    if (_mapboxMapController == null) return 8.0;
 
     try {
       final cameraState = await _mapboxMapController!.getCameraState();
@@ -237,34 +317,49 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       final currentState = navigationBloc.state;
       final isNavigating = currentState is NavigationInProgress;
 
-      // Waze-style adaptive width calculation
+      // Waze-style adaptive width with realistic road width limits
       double baseWidth;
 
-      if (zoom >= 18) {
-        // Very close zoom - thick lines like city streets
-        baseWidth = isNavigating ? 12.0 : 10.0;
+      if (zoom >= 19) {
+        // Maximum detail - fill most of road width but not excessive
+        baseWidth = isNavigating ? 16.0 : 12.0;
+      } else if (zoom >= 18) {
+        // Very close zoom - prominent but controlled
+        baseWidth = isNavigating ? 14.0 : 10.0;
+      } else if (zoom >= 17) {
+        // Close zoom - good visibility
+        baseWidth = isNavigating ? 12.0 : 8.0;
       } else if (zoom >= 16) {
-        // Close zoom - medium thick lines
-        baseWidth = isNavigating ? 10.0 : 8.0;
-      } else if (zoom >= 14) {
-        // Medium zoom - standard width
+        // Medium-close zoom - standard navigation width
+        baseWidth = isNavigating ? 10.0 : 7.0;
+      } else if (zoom >= 15) {
+        // Medium zoom - balanced
         baseWidth = isNavigating ? 8.0 : 6.0;
-      } else if (zoom >= 12) {
-        // Far zoom - thinner lines
+      } else if (zoom >= 14) {
+        // Medium-far zoom - visible but not dominant
         baseWidth = isNavigating ? 6.0 : 4.0;
-      } else if (zoom >= 10) {
-        // Very far zoom - thin lines
+      } else if (zoom >= 12) {
+        // Far zoom - much thinner
         baseWidth = isNavigating ? 4.0 : 3.0;
-      } else {
-        // Country/state level - very thin
+      } else if (zoom >= 10) {
+        // Very far zoom - very thin
         baseWidth = isNavigating ? 3.0 : 2.0;
+      } else if (zoom >= 8) {
+        // Overview level - minimal thickness
+        baseWidth = isNavigating ? 2.0 : 1.5;
+      } else {
+        // Maximum zoom out - extremely thin
+        baseWidth = isNavigating ? 1.5 : 1.0;
       }
 
-      return baseWidth;
+      // Apply maximum width limit to prevent overly thick lines
+      const double maxWidth = 18.0; // Prevents polyline from being too wide
+      const double minWidth = 1.0; // Allows very thin lines when zoomed out
+
+      return baseWidth.clamp(minWidth, maxWidth);
     } catch (e) {
       debugPrint('Error getting camera state for adaptive width: $e');
-      // Fallback to default width
-      return 6.0;
+      return 8.0; // Better default fallback
     }
   }
 
@@ -328,7 +423,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10, // Increased from 5 to reduce frequent updates
+      distanceFilter: 3, // More frequent updates for real-time banner updates
     );
 
     _userPositionStream?.cancel();
@@ -392,12 +487,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         position.latitude,
         position.longitude,
       );
-      if (distance < 8.0) return; // Skip minor movements
+      if (distance < 3.0) return; // Reduced threshold for more frequent updates
     }
 
     // Debounce camera updates to prevent excessive calls
     _cameraUpdateTimer?.cancel();
-    _cameraUpdateTimer = Timer(const Duration(milliseconds: 500), () {
+    _cameraUpdateTimer = Timer(const Duration(milliseconds: 300), () {
       _actuallyUpdateCamera(position);
     });
   }
@@ -483,26 +578,45 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       // Calculate new width
       final newWidth = await _getAdaptiveLineWidth();
 
-      // Clear existing polylines (but keep the stored data)
-      await polylineAnnotationManager!.deleteAll();
-      await pointAnnotationManager?.deleteAll();
+      // Only update if we have polyline data stored
+      if (_currentPolylinePoints != null &&
+          _currentPolylinePoints!.isNotEmpty) {
+        // Clear existing polylines quickly
+        await polylineAnnotationManager!.deleteAll();
 
-      // Recreate polyline with new width
-      final List<mp.Position> geometry = _currentPolylinePoints!
-          .map((p) => mp.Position(p.longitude, p.latitude))
-          .toList();
+        // Apply smoothing to stored points
+        final smoothedPoints = _smoothPolylinePoints(_currentPolylinePoints!);
+        final List<mp.Position> geometry = smoothedPoints
+            .map((p) => mp.Position(p.longitude, p.latitude))
+            .toList();
 
-      await polylineAnnotationManager!.create(
-        mp.PolylineAnnotationOptions(
-          geometry: mp.LineString(coordinates: geometry),
-          lineColor: 0xFFFF0000, // Project's primary red color
-          lineWidth: newWidth,
-          lineOpacity: 0.8,
-        ),
-      );
+        // Recreate main polyline with new width
+        await polylineAnnotationManager!.create(
+          mp.PolylineAnnotationOptions(
+            geometry: mp.LineString(coordinates: geometry),
+            lineColor: 0xFFFF0000, // Keep original red color
+            lineWidth: newWidth,
+            lineOpacity: 0.9,
+            lineJoin: mp.LineJoin.ROUND,
+            // lineCap: mp.LineCap.ROUND,
+            lineBlur: 0.5,
+          ),
+        );
 
-      // Recreate route markers
-      await _addRouteMarkers(_currentPolylinePoints!);
+        // Recreate border polyline with new width
+        await polylineAnnotationManager!.create(
+          mp.PolylineAnnotationOptions(
+            geometry: mp.LineString(coordinates: geometry),
+            lineColor: 0xFFCC0000, // Darker red border
+            lineWidth: newWidth + 2.0,
+            lineOpacity: 0.6,
+            lineJoin: mp.LineJoin.ROUND,
+            // lineCap: mp.LineCap.ROUND,
+          ),
+        );
+
+        // Note: Skip recreating markers during width updates to reduce flicker
+      }
     } catch (e) {
       debugPrint('Error updating polyline width: $e');
     }

@@ -136,37 +136,67 @@ class _MapSheetState extends State<MapSheet> {
         onSeeAllRoutes: () async {
           final position = await Geolocator.getCurrentPosition();
 
-          final directions = await _placesService.fetchGoogleDirections(
-            originLat: position.latitude,
-            originLng: position.longitude,
-            destinationPlaceId: details.placeId,
-          );
+          try {
+            final directions = await _placesService.fetchGoogleDirections(
+              originLat: position.latitude,
+              originLng: position.longitude,
+              destinationPlaceId: details.placeId,
+            );
 
-          Navigator.of(contxt).pop();
-          debugPrint('Directions fetched: ${directions.routes.length} routes');
-          if (directions.routes.isNotEmpty) {
-            final String encodedPolyline =
-                directions.routes.first.overviewPolyline.points;
+            Navigator.of(contxt).pop();
+            debugPrint('Directions fetched: ${directions.routes.length} routes');
+            
+            if (directions.routes.isNotEmpty) {
+              // Draw the first route by default
+              final String encodedPolyline =
+                  directions.routes.first.overviewPolyline.points;
 
-            widget.onDrawPolyline?.call(encodedPolyline);
-          }
+              widget.onDrawPolyline?.call(encodedPolyline);
 
-          await showModalBottomSheet(
-            context: widget.context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (modalContext) => RouteSelectionSheet(
-              routes: directions.routes,
-              onRouteSelected: (selectedRoute) {
-                widget.onDrawPolyline?.call(
-                  selectedRoute.overviewPolyline.points,
+              // Show route selection with consistent distance display
+              await showModalBottomSheet(
+                context: widget.context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (modalContext) => RouteSelectionSheet(
+                  routes: directions.routes,
+                  onRouteSelected: (selectedRoute) {
+                    // Always redraw polyline when route is selected
+                    widget.onDrawPolyline?.call(
+                      selectedRoute.overviewPolyline.points,
+                    );
+                  },
+                  onStartNavigation: (selectedRoute) {
+                    // Ensure polyline is drawn before starting navigation
+                    widget.onDrawPolyline?.call(
+                      selectedRoute.overviewPolyline.points,
+                    );
+                    widget.onStartNavigation?.call(selectedRoute);
+                  },
+                ),
+              );
+            } else {
+              // Show error if no routes found
+              if (widget.context.mounted) {
+                ScaffoldMessenger.of(widget.context).showSnackBar(
+                  const SnackBar(
+                    content: Text('No routes found to this destination'),
+                    backgroundColor: Colors.red,
+                  ),
                 );
-              },
-              onStartNavigation: (selectedRoute) {
-                widget.onStartNavigation?.call(selectedRoute);
-              },
-            ),
-          );
+              }
+            }
+          } catch (e) {
+            debugPrint('Error fetching directions: $e');
+            if (widget.context.mounted) {
+              ScaffoldMessenger.of(widget.context).showSnackBar(
+                const SnackBar(
+                  content: Text('Unable to find routes. Please try again.'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
         },
         info: details.website,
       ),

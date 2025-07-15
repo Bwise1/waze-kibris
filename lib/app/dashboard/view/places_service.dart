@@ -274,8 +274,7 @@ class PlacesService {
               placeId: item['place_id']?.toString() ?? '',
               mainText: formatting['main_text']?.toString() ?? '',
               secondaryText: formatting['secondary_text']?.toString() ?? '',
-              distanceMeters:
-                  metersToKm(_parseDistanceMeters(item['distance_meters'])),
+              distanceMeters: _parseDistanceMeters(item['distance_meters']).toDouble(),
             );
           }).toList();
         } else {

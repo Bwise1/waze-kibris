@@ -122,9 +122,9 @@ class PlaceDetailsSheet extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${distanceKm.toStringAsFixed(1)} km',
+                  '${distanceKm.toStringAsFixed(1)} km away',
                   style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 16),
+                      fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black54),
                 ),
               ],
             ),
