@@ -104,8 +104,8 @@ class _MapSheetState extends State<MapSheet> {
       );
     });
 
-
     final details = await _placesService.fetchGooglePlace(suggestion.placeId);
+
     if (!widget.context.mounted) return;
 
     await showModalBottomSheet(
@@ -118,6 +118,9 @@ class _MapSheetState extends State<MapSheet> {
         address: details.formattedAddress,
         distanceKm: suggestion.distanceMeters / 1000,
         onSave: () async {
+          // debugPrint(suggestion.placeId);
+          // debugPrint("${details.placeId}...................."); ////
+          // print("......................object");
           await showModalBottomSheet(
             context: widget.context,
             isScrollControlled: true,
@@ -126,7 +129,7 @@ class _MapSheetState extends State<MapSheet> {
               position: LatLng(details.lat, details.lng),
             ),
           );
-        },
+        }, //
         onShare: () {
           Navigator.of(contxt).pop();
         },
@@ -317,7 +320,6 @@ class _MapSheetState extends State<MapSheet> {
                                       child: SearchSuggestionList(
                                         suggestions: _suggestions,
                                         onTap: (suggestion) {
-
                                           _onSuggestionTap(suggestion);
                                           debugPrint(
                                               'Suggestion tapped: ${suggestion.placeId}');
