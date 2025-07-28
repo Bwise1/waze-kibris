@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:waze_kibris/common.dart';
@@ -26,6 +28,7 @@ abstract class ReportRepository {
     String locationName,
     double lat,
     double lng,
+    String placeId,
   );
 }
 
@@ -93,7 +96,8 @@ class ReportRepositoryImpl implements ReportRepository {
           },
         ),
       );
-      debugPrint(response.data.toString());
+      // debugPrint(response.data.toString());
+      log("${response.data.toString()},,,,,,,,,,,,,,,,,,,,,,,,,,,,,,");
 
       return GetSavedLocationsResponse.fromJson(response.data!);
     } on DioException catch (e) {
@@ -127,7 +131,7 @@ class ReportRepositoryImpl implements ReportRepository {
 
   @override
   Future<SaveLocationResponse> saveLocation(
-      String locationName, double lat, double lng) async {
+      String locationName, double lat, double lng, String placeId) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         '/saved-locations',
@@ -137,7 +141,12 @@ class ReportRepositoryImpl implements ReportRepository {
                 'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
           },
         ),
-        data: {"name": locationName, "latitude": lat, "longitude": lng},
+        data: {
+          'name': locationName,
+          'latitude': lat,
+          'longitude': lng,
+          'place_id': placeId,
+        },
       );
       debugPrint(response.data.toString());
       return SaveLocationResponse.fromJson(response.data!);

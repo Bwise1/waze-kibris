@@ -193,7 +193,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
     try {
       emit(const SaveLocationLoading());
       final response = await _reportRepository.getSavedLocations();
-      debugPrint(response.data.toString());
+      debugPrint("${response.data.toString()}=====================");
       if (response.statusCode == 404) {
         emit(const ReportError(message: 'no saved location available.'));
 
@@ -226,11 +226,14 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
     try {
       emit(const SaveLocationLoading());
       final response = await _reportRepository.saveLocation(
-          event.locationName, event.lat, event.lng);
+          event.locationName, event.lat, event.lng, event.placeId);
       if (response.statusCode == 404) {
         emit(const ReportError(message: 'Could not save location'));
         return;
       }
+
+      // add(AuthEvent.getProfileRequested());
+      add(ReportsEvent.getSavedLocations());
 
       ///successfully save location
       emit(
