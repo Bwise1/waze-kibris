@@ -112,7 +112,7 @@ class ProfileMainScreen extends StatelessWidget {
                       ),
                       ProfileActionItemButton(
                         onPressed: () {},
-                        icon: Assets.icons.plus,
+                        icon: Assets.icons.plusSvg,
                         title: 'Add new location',
                         semanticLabel: 'add-action-btn',
                       ),
@@ -226,7 +226,8 @@ class ProfileActionItemButton extends StatelessWidget {
     this.subTitle = '',
     this.trailing,
     this.titleStyle,
-    this.titleColor,  this.isImageFile=false,
+    this.titleColor,
+    this.isImageFile = false,
   });
   final String icon;
   final String title;
@@ -247,17 +248,24 @@ class ProfileActionItemButton extends StatelessWidget {
         children: [
           Row(
             children: [
-
-              isImageFile==true?SizedBox(height:30,width: 30,child: Image.asset(icon) ,):
-              AppIcon(
-                icon,
-                size: 20,
-                color: styles.theme.grey,
-              ),
+              if (isImageFile == true)
+                SizedBox(
+                  height: 25,
+                  width: 25,
+                  child: Image.asset(icon),
+                )
+              else
+                AppIcon(
+                  icon,
+                  size: 20,
+                  color: styles.theme.grey,
+                ),
               const Gap(16),
               Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const Gap(3),
                   Text(
                     title,
                     style: titleStyle ??

@@ -247,6 +247,7 @@ class GetSavedLocationsResponse extends Equatable {
 @JsonSerializable()
 class SavedLocations extends Equatable {
   const SavedLocations({
+    this.placeId,
     required this.id,
     required this.name,
     required this.address,
@@ -258,12 +259,13 @@ class SavedLocations extends Equatable {
       _$SavedLocationsFromJson(json);
 
   final int id;
-
+  @JsonKey(name: 'place_id')
+  final String? placeId;
   final String name;
-  final String address;
+  final String? address;
   final double latitude;
   final double longitude;
-
+//
   Map<String, dynamic> toJson() => _$SavedLocationsToJson(this);
 
   @override
@@ -271,6 +273,6 @@ class SavedLocations extends Equatable {
         name,
         address,
         longitude,
-        latitude,
+        latitude,placeId,
       ];
 }

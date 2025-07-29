@@ -96,8 +96,11 @@ class $AssetsIconsGen {
   /// File path: assets/icons/gas_bg.png
   AssetGenImage get gasBg => const AssetGenImage('assets/icons/gas_bg.png');
 
+  /// File path: assets/icons/globe.png
+  AssetGenImage get globePng => const AssetGenImage('assets/icons/globe.png');
+
   /// File path: assets/icons/globe.svg
-  String get globe => 'assets/icons/globe.svg';
+  String get globeSvg => 'assets/icons/globe.svg';
 
   /// File path: assets/icons/google-assistant.png
   AssetGenImage get googleAssistant =>
@@ -171,8 +174,11 @@ class $AssetsIconsGen {
   /// File path: assets/icons/person.svg
   String get person => 'assets/icons/person.svg';
 
+  /// File path: assets/icons/plus.png
+  AssetGenImage get plusPng => const AssetGenImage('assets/icons/plus.png');
+
   /// File path: assets/icons/plus.svg
-  String get plus => 'assets/icons/plus.svg';
+  String get plusSvg => 'assets/icons/plus.svg';
 
   /// File path: assets/icons/point_marker.png
   AssetGenImage get pointMarker =>
@@ -270,7 +276,8 @@ class $AssetsIconsGen {
         foodBg,
         gas,
         gasBg,
-        globe,
+        globePng,
+        globeSvg,
         googleAssistant,
         google,
         homeLineRegular,
@@ -293,7 +300,8 @@ class $AssetsIconsGen {
         park,
         parkBg,
         person,
-        plus,
+        plusPng,
+        plusSvg,
         pointMarker,
         policeCar,
         police,

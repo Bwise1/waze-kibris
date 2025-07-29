@@ -95,7 +95,7 @@ class _HomeBottomNavState extends State<HomeBottomNav> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   AppIcon(
-                    Assets.icons.globe,
+                    Assets.icons.globeSvg,
                     // : Assets.icons.homeLineRegular,
                     color:
                         index == 1 ? styles.theme.primary : styles.theme.grey,

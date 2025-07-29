@@ -155,9 +155,10 @@ Map<String, dynamic> _$GetSavedLocationsResponseToJson(
 
 SavedLocations _$SavedLocationsFromJson(Map<String, dynamic> json) =>
     SavedLocations(
+      placeId: json['place_id'] as String?,
       id: (json['id'] as num).toInt(),
       name: json['name'] as String,
-      address: json['address'] as String,
+      address: json['address'] as String?,
       latitude: (json['latitude'] as num).toDouble(),
       longitude: (json['longitude'] as num).toDouble(),
     );
@@ -165,6 +166,7 @@ SavedLocations _$SavedLocationsFromJson(Map<String, dynamic> json) =>
 Map<String, dynamic> _$SavedLocationsToJson(SavedLocations instance) =>
     <String, dynamic>{
       'id': instance.id,
+      'place_id': instance.placeId,
       'name': instance.name,
       'address': instance.address,
       'latitude': instance.latitude,

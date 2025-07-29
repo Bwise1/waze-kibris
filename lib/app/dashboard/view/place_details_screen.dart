@@ -79,6 +79,7 @@ class PlaceDetailsSheet extends StatelessWidget {
     this.info,
     this.isLoading = false,
     super.key,
+    this.showOnlySaveShareAction = false,
   });
   final String title;
   final String address;
@@ -89,6 +90,7 @@ class PlaceDetailsSheet extends StatelessWidget {
   final VoidCallback onSeeAllRoutes;
   final String? info;
   final bool isLoading;
+  final bool showOnlySaveShareAction;
 
   @override
   Widget build(BuildContext context) {
@@ -144,7 +146,7 @@ class PlaceDetailsSheet extends StatelessWidget {
                 _actionButton(Icons.more_horiz, "More", onMore),
               ],
             ),
-            if (info != null) ...[
+            if (info != null && showOnlySaveShareAction == false) ...[
               const SizedBox(height: 16),
               Container(
                 padding:
@@ -167,35 +169,37 @@ class PlaceDetailsSheet extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(32),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                onPressed: onSeeAllRoutes,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text(
-                      "See all routes",
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            if (showOnlySaveShareAction == false) ...[
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(32),
                     ),
-                    if (isLoading) ...[
-                      Gap(20),
-                      const CustomLoader(
-                        type: LoaderType.spinner,
-                      )
-                    ]
-                  ],
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  onPressed: onSeeAllRoutes,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        "See all routes",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 18),
+                      ),
+                      if (isLoading) ...[
+                        Gap(20),
+                        const CustomLoader(
+                          type: LoaderType.spinner,
+                        )
+                      ]
+                    ],
+                  ),
                 ),
-              ),
-            ),
+              )
+            ],
           ],
         ),
       ),
