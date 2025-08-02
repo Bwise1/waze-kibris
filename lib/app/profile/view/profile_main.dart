@@ -99,7 +99,7 @@ class ProfileMainScreen extends StatelessWidget {
                         ),
                       ),
                       ProfileActionItemButton(
-                        icon: Assets.icons.briefcase,
+                        icon: Assets.icons.briefcaseSvg,
                         title: 'Office',
                         subTitle: 'Address',
                         semanticLabel: 'office-action-btn',

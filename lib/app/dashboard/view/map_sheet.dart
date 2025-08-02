@@ -714,7 +714,7 @@ height: 50,width: context.widthPx,
 
                                           return ProfileActionItemButton(
                                             onPressed: () {},
-                                            icon: Assets.icons.briefcase,
+                                            icon: Assets.icons.briefcaseSvg,
                                             title: 'Work',
                                             subTitle: 'wrkAddress',
                                             semanticLabel: 'add-work-btn',
@@ -777,6 +777,23 @@ height: 50,width: context.widthPx,
                                       children: [
                                         ProfileActionItemButton(
                                           onPressed: () async {
+
+                                            // await showModalBottomSheet(
+                                            //   context: widget.context,
+                                            //   isScrollControlled: true,
+                                            //   backgroundColor:
+                                            //   Colors.transparent,
+                                            //   builder: (modalContext) =>
+                                            //       SelectAndSaveLocation(
+                                            //         position: LatLng(
+                                            //           6.0576611,
+                                            //           5.5200967,
+                                            //         ),
+                                            //         placeId:
+                                            //         'ChIJz2rkqFq9QRARJcRyisb-OQs',
+                                            //       ),
+                                            // );
+
                                             setState(() {
                                               getLocationLoading = true;
                                             });
@@ -876,7 +893,7 @@ height: 50,width: context.widthPx,
                                       ),
                                     ),
                                     ProfileActionItemButton(
-                                      icon: Assets.icons.briefcase,
+                                      icon: Assets.icons.briefcaseSvg,
                                       title: 'Recent Place 2',
                                       subTitle: 'Address',
                                       semanticLabel: 'recent-2-btn',
@@ -892,7 +909,7 @@ height: 50,width: context.widthPx,
 
 
 
-                        ]
+                        ],
                       ),
                     ),
                   );
@@ -982,9 +999,9 @@ height: 50,width: context.widthPx,
     if (type == 'Food') {
       return Assets.icons.food.path;
     }if (type == 'Work') {
-      return Assets.icons.mylpin.path;
+      return Assets.icons.briefcasePng.path;
     } else {
-      return Assets.icons.mylpin.path;
+      return Assets.icons.globePng.path;
     }
   }
 }
@@ -1126,8 +1143,7 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
           child: BlocConsumer<ReportsBloc, ReportState>(
             listener: (blocContext, state) {
               if (state is SaveLocationSuccess) {
-                // print(".......................");
-                RSnackBar.success(
+                 RSnackBar.success(
                   'Location has been saved successfully.',
                 ).show(context);
                 Navigator.of(context).pop();
@@ -1140,7 +1156,7 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                   children: [
                     const Gap(40),
                     Text(
-                      'Select appropriate location Name',
+                      (selectTypeOfName==true)? 'Enter a preferred name' : 'Select location name',
                       style: styles.typography.h3.textColor(styles.theme.text),
                     ),
                     const Gap(20),
@@ -1154,21 +1170,14 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                           const Gap(30),
                           ///for home  since there must be just one home saved
                           if (state is GetSavedLocationsSuccess &&
-                              state.data.isNotEmpty && confirmAddedLocation(state.data,locationType: 'Home'))...[
+                              state.data.isNotEmpty && confirmAddedLocation(state.data,locationType: 'Home')==false)...[
                           LocationItem(
                             key: UniqueKey(),
                             onSelect: () {
                               setState(() {
                                 locationName = 'Home';
                               });
-                              // WidgetsBinding
-                              //     .instance
-                              //     .addPostFrameCallback(
-                              //         (_) {
-                              //   Navigator.of(
-                              //           context)
-                              //       .pop();
-                              // });
+
                             },
                             image: Assets.icons.homeBg
                                 .image(width: 35, height: 35),
@@ -1179,7 +1188,7 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
 
                           ///for work als  since there must be just one work saved
                           if (state is GetSavedLocationsSuccess &&
-                              state.data.isNotEmpty && confirmAddedLocation(state.data,locationType: 'Work'))...[
+                              state.data.isNotEmpty && confirmAddedLocation(state.data,locationType: 'Work')==false)...[
                           LocationItem(
                             key: UniqueKey(),
                             onSelect: () {
@@ -1262,7 +1271,7 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                               image: Assets.icons.plusPng
                                   .image(width: 35, height: 35),
                               bgImagePath: Assets.icons.plusPng.path,
-                              locationName: 'Add More',
+                              locationName: 'Add new',
                               isSelected:
                                    false,
                           ),
@@ -1330,7 +1339,8 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                       },
                       text: 'Save',
                     ),
-                  ]);
+                     Gap((selectTypeOfName==true)?context.heightPx*0.2:5),
+                  ],);
             },
           ),
         ),
@@ -1581,7 +1591,7 @@ bool confirmAddedLocation(List<SavedLocations> locations,
   final savedHome = <SavedLocations>[];
   var containsLocationType=false;
   for (final e in locations) {
-    if (e.name == locationType && e.placeId!=null&& savedHome.isEmpty) {
+    if (e.name.toLowerCase() == locationType.toLowerCase() && e.placeId!=null&& savedHome.isEmpty) {
       savedHome.add(e);
       containsLocationType=true;
     }

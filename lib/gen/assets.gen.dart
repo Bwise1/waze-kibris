@@ -51,8 +51,12 @@ class $AssetsIconsGen {
   /// File path: assets/icons/bin.svg
   String get bin => 'assets/icons/bin.svg';
 
+  /// File path: assets/icons/briefcase.png
+  AssetGenImage get briefcasePng =>
+      const AssetGenImage('assets/icons/briefcase.png');
+
   /// File path: assets/icons/briefcase.svg
-  String get briefcase => 'assets/icons/briefcase.svg';
+  String get briefcaseSvg => 'assets/icons/briefcase.svg';
 
   /// File path: assets/icons/cars_warning.png
   AssetGenImage get carsWarning =>
@@ -80,6 +84,10 @@ class $AssetsIconsGen {
 
   /// File path: assets/icons/coordinate.svg
   String get coordinate => 'assets/icons/coordinate.svg';
+
+  /// File path: assets/icons/destination.png
+  AssetGenImage get destination =>
+      const AssetGenImage('assets/icons/destination.png');
 
   /// File path: assets/icons/flag_marker.svg
   String get flagMarker => 'assets/icons/flag_marker.svg';
@@ -194,6 +202,9 @@ class $AssetsIconsGen {
   /// File path: assets/icons/profile.svg
   String get profile => 'assets/icons/profile.svg';
 
+  /// File path: assets/icons/recent_places.svg
+  String get recentPlaces => 'assets/icons/recent_places.svg';
+
   /// File path: assets/icons/route_logo.svg
   String get routeLogo => 'assets/icons/route_logo.svg';
 
@@ -262,7 +273,8 @@ class $AssetsIconsGen {
         backArrow,
         barrier,
         bin,
-        briefcase,
+        briefcasePng,
+        briefcaseSvg,
         carsWarning,
         cctv,
         chat,
@@ -271,6 +283,7 @@ class $AssetsIconsGen {
         circleTwo,
         close,
         coordinate,
+        destination,
         flagMarker,
         food,
         foodBg,
@@ -306,6 +319,7 @@ class $AssetsIconsGen {
         policeCar,
         police,
         profile,
+        recentPlaces,
         routeLogo,
         routeLogoText,
         searchGlass,
