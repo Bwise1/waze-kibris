@@ -7,21 +7,30 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart'
 
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
+import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart'; // For AutocompleteSuggestion
+import 'package:waze_kibris/core/res/store_keys.dart';
+import 'package:waze_kibris/core/services/local_storage.dart';
 
 class PlacesService {
   static const String backendBaseUrl = 'https://waze-api.benjys.me';
   final Dio _dio = Dio();
+  final ILocalStorage _store;
+
+  PlacesService(this._store);
+
+  Map<String, String> get _authHeaders => {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
+        'X-Request-Source': 'flutter-app',
+      };
 
   Future<List<AutocompleteSuggestion>> fetchSuggestions(String query) async {
     try {
       final response = await _dio.get(
         '$backendBaseUrl/places/autocomplete',
         queryParameters: {'text': query},
-        options: Options(headers: {
-          'Content-Type': 'application/json',
-          'X-Request-Source': 'postman',
-        }),
+        options: Options(headers: _authHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -117,10 +126,7 @@ class PlacesService {
       final response = await _dio.get(
         '$backendBaseUrl/places/placedetails',
         queryParameters: {'gid': gid},
-        options: Options(headers: {
-          'Content-Type': 'application/json',
-          'X-Request-Source': 'flutter-app',
-        }),
+        options: Options(headers: _authHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -181,15 +187,10 @@ class PlacesService {
     };
 
     try {
-      final response = await Dio().post(
+      final response = await _dio.post(
         backendUrl,
         data: payload,
-        options: Options(
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Request-Source': 'postman',
-          },
-        ),
+        options: Options(headers: _authHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -231,10 +232,7 @@ class PlacesService {
       final response = await _dio.get(
         '$backendBaseUrl/places/googleautocomplete',
         queryParameters: params,
-        options: Options(headers: {
-          'Content-Type': 'application/json',
-          'X-Request-Source': 'flutter-app',
-        }),
+        options: Options(headers: _authHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -307,10 +305,7 @@ class PlacesService {
       final response = await _dio.get(
         '$backendBaseUrl/places/googleplacedetails',
         queryParameters: {'place_id': placeId},
-        options: Options(headers: {
-          'Content-Type': 'application/json',
-          'X-Request-Source': 'flutter-app',
-        }),
+        options: Options(headers: _authHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -347,10 +342,7 @@ class PlacesService {
           // 'origin': '9.1538,7.3220',
           'destination': 'place_id:$destinationPlaceId',
         },
-        options: Options(headers: {
-          'Content-Type': 'application/json',
-          'X-Request-Source': 'flutter-app',
-        }),
+        options: Options(headers: _authHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -367,6 +359,61 @@ class PlacesService {
       throw Exception('Network error: ${e.message}');
     } catch (e) {
       debugPrint('Google Directions parsing error: $e');
+      throw Exception('Parsing error: $e');
+    }
+  }
+
+  Future<MapboxDirectionsResponse> fetchMapboxDirections({
+    required double originLat,
+    required double originLng,
+    required double destinationLat,
+    required double destinationLng,
+    String profile = 'driving-traffic', // driving, walking, cycling, driving-traffic (recommended)
+    List<String>? waypoints, // Optional waypoints in "lat,lng" format
+    bool alternatives = true, // Get alternative routes for selection
+  }) async {
+    final params = <String, String>{
+      'origin': '$originLat,$originLng',
+      'destination': '$destinationLat,$destinationLng',
+    };
+    
+    if (profile.isNotEmpty) {
+      params['profile'] = profile;
+    }
+    
+    // Request alternatives for route selection
+    if (alternatives) {
+      params['alternatives'] = 'true';
+    }
+    
+    // Add waypoints if provided
+    if (waypoints != null && waypoints.isNotEmpty) {
+      for (int i = 0; i < waypoints.length; i++) {
+        params['waypoint'] = waypoints[i];
+      }
+    }
+
+    try {
+      final response = await _dio.get(
+        '$backendBaseUrl/places/mapboxdirections',
+        queryParameters: params,
+        options: Options(headers: _authHeaders),
+      );
+
+      if (response.statusCode == 200) {
+        print('Mapbox Directions response: ${response.data}');
+        final dynamic responseData = response.data;
+        final data = responseData['data'] ?? responseData;
+        return MapboxDirectionsResponse.fromJson(data as Map<String, dynamic>);
+      } else {
+        throw Exception('Mapbox Directions API Error: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      print('Mapbox Directions error: $e');
+      debugPrint('Mapbox Directions Dio error: ${e.response?.data}');
+      throw Exception('Network error: ${e.message}');
+    } catch (e) {
+      debugPrint('Mapbox Directions parsing error: $e');
       throw Exception('Parsing error: $e');
     }
   }

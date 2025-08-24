@@ -18,6 +18,7 @@ import 'package:waze_kibris/core/models/places/places_response.dart';
 import 'package:waze_kibris/core/models/location/recent_location.dart';
 
 import 'package:waze_kibris/core/models/reports/report_response.dart';
+import 'package:waze_kibris/di.dart';
  
 
 class MapSheet extends StatefulWidget {
@@ -51,7 +52,7 @@ class _MapSheetState extends State<MapSheet> {
   bool isSearching = false;
   Timer? _debounceTimer;
   List<AutocompleteSuggestion> stadiaSuggestions = [];
-  final PlacesService _placesService = PlacesService();
+  final PlacesService _placesService = getIt<PlacesService>();
 
   List<SearchSuggestion> _suggestions = [];
   bool getLocationLoading = false;
@@ -1023,7 +1024,7 @@ class _AddALocationBySuggestionSearchState
   List<SearchSuggestion> _suggestions = [];
   final TextEditingController locationController = TextEditingController();
   Timer? _debounceTimer;
-  final PlacesService _placesService = PlacesService();
+  final PlacesService _placesService = getIt<PlacesService>();
   bool isSearching = false;
 
   void _onSearchChanged(String query) {

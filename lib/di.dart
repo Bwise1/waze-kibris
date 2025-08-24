@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:get_it/get_it.dart';
+import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/common.dart';
 
 final getIt = GetIt.instance;
@@ -26,7 +27,8 @@ class DI {
       ..registerLazySingleton<HttpClient>(() => httpClient)
       ..registerLazySingleton<ThirdPartyHttpClient>(() => thirdPartyHttp)
       ..registerLazySingleton<ILocalStorage>(() => localStorage)
-      ..registerLazySingleton<Dio>(() => dio);
+      ..registerLazySingleton<Dio>(() => dio)
+      ..registerLazySingleton<PlacesService>(() => PlacesService(localStorage));
 
     await getIt.allReady();
   }
