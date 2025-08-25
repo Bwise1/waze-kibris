@@ -23,10 +23,6 @@ class $AssetsIconsGen {
   /// File path: assets/icons/Spotify.svg
   String get spotifySvg => 'assets/icons/Spotify.svg';
 
-  /// File path: assets/icons/accident.png
-  AssetGenImage get accident =>
-      const AssetGenImage('assets/icons/accident.png');
-
   /// File path: assets/icons/alert-triangle.svg
   String get alertTriangle => 'assets/icons/alert-triangle.svg';
 
@@ -64,9 +60,6 @@ class $AssetsIconsGen {
 
   /// File path: assets/icons/cctv.png
   AssetGenImage get cctv => const AssetGenImage('assets/icons/cctv.png');
-
-  /// File path: assets/icons/chat.png
-  AssetGenImage get chat => const AssetGenImage('assets/icons/chat.png');
 
   /// File path: assets/icons/chevron-left.svg
   String get chevronLeft => 'assets/icons/chevron-left.svg';
@@ -217,10 +210,6 @@ class $AssetsIconsGen {
   /// File path: assets/icons/search_glass.svg
   String get searchGlass => 'assets/icons/search_glass.svg';
 
-  /// File path: assets/icons/sending-ill.png
-  AssetGenImage get sendingIll =>
-      const AssetGenImage('assets/icons/sending-ill.png');
-
   /// File path: assets/icons/shield_zap.svg
   String get shieldZap => 'assets/icons/shield_zap.svg';
 
@@ -267,7 +256,6 @@ class $AssetsIconsGen {
         currentPosition,
         spotifyPng,
         spotifySvg,
-        accident,
         alertTriangle,
         apple,
         arrow,
@@ -280,7 +268,6 @@ class $AssetsIconsGen {
         briefcaseSvg,
         carsWarning,
         cctv,
-        chat,
         chevronLeft,
         circleOne,
         circleTwo,
@@ -326,7 +313,6 @@ class $AssetsIconsGen {
         routeLogo,
         routeLogoText,
         searchGlass,
-        sendingIll,
         shieldZap,
         startTrip,
         threeCars,
@@ -396,17 +382,41 @@ class $AssetsImagesGen {
 class $AssetsIconsReportsGen {
   const $AssetsIconsReportsGen();
 
+  /// File path: assets/icons/reports/accident.svg
+  String get accident => 'assets/icons/reports/accident.svg';
+
+  /// File path: assets/icons/reports/alter_route.svg
+  String get alterRoute => 'assets/icons/reports/alter_route.svg';
+
+  /// File path: assets/icons/reports/chat.svg
+  String get chat => 'assets/icons/reports/chat.svg';
+
+  /// File path: assets/icons/reports/patrol.svg
+  String get patrol => 'assets/icons/reports/patrol.svg';
+
   /// File path: assets/icons/reports/police.svg
   String get police => 'assets/icons/reports/police.svg';
 
   /// File path: assets/icons/reports/road_closure.svg
   String get roadClosure => 'assets/icons/reports/road_closure.svg';
 
+  /// File path: assets/icons/reports/sending.svg
+  String get sending => 'assets/icons/reports/sending.svg';
+
   /// File path: assets/icons/reports/trafic.svg
   String get trafic => 'assets/icons/reports/trafic.svg';
 
   /// List of all assets
-  List<String> get values => [police, roadClosure, trafic];
+  List<String> get values => [
+        accident,
+        alterRoute,
+        chat,
+        patrol,
+        police,
+        roadClosure,
+        sending,
+        trafic
+      ];
 }
 
 class Assets {

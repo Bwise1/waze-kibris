@@ -32,28 +32,28 @@ class ReportEventModal extends StatelessWidget {
     {
       'name': 'Accident',
       'type': ReportType.accident.name,
-      'icon': Assets.icons.accident.image(),
+      'icon': SvgPicture.asset(Assets.icons.reports.accident),
       'isNewPage': false,
       'page': const ReportPoliceEventModal(),
     },
     {
       'name': 'Alternate Route',
       'type': ReportType.alternateRoute.name,
-      'icon': Assets.icons.arrow.image(),
+      'icon': SvgPicture.asset(Assets.icons.reports.alterRoute),
       'isNewPage': true,
       'page': const ReportPoliceEventModal(),
     },
     {
       'name': 'Photo Sharing',
-      'type': ReportType.alternateRoute.name,
-      'icon': Assets.icons.sendingIll.image(),
+      'type': ReportType.photoSharing.name,
+      'icon': SvgPicture.asset(Assets.icons.reports.sending),
       'isNewPage': true,
       'page': const ReportPoliceEventModal(),
     },
     {
       'name': 'Chat',
       'type': ReportType.photoSharing.name,
-      'icon': Assets.icons.chat.image(),
+      'icon': SvgPicture.asset(Assets.icons.reports.chat),
       'isNewPage': true,
       'page': const ReportPoliceEventModal(),
     },
@@ -165,12 +165,14 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
       {
         'type': ReportType.traffic.name,
         'subType': 'patrol',
-        'icon': Assets.icons.policeCar.image(),
+        'icon': SvgPicture.asset(
+          Assets.icons.reports.patrol,
+        ),
       },
       {
         'type': ReportType.accident.name,
         'subType': 'otherLane',
-        'icon': Assets.icons.accident.image(),
+        'icon': SvgPicture.asset(Assets.icons.reports.accident),
       }
     ];
     return Padding(
