@@ -1,8 +1,9 @@
-// Updated navigation_overlay.dart - Using NavigationUtils
+// Updated navigation_overlay.dart - Using Mapbox Navigation
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
-import 'package:waze_kibris/app/dashboard/view/navigation_utils.dart'; // Import the utils
+import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
+import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 
 class NavigationOverlay extends StatefulWidget {
   final NavigationInProgress navigationState;
@@ -32,20 +33,20 @@ class _NavigationOverlayState extends State<NavigationOverlay>
   void initState() {
     super.initState();
     _pulseController = AnimationController(
-      duration: NavigationUtils.maneuverTransitionDuration,
+      duration: const Duration(milliseconds: 500), // Standard transition duration
       vsync: this,
     )..repeat();
 
     _slideController = AnimationController(
-      duration: NavigationUtils.maneuverTransitionDuration,
+      duration: const Duration(milliseconds: 300), // Standard transition duration
       vsync: this,
     );
 
-    // Start timer for real-time updates every second
-    _updateTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    // Start timer for real-time updates every 3 seconds for stability
+    _updateTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       if (mounted) {
         setState(() {
-          // Force rebuild to update distance display in real-time
+          // Force rebuild to update distance display - reduced frequency
         });
       }
     });
@@ -87,17 +88,56 @@ class _NavigationOverlayState extends State<NavigationOverlay>
     if (_isMuted) return;
 
     final step = widget.navigationState.currentStep;
-    final stepId = NavigationUtils.getStepId(
-        step, widget.navigationState.currentStepIndex);
+    final stepId = '${widget.navigationState.currentStepIndex}';
     final distance = widget.navigationState.distanceToNextManeuver;
 
-    if (NavigationUtils.shouldAnnounceManeuver(
-        distance, stepId, _announcedSteps)) {
-      final voiceText =
-          NavigationUtils.generateVoiceInstruction(step, distance);
-      _announcedSteps.add('${stepId}_$distance');
+    if (_shouldAnnounceManeuver(distance, stepId)) {
+      final voiceText = _generateVoiceInstruction(step, distance);
+      _announcedSteps.add('${stepId}_${distance.round()}');
       // Here you would integrate with your TTS system
       debugPrint('Voice: $voiceText');
+    }
+  }
+
+  bool _shouldAnnounceManeuver(double distance, String stepId) {
+    final announceKey = '${stepId}_${distance.round()}';
+    if (_announcedSteps.contains(announceKey)) return false;
+    
+    // Announce at specific distances (similar to professional nav apps)
+    return distance <= 500 && distance > 50; // 500m to 50m range
+  }
+
+  String _generateVoiceInstruction(MapboxStep step, double distance) {
+    final instruction = step.maneuver.instruction;
+    final formattedDistance = MapboxNavigationUtils.formatDistance(distance);
+    
+    if (distance > 200) {
+      return 'In $formattedDistance, $instruction';
+    } else {
+      return instruction; // Just the instruction for close distances
+    }
+  }
+
+  Color _getManeuverColor(String maneuverType) {
+    switch (maneuverType.toLowerCase()) {
+      case 'turn':
+        return Colors.blue;
+      case 'depart':
+        return Colors.green;
+      case 'arrive':
+        return Colors.red;
+      case 'merge':
+        return Colors.orange;
+      case 'on ramp':
+      case 'off ramp':
+        return Colors.purple;
+      case 'fork':
+        return Colors.amber;
+      case 'roundabout':
+        return Colors.indigo;
+      case 'continue':
+      default:
+        return Colors.grey;
     }
   }
 
@@ -148,14 +188,16 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                               width: 50,
                               height: 50,
                               decoration: BoxDecoration(
-                                color: NavigationUtils.getManeuverColor(
-                                    step.htmlInstr),
+                                color: _getManeuverColor(step.maneuver.type),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: Icon(
-                                NavigationUtils.getManeuverIcon(step.htmlInstr),
-                                color: Colors.white,
-                                size: 28,
+                              child: Text(
+                                MapboxNavigationUtils.getManeuverIcon(
+                                    step.maneuver.type, step.maneuver.modifier),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 28,
+                                ),
                               ),
                             ),
                           );
@@ -166,13 +208,13 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Distance to next maneuver using NavigationUtils formatting
+                            // Distance to next maneuver using MapboxNavigationUtils formatting
                             Text(
                               navigationState.distanceToNextManeuver > 0
-                                  ? NavigationUtils.formatDistance(
+                                  ? MapboxNavigationUtils.formatDistance(
                                       navigationState.distanceToNextManeuver)
-                                  : NavigationUtils.formatDistance(
-                                      step.distance.value),
+                                  : MapboxNavigationUtils.formatDistance(
+                                      step.distance),
                               style: const TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
@@ -180,9 +222,9 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                               ),
                             ),
                             const SizedBox(height: 4),
-                            // Maneuver instruction using NavigationUtils
+                            // Maneuver instruction using MapboxNavigationUtils
                             Text(
-                              NavigationUtils.cleanInstruction(step.htmlInstr),
+                              MapboxNavigationUtils.cleanInstruction(step.maneuver.instruction),
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w500,
@@ -192,13 +234,10 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                               overflow: TextOverflow.ellipsis,
                             ),
                             const SizedBox(height: 2),
-                            // Road name using NavigationUtils
-                            if (NavigationUtils.extractRoadName(
-                                    step.htmlInstr) !=
-                                null)
+                            // Road name using MapboxNavigationUtils
+                            if (MapboxNavigationUtils.extractRoadName(step.name) != null)
                               Text(
-                                NavigationUtils.extractRoadName(
-                                    step.htmlInstr)!,
+                                MapboxNavigationUtils.extractRoadName(step.name)!,
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: Colors.grey[600],
@@ -254,9 +293,9 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                     Expanded(
                       child: LinearProgressIndicator(
                         value:
-                            (navigationState.route.legs.first.distance.value -
+                            (navigationState.route.distance -
                                     navigationState.remainingDistance) /
-                                navigationState.route.legs.first.distance.value,
+                                navigationState.route.distance,
                         backgroundColor: Colors.grey[200],
                         valueColor:
                             const AlwaysStoppedAnimation<Color>(Colors.red),
@@ -275,7 +314,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                   Column(
                     children: [
                       Text(
-                        NavigationUtils.formatDuration(
+                        MapboxNavigationUtils.formatDuration(
                             navigationState.remainingDuration),
                         style: const TextStyle(
                           fontSize: 22,
@@ -284,7 +323,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                         ),
                       ),
                       Text(
-                        'ETA ${NavigationUtils.formatETA(navigationState.remainingDuration)}',
+                        'ETA ${MapboxNavigationUtils.formatETA(navigationState.remainingDuration)}',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey[600],
@@ -300,7 +339,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                   Column(
                     children: [
                       Text(
-                        NavigationUtils.formatDistance(
+                        MapboxNavigationUtils.formatDistance(
                             navigationState.remainingDistance),
                         style: const TextStyle(
                           fontSize: 22,

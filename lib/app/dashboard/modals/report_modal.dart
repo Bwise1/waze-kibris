@@ -14,14 +14,18 @@ class ReportEventModal extends StatelessWidget {
     {
       'name': 'Police',
       'type': ReportType.police.name,
-      'icon': Assets.icons.police.image(),
+      'icon': SvgPicture.asset(
+        Assets.icons.reports.police,
+      ),
       'isNewPage': false,
       'page': const ReportPoliceEventModal(),
     },
     {
       'name': 'Traffic',
       'type': ReportType.traffic.name,
-      'icon': Assets.icons.warningCars.image(),
+      'icon': SvgPicture.asset(
+        Assets.icons.reports.trafic,
+      ),
       'isNewPage': false,
       'page': const ReportPoliceEventModal(),
     },
@@ -154,7 +158,9 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
       {
         'type': ReportType.police.name,
         'subType': 'police',
-        'icon': Assets.icons.police.image(),
+        'icon': SvgPicture.asset(
+          Assets.icons.reports.police,
+        ),
       },
       {
         'type': ReportType.traffic.name,

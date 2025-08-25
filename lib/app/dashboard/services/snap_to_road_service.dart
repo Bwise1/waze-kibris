@@ -3,12 +3,13 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
+import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 
 class SnapToRoadService {
   static const double _snapDistanceThreshold = 50.0; // meters
   static const double _offRouteThreshold = 100.0; // meters
   static const double _smoothingFactor = 0.7; // for position smoothing
-  
+
   // Cache for route points
   List<PointLatLng>? _currentRoutePoints;
   PointLatLng? _lastSnappedPoint;
@@ -17,6 +18,13 @@ class SnapToRoadService {
   /// Initialize with current route
   void setRoute(DirectionsRoute route) {
     _currentRoutePoints = _decodeRoutePolyline(route);
+    _lastNearestIndex = 0;
+    _lastSnappedPoint = null;
+  }
+
+  /// Initialize with Mapbox route
+  void setMapboxRoute(MapboxRoute route) {
+    _currentRoutePoints = _decodeMapboxRouteGeometry(route);
     _lastNearestIndex = 0;
     _lastSnappedPoint = null;
   }
@@ -32,7 +40,8 @@ class SnapToRoadService {
   SnapToRoadResult snapToRoad(Position gpsPosition) {
     if (_currentRoutePoints == null || _currentRoutePoints!.isEmpty) {
       return SnapToRoadResult(
-        snappedPosition: PointLatLng(gpsPosition.latitude, gpsPosition.longitude),
+        snappedPosition:
+            PointLatLng(gpsPosition.latitude, gpsPosition.longitude),
         isOnRoute: false,
         distanceFromRoute: 0,
         routeProgress: 0,
@@ -41,10 +50,10 @@ class SnapToRoadService {
     }
 
     final gpsPoint = PointLatLng(gpsPosition.latitude, gpsPosition.longitude);
-    
+
     // Find nearest point on route
     final nearestResult = _findNearestPointOnRoute(gpsPoint);
-    
+
     // Determine if user is on route
     final isOnRoute = nearestResult.distance <= _snapDistanceThreshold;
     final isOffRoute = nearestResult.distance > _offRouteThreshold;
@@ -79,7 +88,7 @@ class SnapToRoadService {
 
   /// Snap polyline points to roads using Google Roads API
   Future<List<PointLatLng>> snapPolylineToRoads(
-    List<PointLatLng> points, 
+    List<PointLatLng> points,
     String apiKey,
   ) async {
     try {
@@ -89,10 +98,10 @@ class SnapToRoadService {
 
       for (int i = 0; i < points.length; i += chunkSize) {
         final chunk = points.sublist(
-          i, 
+          i,
           math.min(i + chunkSize, points.length),
         );
-        
+
         final snappedChunk = await _snapChunkToRoads(chunk, apiKey);
         snappedPoints.addAll(snappedChunk);
       }
@@ -117,7 +126,7 @@ class SnapToRoadService {
     // Start search from last known position for efficiency
     final startIndex = math.max(0, _lastNearestIndex - 10);
     final endIndex = math.min(
-      _currentRoutePoints!.length, 
+      _currentRoutePoints!.length,
       _lastNearestIndex + 50,
     );
 
@@ -169,7 +178,8 @@ class SnapToRoadService {
   }
 
   /// Smooth snap position to reduce jitter
-  PointLatLng _smoothSnapPosition(PointLatLng snappedPoint, PointLatLng gpsPoint) {
+  PointLatLng _smoothSnapPosition(
+      PointLatLng snappedPoint, PointLatLng gpsPoint) {
     if (_lastSnappedPoint == null) {
       return snappedPoint;
     }
@@ -184,7 +194,8 @@ class SnapToRoadService {
   }
 
   /// Blend two positions based on weight
-  PointLatLng _blendPositions(PointLatLng point1, PointLatLng point2, double weight) {
+  PointLatLng _blendPositions(
+      PointLatLng point1, PointLatLng point2, double weight) {
     final lat = point1.latitude * (1 - weight) + point2.latitude * weight;
     final lng = point1.longitude * (1 - weight) + point2.longitude * weight;
     return PointLatLng(lat, lng);
@@ -192,7 +203,7 @@ class SnapToRoadService {
 
   /// Calculate bearing along route
   double _calculateRouteBearing(int routeIndex) {
-    if (_currentRoutePoints == null || 
+    if (_currentRoutePoints == null ||
         routeIndex >= _currentRoutePoints!.length - 1) {
       return 0.0;
     }
@@ -244,6 +255,20 @@ class SnapToRoadService {
       for (final step in leg.steps) {
         final decoded = polylinePoints.decodePolyline(step.polyline.points);
         points.addAll(decoded);
+      }
+    }
+
+    return points;
+  }
+
+  /// Decode Mapbox route geometry to points
+  List<PointLatLng> _decodeMapboxRouteGeometry(MapboxRoute route) {
+    final points = <PointLatLng>[];
+
+    for (final coordinate in route.geometry.coordinates) {
+      if (coordinate.length >= 2) {
+        // Mapbox geometry format: [lng, lat]
+        points.add(PointLatLng(coordinate[1], coordinate[0]));
       }
     }
 

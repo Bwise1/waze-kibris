@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:sheet/sheet.dart';
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
@@ -12,8 +13,12 @@ import 'package:waze_kibris/app/dashboard/view/route_bar.dart';
 import 'package:waze_kibris/app/dashboard/view/route_overview.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
+import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
+import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/dialog_route.dart';
-import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
+import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/core/widgets/buttons/app_button.dart';
 
 class MainDashboard extends StatefulWidget {
@@ -26,11 +31,20 @@ class MainDashboard extends StatefulWidget {
 class _MainDashboardState extends State<MainDashboard>
     with TickerProviderStateMixin, MapControllerMixin {
   late SheetController controller;
+  bool _isModalOpen = false;
   late NavigationBloc _navigationBloc;
   SearchSuggestion? _activeRouteSuggestion;
+  Position? _lastReportFetchPosition;
+  bool _initialReportsFetched = false;
 
   @override
   NavigationBloc get navigationBloc => _navigationBloc;
+
+  @override
+  void onPositionUpdate(Position position) {
+    // Fetch reports when user moves significantly
+    _fetchNearbyReports(position);
+  }
 
   @override
   void initState() {
@@ -58,7 +72,10 @@ class _MainDashboardState extends State<MainDashboard>
     });
   }
 
-  void _startNavigation(DirectionsRoute route) {
+  void _startNavigation(MapboxRoute route) {
+    // Draw the route polyline first
+    drawMapboxPolyline(route);
+
     // Update map for navigation mode FIRST
     updateMapForNavigationMode(true);
 
@@ -88,8 +105,63 @@ class _MainDashboardState extends State<MainDashboard>
     _clearRouteBar(); // Also dismiss the route bar when ending navigation
   }
 
+  void _fetchNearbyReportsAfterDelay() async {
+    // Wait for location to be available before fetching reports
+    await Future.delayed(const Duration(seconds: 3));
+    
+    try {
+      final currentPosition = await Geolocator.getCurrentPosition();
+      
+      // Check if widget is still mounted before using context
+      if (mounted) {
+        _fetchNearbyReports(currentPosition);
+      }
+    } catch (e) {
+      debugPrint('Error getting position for report fetching: $e');
+    }
+  }
+
+  void _fetchNearbyReports(Position position) {
+    // Only fetch if we've moved significantly or haven't fetched before
+    if (_lastReportFetchPosition == null ||
+        Geolocator.distanceBetween(
+          _lastReportFetchPosition!.latitude,
+          _lastReportFetchPosition!.longitude,
+          position.latitude,
+          position.longitude,
+        ) > 1000) { // Fetch reports every 1km movement
+      
+      _lastReportFetchPosition = position;
+      
+      debugPrint('🚨 Fetching reports near: ${position.latitude}, ${position.longitude}');
+      
+      context.read<ReportsBloc>().add(
+        ReportsEvent.getNearByReports(
+          radius: 50, // 50km radius
+          lat: position.latitude.toString(),
+          long: position.longitude.toString(),
+        ),
+      );
+    }
+  }
+
+  void _onReportsReceived(List<ReportData> reports) {
+    debugPrint('📍 Received ${reports.length} reports to display on map');
+    
+    // Pass reports to map controller to display as markers
+    displayReportsOnMap(reports);
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Trigger initial reports fetch after first build
+    if (!_initialReportsFetched) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _fetchNearbyReportsAfterDelay();
+        _initialReportsFetched = true;
+      });
+    }
+    
     return BlocProvider.value(
       value: _navigationBloc,
       child: Scaffold(
@@ -113,15 +185,28 @@ class _MainDashboardState extends State<MainDashboard>
             },
           ),
         ),
-        body: BlocListener<NavigationBloc, NavigationState>(
-          listener: (context, state) {
-            if (state is NavigationInProgress) {
-              // Handle navigation state changes
-              if (state.isNavigationComplete) {
-                _showNavigationCompleteDialog();
-              }
-            }
-          },
+        body: MultiBlocListener(
+          listeners: [
+            BlocListener<NavigationBloc, NavigationState>(
+              listener: (context, state) {
+                if (state is NavigationInProgress) {
+                  // Handle navigation state changes
+                  if (state.isNavigationComplete) {
+                    _showNavigationCompleteDialog();
+                  }
+                }
+              },
+            ),
+            BlocListener<ReportsBloc, ReportState>(
+              listener: (context, state) {
+                if (state is GetReportSuccess) {
+                  _onReportsReceived(state.data);
+                } else if (state is ReportError) {
+                  debugPrint('🚨 Report fetch error: ${state.message}');
+                }
+              },
+            ),
+          ],
           child: BlocBuilder<NavigationBloc, NavigationState>(
             builder: (context, state) {
               return Stack(
@@ -130,14 +215,6 @@ class _MainDashboardState extends State<MainDashboard>
                   mp.MapWidget(
                     key: const ValueKey('mapWidget'),
                     onMapCreated: onMapCreated,
-                    // initialCameraPosition: mp.CameraOptions(
-                    //   center: mp.Point(
-                    //     coordinates: mp.Position(33.3792, 35.2036), // Cyprus center
-                    //   ),
-                    //   zoom: 16.0, // Waze-style zoom level
-                    //   bearing: 0.0,
-                    //   pitch: 0.0,
-                    // ),
                   ),
 
                   // Show route bar if there's an active suggestion and not navigating
@@ -183,8 +260,8 @@ class _MainDashboardState extends State<MainDashboard>
                       ),
                   ],
 
-                  // Show bottom sheet only when not navigating
-                  if (state is! NavigationInProgress)
+                  // Show bottom sheet only when not navigating and no modal is open
+                  if (state is! NavigationInProgress && !_isModalOpen)
                     Positioned.fill(
                       top: kToolbarHeight +
                           MediaQuery.of(context).padding.top -
@@ -192,7 +269,7 @@ class _MainDashboardState extends State<MainDashboard>
                       child: MapSheet(
                         controller: controller,
                         onSuggestionSelected: _onSuggestionSelected,
-                        onDrawPolyline: drawPolyline,
+                        onDrawMapboxPolyline: drawMapboxPolyline,
                         onStartNavigation: _startNavigation,
                         context: context,
                       ),
@@ -235,22 +312,24 @@ class _MainDashboardState extends State<MainDashboard>
               mainAxisSize: MainAxisSize.min,
               children: [
                 FloatingActionButton(
-                  onPressed: () {
-                    CustomDialogRoutes.showBottomSheet<bool>(
+                  onPressed: () async {
+                    setState(() {
+                      _isModalOpen = true;
+                    });
+
+                    await CustomDialogRoutes.showBottomSheet<bool>(
                       context,
                       const ReportEventModal(),
                     );
+
+                    setState(() {
+                      _isModalOpen = false;
+                    });
                   },
                   heroTag: 'add-report',
                   backgroundColor: styles.theme.yellow,
-                  child: IconBtn(
-                    icon: Assets.icons.alertTriangle,
-                    onPressed: () => CustomDialogRoutes.showBottomSheet<bool>(
-                      context,
-                      const ReportEventModal(),
-                    ),
-                    semanticLabel: '',
-                    bgColor: styles.theme.yellow,
+                  child: Icon(
+                    Icons.warning_amber_rounded,
                     color: styles.theme.black,
                   ),
                 ),
@@ -275,6 +354,17 @@ class _MainDashboardState extends State<MainDashboard>
       ),
     );
   }
+
+  // void _hideLoadingAfterLocation() async {
+  //   // Wait for location to be obtained and map to be positioned
+  //   await Future.delayed(const Duration(milliseconds: 1500));
+
+  //   if (mounted) {
+  //     setState(() {
+  //       _isMapLoading = false;
+  //     });
+  //   }
+  // }
 
   void _showNavigationCompleteDialog() {
     showDialog(

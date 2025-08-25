@@ -8,7 +8,7 @@ abstract class NavigationEvent extends Equatable {
 }
 
 class NavigationStarted extends NavigationEvent {
-  final DirectionsRoute route;
+  final MapboxRoute route;
 
   const NavigationStarted({required this.route});
 

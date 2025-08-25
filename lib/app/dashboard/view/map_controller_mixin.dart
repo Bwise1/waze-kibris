@@ -9,14 +9,15 @@ import 'package:geolocator/geolocator.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/services/snap_to_road_service.dart';
-import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
-import 'package:waze_kibris/gen/assets.gen.dart';
+import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/core/models/reports/report_response.dart';
 
 mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   mp.MapboxMap? _mapboxMapController;
   StreamSubscription<Position>? _userPositionStream;
-  mp.PolylineAnnotationManager? polylineAnnotationManager;
+  // Removed: Using LineLayer instead of PolylineAnnotationManager
   mp.PointAnnotationManager? pointAnnotationManager;
+  mp.PointAnnotationManager? reportAnnotationManager;
 
   // Camera tracking variables
   bool _isFollowingUser = true;
@@ -24,10 +25,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   Timer? _cameraUpdateTimer;
   Timer? _polylineUpdateTimer;
   Position? _lastCameraPosition;
-  double _lastPolylineWidth = 0.0;
+  // Removed: LineLayer handles width automatically
 
   // Track current polyline for adaptive width updates
-  String? _currentPolylineEncodedString;
+  // Removed: No longer using encoded polylines
   List<PointLatLng>? _currentPolylinePoints;
 
   // Snap to road service
@@ -39,6 +40,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   // Navigation bloc must be provided by the implementing class
   NavigationBloc get navigationBloc;
+
+  // Optional method for position updates - can be overridden
+  void onPositionUpdate(Position position) {
+    // Override in implementing class to handle position updates
+  }
 
   // Setters for camera following
   void setIsFollowingUser(bool value) {
@@ -54,14 +60,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     // Setup annotation managers
     _mapboxMapController?.annotations
-        .createPolylineAnnotationManager()
-        .then((manager) {
-      setState(() {
-        polylineAnnotationManager = manager;
-      });
-    });
-
-    _mapboxMapController?.annotations
         .createPointAnnotationManager()
         .then((manager) {
       setState(() {
@@ -69,12 +67,15 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       });
     });
 
-    // Configure map settings
-    _mapboxMapController?.gestures.updateSettings(mp.GesturesSettings(
-      pinchToZoomEnabled: true,
-      rotateEnabled: true,
-      scrollEnabled: true,
-    ));
+    // Setup report annotation manager
+    _mapboxMapController?.annotations
+        .createPointAnnotationManager()
+        .then((manager) {
+      setState(() {
+        reportAnnotationManager = manager;
+      });
+    });
+
 
     // Listen for map interactions to update polyline width
     _setupMapListeners();
@@ -90,7 +91,243 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         .updateSettings(mp.CompassSettings(enabled: false));
     _mapboxMapController?.scaleBar
         .updateSettings(mp.ScaleBarSettings(enabled: false));
+
+    // Add report icons to map style
+    _setupReportIcons();
   }
+
+  /// Add report icons to map style for different report types (Waze-style)
+  Future<void> _setupReportIcons() async {
+    if (_mapboxMapController == null) return;
+
+    try {
+      // Create Waze-style circular report icons with chat bubbles
+      await _createWazeStyleReportIcon('police-icon', 'assets/icons/police.png', const Color(0xFF4285F4)); // Blue
+      await _createWazeStyleReportIcon('traffic-icon', 'assets/icons/warning-cars.png', const Color(0xFFFF9800)); // Orange  
+      await _createWazeStyleReportIcon('accident-icon', 'assets/icons/accident.png', const Color(0xFFF44336)); // Red
+      
+      debugPrint('✅ Waze-style report icons created successfully');
+    } catch (e) {
+      debugPrint('❌ Error creating Waze-style report icons: $e');
+    }
+  }
+
+  /// Create a Waze-style circular report icon with chat bubble effect
+  Future<void> _createWazeStyleReportIcon(String iconId, String assetPath, Color backgroundColor) async {
+    try {
+      // Load the original icon
+      final ByteData iconData = await rootBundle.load(assetPath);
+      final Uint8List iconBytes = iconData.buffer.asUint8List();
+      final ui.Codec iconCodec = await ui.instantiateImageCodec(iconBytes);
+      final ui.FrameInfo iconFrame = await iconCodec.getNextFrame();
+      final ui.Image originalIcon = iconFrame.image;
+
+      // Create a larger canvas for the Waze-style bubble
+      const double bubbleSize = 64.0;
+      const double iconSize = 32.0;
+      const double bubbleRadius = 28.0;
+      const double tailHeight = 12.0;
+      
+      final ui.PictureRecorder recorder = ui.PictureRecorder();
+      final Canvas canvas = Canvas(recorder);
+      final Paint bubblePaint = Paint()
+        ..color = backgroundColor
+        ..style = PaintingStyle.fill;
+      
+      final Paint borderPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0;
+
+      final Paint shadowPaint = Paint()
+        ..color = Colors.black.withOpacity(0.3)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+
+      // Draw shadow (slightly offset)
+      const double shadowOffset = 2.0;
+      canvas.drawCircle(
+        Offset(bubbleRadius + shadowOffset, bubbleRadius + shadowOffset),
+        bubbleRadius,
+        shadowPaint,
+      );
+
+      // Draw chat bubble tail shadow
+      final Path tailShadowPath = Path();
+      tailShadowPath.moveTo(bubbleRadius + shadowOffset, bubbleSize - tailHeight + shadowOffset);
+      tailShadowPath.lineTo(bubbleRadius - 6 + shadowOffset, bubbleSize + shadowOffset);
+      tailShadowPath.lineTo(bubbleRadius + 6 + shadowOffset, bubbleSize + shadowOffset);
+      tailShadowPath.close();
+      canvas.drawPath(tailShadowPath, shadowPaint);
+
+      // Draw main circular background
+      canvas.drawCircle(
+        Offset(bubbleRadius, bubbleRadius),
+        bubbleRadius,
+        bubblePaint,
+      );
+
+      // Draw chat bubble tail
+      final Path tailPath = Path();
+      tailPath.moveTo(bubbleRadius, bubbleSize - tailHeight);
+      tailPath.lineTo(bubbleRadius - 6, bubbleSize);
+      tailPath.lineTo(bubbleRadius + 6, bubbleSize);
+      tailPath.close();
+      canvas.drawPath(tailPath, bubblePaint);
+
+      // Draw white border around circle
+      canvas.drawCircle(
+        Offset(bubbleRadius, bubbleRadius),
+        bubbleRadius,
+        borderPaint,
+      );
+
+      // Draw white border around tail
+      canvas.drawPath(tailPath, borderPaint);
+
+      // Draw the icon in the center of the circle
+      final Offset iconOffset = Offset(
+        bubbleRadius - (iconSize / 2),
+        bubbleRadius - (iconSize / 2),
+      );
+      
+      canvas.drawImageRect(
+        originalIcon,
+        Rect.fromLTWH(0, 0, originalIcon.width.toDouble(), originalIcon.height.toDouble()),
+        Rect.fromLTWH(iconOffset.dx, iconOffset.dy, iconSize, iconSize),
+        Paint(),
+      );
+
+      // Convert to image
+      final ui.Picture picture = recorder.endRecording();
+      final ui.Image finalImage = await picture.toImage(bubbleSize.toInt(), (bubbleSize + tailHeight).toInt());
+      final ByteData? byteData = await finalImage.toByteData(format: ui.ImageByteFormat.png);
+      
+      if (byteData != null) {
+        final Uint8List finalImageBytes = byteData.buffer.asUint8List();
+
+        final mp.MbxImage mbxImage = mp.MbxImage(
+          width: bubbleSize.toInt(),
+          height: (bubbleSize + tailHeight).toInt(),
+          data: finalImageBytes,
+        );
+
+        await _mapboxMapController!.style.addStyleImage(
+          iconId,
+          1.0,
+          mbxImage,
+          false,
+          [],
+          [],
+          null,
+        );
+        
+        debugPrint('✅ Created Waze-style icon: $iconId');
+      }
+    } catch (e) {
+      debugPrint('❌ Error creating Waze-style icon $iconId: $e');
+      // Fallback to simple icon
+      await _addReportIconToStyle(iconId, assetPath);
+    }
+  }
+
+  /// Add a specific report icon to map style
+  Future<void> _addReportIconToStyle(String iconId, String assetPath) async {
+    try {
+      final ByteData byteData = await rootBundle.load(assetPath);
+      final Uint8List imageBytes = byteData.buffer.asUint8List();
+
+      final codec = await ui.instantiateImageCodec(imageBytes);
+      final frameInfo = await codec.getNextFrame();
+      final ui.Image image = frameInfo.image;
+
+      final mbxImage = mp.MbxImage(
+        width: image.width,
+        height: image.height,
+        data: imageBytes,
+      );
+
+      await _mapboxMapController!.style.addStyleImage(
+        iconId,
+        1.0, // Scale factor
+        mbxImage,
+        false, // Not SDF
+        [], // No stretch
+        [], // No stretch
+        null, // No content
+      );
+    } catch (e) {
+      debugPrint('Error adding $iconId to style: $e');
+    }
+  }
+
+  /// Display reports as markers on the map
+  Future<void> displayReportsOnMap(List<ReportData> reports) async {
+    if (reportAnnotationManager == null) {
+      debugPrint('Report annotation manager not ready');
+      return;
+    }
+
+    try {
+      // Clear existing report markers
+      await reportAnnotationManager!.deleteAll();
+      
+      debugPrint('🗺️ Adding ${reports.length} report markers to map');
+
+      for (final report in reports) {
+        await _addReportMarker(report);
+      }
+      
+      debugPrint('✅ Successfully added ${reports.length} report markers');
+    } catch (e) {
+      debugPrint('❌ Error displaying reports on map: $e');
+    }
+  }
+
+  /// Add a single report marker to the map (Waze-style optimized)
+  Future<void> _addReportMarker(ReportData report) async {
+    if (reportAnnotationManager == null) return;
+
+    try {
+      final iconId = _getReportIcon(report.type);
+      
+      await reportAnnotationManager!.create(
+        mp.PointAnnotationOptions(
+          geometry: mp.Point(
+            coordinates: mp.Position(
+              report.longitude,
+              report.latitude,
+            ),
+          ),
+          iconImage: iconId,
+          iconSize: 0.7, // Optimized size for Waze-style bubbles
+          iconOpacity: 1.0, // Full opacity for better visibility
+          // Ensure reports appear above other elements but below user location
+          iconAnchor: mp.IconAnchor.BOTTOM, // Anchor at bottom like chat bubble
+          // Add slight offset to avoid overlap with user location
+          iconOffset: [0.0, -5.0], // Lift slightly above ground level
+        ),
+      );
+      
+      debugPrint('📍 Added Waze-style ${report.type} report marker at ${report.latitude}, ${report.longitude}');
+    } catch (e) {
+      debugPrint('Error adding report marker: $e');
+    }
+  }
+
+  /// Get appropriate icon ID for report type
+  String _getReportIcon(String reportType) {
+    switch (reportType.toLowerCase()) {
+      case 'police':
+        return 'police-icon';
+      case 'traffic':
+        return 'traffic-icon';
+      case 'accident':
+        return 'accident-icon';
+      default:
+        return 'police-icon'; // Default fallback
+    }
+  }
+
 
   void updateMapForNavigationMode(bool isNavigating) async {
     if (_mapboxMapController == null) return;
@@ -163,67 +400,173 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  Future<void> drawPolyline(String encodedPolyline) async {
+  // Removed: Old drawPolyline method - now using professional LineLayer approach
+
+  /// Draw polyline using professional GeoJsonSource + LineLayer (Waze-style)
+  Future<void> drawMapboxPolyline(MapboxRoute route) async {
     await clearRoutePolyline();
 
-    if (polylineAnnotationManager == null || _mapboxMapController == null) {
-      debugPrint('Polyline manager or map controller not ready.');
+    if (_mapboxMapController == null) {
+      debugPrint('Map controller not ready.');
       return;
     }
 
-    final polylinePoints = PolylinePoints();
-    final List<PointLatLng> decodedPoints =
-        polylinePoints.decodePolyline(encodedPolyline);
+    try {
+      // Convert Mapbox geometry coordinates to PointLatLng for marker placement
+      final List<PointLatLng> routePoints = [];
+      for (final coordinate in route.geometry.coordinates) {
+        if (coordinate.length >= 2) {
+          routePoints
+              .add(PointLatLng(coordinate[1], coordinate[0])); // lat, lng
+        }
+      }
 
-    if (decodedPoints.isEmpty) {
-      debugPrint('Decoded polyline has no points.');
-      return;
-    }
+      if (routePoints.isEmpty) {
+        debugPrint('Mapbox route has no geometry points.');
+        return;
+      }
 
-    // Store polyline data for adaptive width updates
-    _currentPolylineEncodedString = encodedPolyline;
-    _currentPolylinePoints = decodedPoints;
+      // Store points for adaptive updates
+      _currentPolylinePoints = routePoints;
 
-    // Apply Waze-style smoothing to the polyline points
-    final smoothedPoints = _smoothPolylinePoints(decodedPoints);
+      // Create GeoJSON source with route data
+      final geoJsonData = {
+        'type': 'Feature',
+        'properties': {
+          'route-color': _getTrafficColor(route), // Traffic-aware color
+          'route-congestion': _getCongestionLevel(route), // Congestion data
+        },
+        'geometry': {
+          'type': 'LineString',
+          'coordinates': route.geometry.coordinates,
+        }
+      };
 
-    final List<mp.Position> geometry = smoothedPoints
-        .map((p) => mp.Position(p.longitude, p.latitude))
-        .toList();
+      // Remove existing sources and layers
+      await _removeRouteLayer();
 
-    // Get adaptive line width based on current zoom level
-    final adaptiveWidth = await _getAdaptiveLineWidth();
+      // Add GeoJSON source
+      await _mapboxMapController!.style.addSource(mp.GeoJsonSource(
+        id: "route-source",
+        data: json.encode(geoJsonData),
+      ));
 
-    // Create main route polyline with Waze-style properties
-    await polylineAnnotationManager!.create(
-      mp.PolylineAnnotationOptions(
-        geometry: mp.LineString(coordinates: geometry),
-        lineColor: 0xFFFF0000, // Keep original red color
-        lineWidth: adaptiveWidth,
-        lineOpacity: 0.9, // Higher opacity for better visibility
-        lineJoin: mp.LineJoin.ROUND, // Smooth rounded joins at turns
-        // lineCap: mp.LineCap.ROUND,   // Rounded end caps
-        lineBlur: 0.5, // Subtle blur for smoother appearance
-      ),
-    );
-
-    // Add route border/outline for better road definition (like Waze)
-    await polylineAnnotationManager!.create(
-      mp.PolylineAnnotationOptions(
-        geometry: mp.LineString(coordinates: geometry),
-        lineColor: 0xFFCC0000, // Darker red border
-        lineWidth: adaptiveWidth + 2.0, // Slightly wider for border effect
-        lineOpacity: 0.6,
+      // Add main route layer with professional Waze-style expressions
+      await _mapboxMapController!.style.addLayer(mp.LineLayer(
+        id: "route-layer-main",
+        sourceId: "route-source",
         lineJoin: mp.LineJoin.ROUND,
-        //  lineCap: mp.LineCap.ROUND,
-      ),
-    );
+        lineCap: mp.LineCap.ROUND,
+        // Dynamic width based on zoom level (Waze-style)
+        lineWidthExpression: [
+          'interpolate',
+          ['exponential', 1.5],
+          ['zoom'],
+          10.0, 4.0, // Far zoom: thin line
+          13.0, 8.0, // Medium zoom
+          16.0, 12.0, // Close zoom
+          19.0, 18.0, // Very close: thick navigation line
+          22.0, 24.0, // Maximum zoom: very thick
+        ],
+        // Traffic-aware color with fallback (Waze-style)
+        lineColorExpression: [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          8.0, '#3366ff', // Blue at far zoom
+          11.0,
+          [
+            'coalesce',
+            ['get', 'route-color'],
+            '#ff4444' // Default red for navigation
+          ],
+        ],
+        lineOpacity: 0.9,
+      ));
 
-    // Add route markers
-    await _addRouteMarkers(decodedPoints);
+      // Add route border/outline layer for depth (like Waze)
+      await _mapboxMapController!.style.addLayer(mp.LineLayer(
+        id: "route-layer-border",
+        sourceId: "route-source",
+        lineJoin: mp.LineJoin.ROUND,
+        lineCap: mp.LineCap.ROUND,
+        // Border is slightly wider than main line
+        lineWidthExpression: [
+          'interpolate',
+          ['exponential', 1.5],
+          ['zoom'],
+          10.0, 6.0, // Far zoom: thin border
+          13.0, 10.0, // Medium zoom
+          16.0, 14.0, // Close zoom
+          19.0, 20.0, // Very close
+          22.0, 26.0, // Maximum zoom
+        ],
+        lineColor: 0xFFCC0000, // Darker red border
+        lineOpacity: 0.6,
+      ));
 
-    // Fit camera to route bounds
-    await _fitCameraToRoute(decodedPoints);
+      // Add route markers
+      await _addRouteMarkers(routePoints);
+
+      // Fit camera to route bounds
+      await _fitCameraToRoute(routePoints);
+
+      debugPrint('Professional route layer created successfully');
+    } catch (e) {
+      debugPrint('Error creating professional route layer: $e');
+      // Could implement user notification here
+    }
+  }
+
+  /// Get traffic-aware color based on route congestion (Waze-style)
+  String _getTrafficColor(MapboxRoute route) {
+    // For now, use route duration/distance ratio to estimate congestion
+    final avgSpeed = route.distance / route.duration * 3.6; // km/h
+
+    if (avgSpeed > 60) {
+      return '#00ff00'; // Green: free flow
+    } else if (avgSpeed > 40) {
+      return '#ffff00'; // Yellow: moderate traffic
+    } else if (avgSpeed > 20) {
+      return '#ff8800'; // Orange: slow traffic
+    } else {
+      return '#ff0000'; // Red: heavy traffic
+    }
+  }
+
+  /// Get congestion level for advanced styling
+  double _getCongestionLevel(MapboxRoute route) {
+    final avgSpeed = route.distance / route.duration * 3.6; // km/h
+    return (60 - avgSpeed).clamp(0.0, 60.0) / 60.0; // 0-1 scale
+  }
+
+  /// Remove existing route layers
+  Future<void> _removeRouteLayer() async {
+    try {
+      // Remove layers if they exist
+      if (await _mapboxMapController!.style
+          .styleLayerExists("route-layer-main")) {
+        await _mapboxMapController!.style.removeStyleLayer("route-layer-main");
+      }
+      if (await _mapboxMapController!.style
+          .styleLayerExists("route-layer-border")) {
+        await _mapboxMapController!.style
+            .removeStyleLayer("route-layer-border");
+      }
+      // Remove source if it exists
+      if (await _mapboxMapController!.style.styleSourceExists("route-source")) {
+        await _mapboxMapController!.style.removeStyleSource("route-source");
+      }
+    } catch (e) {
+      debugPrint('Error removing existing route layers: $e');
+    }
+  }
+
+  /// Fallback method - show error message if LineLayer fails
+  Future<void> _fallbackToAnnotationMethod(MapboxRoute route) async {
+    debugPrint(
+        'LineLayer failed - no fallback available. Route not displayed.');
+    // Could show a user-friendly error message here if needed
   }
 
   /// Smooth polyline points for better curve representation (Waze-style)
@@ -310,11 +653,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> clearRoutePolyline() async {
-    await polylineAnnotationManager?.deleteAll();
+    // Clear professional LineLayer routes
+    await _removeRouteLayer();
+
+    // Clear route markers
     await pointAnnotationManager?.deleteAll();
 
     // Clear stored polyline data
-    _currentPolylineEncodedString = null;
+    // Using LineLayer instead of encoded polylines
     _currentPolylinePoints = null;
   }
 
@@ -474,7 +820,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 3, // More frequent updates for real-time banner updates
+      distanceFilter: 10, // Reduced frequency to stabilize ETA calculations
     );
 
     _userPositionStream?.cancel();
@@ -539,12 +885,15 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         navigationBloc
             .add(NavigationPositionUpdated(position: processedPosition));
 
+        // Notify implementing class of position update
+        onPositionUpdate(processedPosition);
+
         // Update map camera if following user
         if (_mapboxMapController != null && _isFollowingUser) {
           updateMapCamera(processedPosition);
         }
       },
-      onError: (error) {
+      onError: (Object error) {
         debugPrint('Position stream error: $error');
       },
     );
@@ -586,7 +935,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           center: mp.Point(
             coordinates: mp.Position(position.longitude, position.latitude),
           ),
-          zoom: 18.0,
+          zoom: 17.0, // Reduced from 18.0 to prevent super zoom
           bearing: position.heading, // Follow user's heading direction
           pitch: 0.0, // Flat view like Waze, no 3D tilt
         ),
@@ -655,64 +1004,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Update polyline width based on current zoom level
   void _updatePolylineWidth() async {
-    if (polylineAnnotationManager == null || _currentPolylinePoints == null)
-      return;
-
-    try {
-      // Calculate new width
-      final newWidth = await _getAdaptiveLineWidth();
-
-      // Only update if width actually changed significantly
-      if ((newWidth - _lastPolylineWidth).abs() < 1.0) {
-        return; // Skip update if width change is minimal
-      }
-
-      // Only update if we have polyline data stored
-      if (_currentPolylinePoints != null &&
-          _currentPolylinePoints!.isNotEmpty) {
-        // Clear existing polylines quickly
-        await polylineAnnotationManager!.deleteAll();
-
-        // Apply smoothing to stored points
-        final smoothedPoints = _smoothPolylinePoints(_currentPolylinePoints!);
-        final List<mp.Position> geometry = smoothedPoints
-            .map((p) => mp.Position(p.longitude, p.latitude))
-            .toList();
-
-        // Recreate main polyline with new width
-        await polylineAnnotationManager!.create(
-          mp.PolylineAnnotationOptions(
-            geometry: mp.LineString(coordinates: geometry),
-            lineColor: 0xFFFF0000, // Keep original red color
-            lineWidth: newWidth,
-            lineOpacity: 0.9,
-            lineJoin: mp.LineJoin.ROUND,
-            // lineCap: mp.LineCap.ROUND,
-            lineBlur: 0.5,
-          ),
-        );
-
-        // Recreate border polyline with new width
-        await polylineAnnotationManager!.create(
-          mp.PolylineAnnotationOptions(
-            geometry: mp.LineString(coordinates: geometry),
-            lineColor: 0xFFCC0000, // Darker red border
-            lineWidth: newWidth + 2.0,
-            lineOpacity: 0.6,
-            lineJoin: mp.LineJoin.ROUND,
-            // lineCap: mp.LineCap.ROUND,
-          ),
-        );
-
-        // Update markers with adaptive sizing
-        await _updateMarkersForZoom();
-
-        // Update last width to prevent unnecessary future updates
-        _lastPolylineWidth = newWidth;
-      }
-    } catch (e) {
-      debugPrint('Error updating polyline width: $e');
-    }
+    // LineLayer automatically handles width updates via expressions
+    // No manual width updates needed - zoom-based styling is built into the layer
+    debugPrint('LineLayer handles width automatically via zoom expressions');
   }
 
   /// Update markers with adaptive sizing for current zoom level
@@ -734,10 +1028,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  /// Manually trigger polyline width update (can be called when user manually zooms)
-  void updatePolylineWidthForZoom() {
-    _updatePolylineWidth();
-  }
+  // Removed: LineLayer handles zoom-based width automatically
 
   /// Force immediate navigation zoom without delays
   void forceNavigationZoom() async {
@@ -754,7 +1045,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             coordinates: mp.Position(
                 currentPosition.longitude, currentPosition.latitude),
           ),
-          zoom: 18.0, // Navigation zoom level
+          zoom: 17.0, // Reduced navigation zoom level to prevent super zoom
           bearing: currentPosition.heading,
           pitch: 0.0,
         ),
@@ -769,9 +1060,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   /// Initialize snap-to-road service with route data
-  void initializeSnapToRoad(DirectionsRoute route) {
-    debugPrint('Initializing snap-to-road with route');
-    _snapToRoadService.setRoute(route);
+  void initializeSnapToRoad(MapboxRoute route) {
+    debugPrint('Initializing snap-to-road with Mapbox route');
+    // Note: You may need to update SnapToRoadService to handle MapboxRoute
+    // or create a conversion method
+    _snapToRoadService.setMapboxRoute(route);
   }
 
   /// Clear snap-to-road service
@@ -869,32 +1162,44 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Setup location puck with custom image
   Future<void> _setupLocationPuck() async {
-    final locationPuckBytes = await _loadLocationPuckImage();
+    try {
+      final locationPuckBytes = await _loadLocationPuckImage();
 
-    await _mapboxMapController?.location.updateSettings(
-      mp.LocationComponentSettings(
-        enabled: true,
-        puckBearingEnabled: true,
-        puckBearing: mp.PuckBearing.COURSE,
-        locationPuck: mp.LocationPuck(
-          locationPuck2D: mp.LocationPuck2D(
-            topImage: locationPuckBytes,
-            scaleExpression: json.encode([
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              10.0,
-              1.0,
-              20.0,
-              1.0
-            ]),
+      await _mapboxMapController?.location.updateSettings(
+        mp.LocationComponentSettings(
+          enabled: true,
+          puckBearingEnabled: true,
+          puckBearing: mp.PuckBearing.COURSE,
+          locationPuck: mp.LocationPuck(
+            locationPuck2D: mp.LocationPuck2D(
+              topImage: locationPuckBytes,
+              scaleExpression: json.encode([
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                10.0,
+                1.0,
+                20.0,
+                1.0
+              ]),
+            ),
           ),
+          pulsingColor: 0xFF4285F4, // Blue for default mode
+          pulsingEnabled: true,
+          showAccuracyRing: false,
         ),
-        pulsingColor: 0xFFFF0000,
-        pulsingEnabled: true,
-        showAccuracyRing: false,
-      ),
-    );
+      );
+    } catch (e) {
+      debugPrint('Error setting up location puck: $e');
+      // Fallback to default location puck
+      await _mapboxMapController?.location.updateSettings(
+        mp.LocationComponentSettings(
+          enabled: true,
+          puckBearingEnabled: true,
+          puckBearing: mp.PuckBearing.COURSE,
+        ),
+      );
+    }
   }
 
   @override
@@ -903,6 +1208,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _cameraResetTimer?.cancel();
     _cameraUpdateTimer?.cancel();
     _polylineUpdateTimer?.cancel();
+    reportAnnotationManager?.deleteAll(); // Clean up report markers
     _mapboxMapController?.dispose();
     super.dispose();
   }

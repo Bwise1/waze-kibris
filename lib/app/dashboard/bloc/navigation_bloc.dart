@@ -1,8 +1,8 @@
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:waze_kibris/app/dashboard/view/navigation_utils.dart';
-import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
+import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
+import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 
 part 'navigation_event.dart';
 part 'navigation_state.dart';
@@ -25,8 +25,8 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       currentStep: firstStep,
       currentStepIndex: 0,
       currentLegIndex: 0,
-      remainingDistance: event.route.legs.first.distance.value,
-      remainingDuration: event.route.legs.first.duration.value,
+      remainingDistance: event.route.distance, // Mapbox uses double directly
+      remainingDuration: event.route.duration, // Mapbox uses double directly
       isOverviewVisible: false,
     ));
   }
@@ -78,12 +78,12 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     final currentStep = state.currentStep;
     final allSteps = state.route.legs[state.currentLegIndex].steps;
 
-    // Calculate distance to next maneuver using NavigationUtils
+    // Calculate distance to next maneuver using MapboxNavigationUtils
     double distanceToNextManeuver = Geolocator.distanceBetween(
       position.latitude,
       position.longitude,
-      currentStep.endLoc.lat,
-      currentStep.endLoc.lng,
+      currentStep.maneuver.location[1], // lat
+      currentStep.maneuver.location[0], // lng
     );
 
     // For better accuracy, calculate distance to the actual next maneuver point
@@ -92,8 +92,8 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       distanceToNextManeuver = Geolocator.distanceBetween(
         position.latitude,
         position.longitude,
-        nextStep.startLoc.lat,
-        nextStep.startLoc.lng,
+        nextStep.maneuver.location[1], // lat
+        nextStep.maneuver.location[0], // lng
       );
     }
 
@@ -106,22 +106,22 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       allSteps,
     );
 
-    // Calculate remaining route distance and time using NavigationUtils
-    final remainingDistance = NavigationUtils.calculateRemainingDistance(
+    // Calculate remaining route distance and time using MapboxNavigationUtils
+    final remainingDistance = MapboxNavigationUtils.calculateRemainingDistance(
       position,
       currentStep,
       allSteps,
       state.currentStepIndex,
-    ).round();
+    );
 
-    final remainingDuration = NavigationUtils.calculateRemainingTime(
-      remainingDistance.toDouble(),
+    final remainingDuration = MapboxNavigationUtils.calculateRemainingTime(
+      remainingDistance,
       position.speed, // Current speed in m/s
       allSteps.sublist(state.currentStepIndex + 1),
     );
 
     // Enhanced off-route detection
-    final isOffRoute = NavigationUtils.isOffRoute(position, currentStep) &&
+    final isOffRoute = MapboxNavigationUtils.isOffRoute(position, currentStep) &&
         !state.isRerouting; // Don't trigger if already rerouting
 
     // Enhanced destination reached detection
@@ -136,7 +136,7 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     // Create updated state
     NavigationInProgress updatedState = state.copyWith(
       userPosition: position,
-      distanceToNextManeuver: distanceToNextManeuver.round(),
+      distanceToNextManeuver: distanceToNextManeuver,
       remainingDistance: remainingDistance,
       remainingDuration: remainingDuration,
       isNavigationComplete: isDestinationReached,
@@ -155,13 +155,13 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
 
   bool _shouldAdvanceToNextStep(
     Position position,
-    DirectionsStep currentStep,
+    MapboxStep currentStep,
     double distanceToNextManeuver,
     int currentStepIndex,
-    List<DirectionsStep> allSteps,
+    List<MapboxStep> allSteps,
   ) {
     // Primary condition: within threshold distance
-    if (distanceToNextManeuver > NavigationUtils.stepAdvanceThreshold) {
+    if (distanceToNextManeuver > MapboxNavigationUtils.stepAdvanceThreshold) {
       return false;
     }
 
@@ -171,16 +171,16 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       final distanceToNextStepEnd = Geolocator.distanceBetween(
         position.latitude,
         position.longitude,
-        nextStep.endLoc.lat,
-        nextStep.endLoc.lng,
+        nextStep.maneuver.location[1], // lat
+        nextStep.maneuver.location[0], // lng
       );
 
       // Only advance if we're closer to the next step's end than to current step's end
       final distanceToCurrentStepEnd = Geolocator.distanceBetween(
         position.latitude,
         position.longitude,
-        currentStep.endLoc.lat,
-        currentStep.endLoc.lng,
+        currentStep.maneuver.location[1], // lat
+        currentStep.maneuver.location[0], // lng
       );
 
       return distanceToNextStepEnd < distanceToCurrentStepEnd;
@@ -191,9 +191,9 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
 
   bool _isDestinationReached(
     Position position,
-    DirectionsStep currentStep,
+    MapboxStep currentStep,
     int currentStepIndex,
-    List<DirectionsStep> allSteps,
+    List<MapboxStep> allSteps,
     double distanceToNextManeuver,
   ) {
     // Only check for destination if we're on the last step
@@ -206,11 +206,11 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     final distanceToDestination = Geolocator.distanceBetween(
       position.latitude,
       position.longitude,
-      finalStep.endLoc.lat,
-      finalStep.endLoc.lng,
+      finalStep.maneuver.location[1], // lat
+      finalStep.maneuver.location[0], // lng
     );
 
-    return distanceToDestination < NavigationUtils.destinationReachedThreshold;
+    return distanceToDestination < MapboxNavigationUtils.destinationReachedThreshold;
   }
 
   NavigationInProgress _advanceStep(NavigationInProgress state) {

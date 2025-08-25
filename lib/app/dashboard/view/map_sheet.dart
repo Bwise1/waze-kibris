@@ -13,13 +13,12 @@ import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
-import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
+import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart';
 import 'package:waze_kibris/core/models/location/recent_location.dart';
 
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/di.dart';
- 
 
 class MapSheet extends StatefulWidget {
   const MapSheet({
@@ -27,7 +26,7 @@ class MapSheet extends StatefulWidget {
     required this.context,
     this.onSearchedDestination,
     this.onSuggestionSelected,
-    this.onDrawPolyline,
+    this.onDrawMapboxPolyline,
     this.onStartNavigation,
     super.key,
   });
@@ -36,8 +35,8 @@ class MapSheet extends StatefulWidget {
   final ValueChanged<LatLng>? onSearchedDestination;
   final ValueChanged<SearchSuggestion>? onSuggestionSelected;
   final BuildContext context;
-  final void Function(String encodedPolyline)? onDrawPolyline;
-  final void Function(DirectionsRoute route)? onStartNavigation;
+  final void Function(MapboxRoute route)? onDrawMapboxPolyline;
+  final void Function(MapboxRoute route)? onStartNavigation;
 
   @override
   State<MapSheet> createState() => _MapSheetState();
@@ -58,6 +57,8 @@ class _MapSheetState extends State<MapSheet> {
   bool getLocationLoading = false;
   List<RecentLocation> _recentLocations = [];
   bool _recentLocationsLoading = false;
+  List<SavedLocations> _savedLocations = [];
+  bool _savedLocationsLoading = false;
   int _buildCounter = 0;
   int _recentBuildCounter = 0;
   @override
@@ -146,7 +147,6 @@ class _MapSheetState extends State<MapSheet> {
         address: details.formattedAddress,
         distanceKm: suggestion.distanceMeters / 1000,
         onSave: () async {
-
           await showModalBottomSheet(
             context: widget.context,
             isScrollControlled: true,
@@ -167,10 +167,13 @@ class _MapSheetState extends State<MapSheet> {
           final position = await Geolocator.getCurrentPosition();
 
           try {
-            final directions = await _placesService.fetchGoogleDirections(
+            final directions = await _placesService.fetchMapboxDirections(
               originLat: position.latitude,
               originLng: position.longitude,
-              destinationPlaceId: details.placeId,
+              destinationLat: details.lat,
+              destinationLng: details.lng,
+              profile: 'driving-traffic', // Use traffic-aware routing
+              alternatives: true, // Get route alternatives
             );
 
             Navigator.of(contxt).pop();
@@ -178,11 +181,12 @@ class _MapSheetState extends State<MapSheet> {
                 'Directions fetched: ${directions.routes.length} routes');
 
             if (directions.routes.isNotEmpty) {
-              // Draw the first route by default
-              final String encodedPolyline =
-                  directions.routes.first.overviewPolyline.points;
-
-              widget.onDrawPolyline?.call(encodedPolyline);
+              // Draw the first route (recommended) by default using Mapbox geometry
+              final firstRoute = directions.routes.first;
+              // Convert Mapbox coordinates to encoded polyline if needed, or pass geometry directly
+              final coordinates = firstRoute.geometry.coordinates;
+              // Draw the first route polyline
+              widget.onDrawMapboxPolyline?.call(firstRoute);
 
               // Show route selection with consistent distance display
               await showModalBottomSheet(
@@ -194,15 +198,11 @@ class _MapSheetState extends State<MapSheet> {
                   placeDetails: details, // Pass place details
                   onRouteSelected: (selectedRoute) {
                     // Always redraw polyline when route is selected
-                    widget.onDrawPolyline?.call(
-                      selectedRoute.overviewPolyline.points,
-                    );
+                    widget.onDrawMapboxPolyline?.call(selectedRoute);
                   },
                   onStartNavigation: (selectedRoute) {
                     // Ensure polyline is drawn before starting navigation
-                    widget.onDrawPolyline?.call(
-                      selectedRoute.overviewPolyline.points,
-                    );
+                    widget.onDrawMapboxPolyline?.call(selectedRoute);
 
                     // Recent location saving is now handled in RouteSelectionSheet
                     widget.onStartNavigation?.call(selectedRoute);
@@ -256,7 +256,6 @@ class _MapSheetState extends State<MapSheet> {
         distanceKm: suggestion.distanceMeters / 1000,
         showOnlySaveShareAction: true,
         onSave: () async {
-
           Navigator.of(contxt).pop();
           context.read<ReportsBloc>().add(
                 ReportsEvent.saveLocation(
@@ -323,6 +322,13 @@ class _MapSheetState extends State<MapSheet> {
               _recentLocationsLoading = true;
               _recentBuildCounter++;
             });
+          } else if (state is GetSavedLocationsSuccess) {
+            debugPrint(
+                '🏠 UI: BlocListener - Saved locations updated: ${state.data.length} items');
+            setState(() {
+              _savedLocations = state.data;
+              _savedLocationsLoading = false;
+            });
           }
         },
         child: Sheet(
@@ -373,543 +379,549 @@ class _MapSheetState extends State<MapSheet> {
                             color: barColor,
                             alignment: Alignment.center,
                           ),
-                  
-                    
-  Expanded(
-                        child: ListView(
-                          shrinkWrap: true,
-                          primary: true,
-                          physics: const BouncingScrollPhysics(),
-                          children: [
-                            Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: styles.insets.md,
-                                vertical: styles.insets.sm,
-                              ),
-                              child: Column(
-                                children: [
-                                  // Current location pill
-                                  Container(
-                                    margin:
-                                        const EdgeInsets.symmetric(vertical: 8),
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 16, vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: styles.theme.background,
-                                      borderRadius: BorderRadius.circular(32),
-                                    ),
+                          Expanded(
+                            child: ListView(
+                              shrinkWrap: true,
+                              primary: true,
+                              physics: const BouncingScrollPhysics(),
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: styles.insets.md,
+                                    vertical: styles.insets.sm,
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      // Current location pill
+                                      Container(
+                                        margin: const EdgeInsets.symmetric(
+                                            vertical: 8),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 12),
+                                        decoration: BoxDecoration(
+                                          color: styles.theme.background,
+                                          borderRadius:
+                                              BorderRadius.circular(32),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            AppIcon(
+                                              Assets.icons.location,
+                                              color: styles.theme.red,
+                                              size: 18,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'Current location',
+                                              style: styles.typography.t2
+                                                  .textColor(styles.theme.text),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Search bar
+
+                                      CustomSearchBar(
+                                        controller: destinationController,
+                                        onChanged: (v) {
+                                          _onSearchChanged(v);
+                                          if (widget
+                                                  .controller.animation.value <=
+                                              0.3) {
+                                            widget.controller.relativeAnimateTo(
+                                              0.9,
+                                              duration: const Duration(
+                                                  milliseconds: 200),
+                                              curve: Curves.easeOut,
+                                            );
+                                          }
+                                        },
+                                        onClear: () {
+                                          destinationController.clear();
+                                          setState(() {
+                                            _suggestions = [];
+                                          });
+                                        },
+                                        onFocus: () {
+                                          if (widget
+                                                  .controller.animation.value <=
+                                              0.3) {
+                                            widget.controller.relativeAnimateTo(
+                                              0.9,
+                                              duration: const Duration(
+                                                  milliseconds: 200),
+                                              curve: Curves.easeOut,
+                                            );
+                                          }
+                                        },
+                                      ),
+                                      // If suggestions, show only suggestions
+                                      if (_suggestions.isNotEmpty)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 16),
+                                          child: SearchSuggestionList(
+                                            suggestions: _suggestions,
+                                            onTap: (suggestion) {
+                                              _onSuggestionTap(suggestion);
+                                              debugPrint(
+                                                  'Suggestion tapped: ${suggestion.placeId}');
+                                            },
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                // Only show the rest if there are NO suggestions
+                                if (_suggestions.isEmpty) ...[
+                                  Gap(styles.insets.sm),
+                                  CustomHorizontalScroll(
                                     child: Row(
                                       children: [
-                                        AppIcon(
-                                          Assets.icons.location,
-                                          color: styles.theme.red,
-                                          size: 18,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          'Current location',
-                                          style: styles.typography.t2
-                                              .textColor(styles.theme.text),
-                                        ),
+                                        Gap(styles.insets.md),
+
+                                        ///
+                                        //         const Gap(4),
+                                        //         Text(
+                                        //           'Home',
+                                        //           style: styles.typography.t3
+                                        //               .textColor(
+                                        //                   styles.theme.primary)
+                                        //               .medium,
+                                        //         ),
+                                        //       ],
+                                        //     ),
+                                        //   ),
+                                        // ),
                                       ],
                                     ),
                                   ),
-                                  // Search bar
-
-                                  CustomSearchBar(
-                                    controller: destinationController,
-                                    onChanged: (v) {
-                                      _onSearchChanged(v);
-                                      if (widget.controller.animation.value <=
-                                          0.3) {
-                                        widget.controller.relativeAnimateTo(
-                                          0.9,
-                                          duration:
-                                              const Duration(milliseconds: 200),
-                                          curve: Curves.easeOut,
-                                        );
-                                      }
-                                    },
-                                    onClear: () {
-                                      destinationController.clear();
-                                      setState(() {
-                                        _suggestions = [];
-                                      });
-                                    },
-                                    onFocus: () {
-                                      if (widget.controller.animation.value <=
-                                          0.3) {
-                                        widget.controller.relativeAnimateTo(
-                                          0.9,
-                                          duration:
-                                              const Duration(milliseconds: 200),
-                                          curve: Curves.easeOut,
-                                        );
-                                      }
-                                    },
-                                  ),
-                                  // If suggestions, show only suggestions
-                                  if (_suggestions.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 16),
-                                      child: SearchSuggestionList(
-                                        suggestions: _suggestions,
-                                        onTap: (suggestion) {
-                                          _onSuggestionTap(suggestion);
-                                          debugPrint(
-                                              'Suggestion tapped: ${suggestion.placeId}');
-                                        },
-                                      ),
+                                  Gap(styles.insets.md),
+                                  // Saved locations section
+                                  CustomContainer(
+                                    width: context.widthPx,
+                                    height: 290,
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: styles.insets.lg,
                                     ),
-                                ],
-                              ),
-                            ),
-                            // Only show the rest if there are NO suggestions
-                            if (_suggestions.isEmpty) ...[
-                              Gap(styles.insets.sm),
-                              CustomHorizontalScroll(
-                                child: Row(
-                                  children: [
-                                    Gap(styles.insets.md),
-
-                                    ///
-                                    //         const Gap(4),
-                                    //         Text(
-                                    //           'Home',
-                                    //           style: styles.typography.t3
-                                    //               .textColor(
-                                    //                   styles.theme.primary)
-                                    //               .medium,
-                                    //         ),
-                                    //       ],
-                                    //     ),
-                                    //   ),
-                                    // ),
-                                  ],
-                                ),
-                              ),
-                              Gap(styles.insets.md),
-                              // Saved locations section
-                              CustomContainer(
-                                width: context.widthPx,
-                                height: 290,
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: styles.insets.lg,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  styles.corners.lg,
-                                ),
-                                color: styles.theme.background,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Gap(styles.insets.md),
-                                    Text(
-                                      'Saved Locations',
-                                      style: styles.typography.h4
-                                          .textColor(styles.theme.text),
+                                    borderRadius: BorderRadius.circular(
+                                      styles.corners.lg,
                                     ),
-                                    Gap(styles.insets.md),
+                                    color: styles.theme.background,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Gap(styles.insets.md),
+                                        Text(
+                                          'Saved Locations',
+                                          style: styles.typography.h4
+                                              .textColor(styles.theme.text),
+                                        ),
+                                        Gap(styles.insets.md),
 
-                                    ///.................................
-                                    ///
-                                    ///
-                                    BlocConsumer<ReportsBloc, ReportState>(
-                                      listener: (context, state) {
-                                        if (state is GetSavedLocationsSuccess &&
-                                            state.data.isEmpty) {
-                                          RSnackBar.error(
-                                            'you have no saved location.',
-                                          ).show(context);
-                                        }
-                                      },
-                                      builder: (context, state) {
-                                        if (state is ReportInitial) {
-                                          return const SizedBox();
+                                        ///.................................
+                                        ///
+                                        ///
+                                        BlocConsumer<ReportsBloc, ReportState>(
+                                          listener: (context, state) {
+                                            if (state
+                                                    is GetSavedLocationsSuccess &&
+                                                state.data.isEmpty) {
+                                              RSnackBar.error(
+                                                'you have no saved location.',
+                                              ).show(context);
+                                            }
+                                          },
+                                          builder: (context, state) {
+                                            if (state is ReportInitial) {
+                                              return const SizedBox();
 
-                                          ///if the state of the bloc is in its initial stage ;
-                                        } else if (state
-                                                is GetSavedLocationsSuccess &&
-                                            state.data.isNotEmpty) {
-                                          final cleanedLocations = filterAddedLocation(state.data );
+                                              ///if the state of the bloc is in its initial stage ;
+                                            } else if (state
+                                                    is GetSavedLocationsSuccess &&
+                                                state.data.isNotEmpty) {
+                                              final cleanedLocations =
+                                                  filterAddedLocation(
+                                                      state.data);
 
-                                            return SizedBox(
-height: 50,width: context.widthPx,
-                                              child: ListView.builder(
-                                                clipBehavior: Clip.none,
-                                                scrollDirection: Axis.horizontal,
-
-                                                itemCount: cleanedLocations .length,
-                                                itemBuilder: (context, index) {
-
-                                                  return Padding(
-                                                    padding: const EdgeInsets
-                                                        .symmetric(
-                                                      horizontal: 20,
-                                                    ),
-                                                    child: Column(
-                                                      mainAxisSize: MainAxisSize.min,
-
-                                                      children: [
-                                                        ProfileActionItemButton(
-                                                          onPressed: () {
-
-                                                            RSnackBar.success(cleanedLocations[index].address).show(context);
-                                                          },
-                                                          isImageFile: true,
-                                                          icon: getIconType(
-                                                            cleanedLocations[index].name,
-                                                          ),
-                                                          title: cleanedLocations[index].name,
-                                                          subTitle: cleanedLocations[index].address??'',
-                                                          semanticLabel:
-                                                              'location-action-btn',
-                                                        )
-                                                        // Padding(
-                                                        //   padding:
-                                                        //       const EdgeInsets
-                                                        //           .symmetric(
-                                                        //     vertical: 8,
-                                                        //   ),
-                                                        //   child: Divider(
-                                                        //     color: styles
-                                                        //         .theme.secondary,
-                                                        //   ),
-                                                        // ),
-                                                      ],
-                                                    )
-                                                  );
-                                                },
-                                              ),
-                                            );
-                                        } else if (state is ReportLoading) {
-                                          return Expanded(
-                                            child: Center(
-                                              child: SizedBox(
-                                                height: 40,
-                                                width: 40,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  color: styles.theme.primary,
+                                              return SizedBox(
+                                                height: 50,
+                                                width: context.widthPx,
+                                                child: ListView.builder(
+                                                  clipBehavior: Clip.none,
+                                                  scrollDirection:
+                                                      Axis.horizontal,
+                                                  itemCount:
+                                                      cleanedLocations.length,
+                                                  itemBuilder:
+                                                      (context, index) {
+                                                    return Padding(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                          horizontal: 20,
+                                                        ),
+                                                        child: Column(
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          children: [
+                                                            ProfileActionItemButton(
+                                                              onPressed: () {
+                                                                RSnackBar.success(
+                                                                        cleanedLocations[index]
+                                                                            .address)
+                                                                    .show(
+                                                                        context);
+                                                              },
+                                                              isImageFile: true,
+                                                              icon: getIconType(
+                                                                cleanedLocations[
+                                                                        index]
+                                                                    .name,
+                                                              ),
+                                                              title:
+                                                                  cleanedLocations[
+                                                                          index]
+                                                                      .name,
+                                                              subTitle: cleanedLocations[
+                                                                          index]
+                                                                      .address ??
+                                                                  '',
+                                                              semanticLabel:
+                                                                  'location-action-btn',
+                                                            )
+                                                            // Padding(
+                                                            //   padding:
+                                                            //       const EdgeInsets
+                                                            //           .symmetric(
+                                                            //     vertical: 8,
+                                                            //   ),
+                                                            //   child: Divider(
+                                                            //     color: styles
+                                                            //         .theme.secondary,
+                                                            //   ),
+                                                            // ),
+                                                          ],
+                                                        ));
+                                                  },
                                                 ),
-                                              ),
-                                            ),
-                                          );
-                                        } else {
-                                          return const Expanded(
-                                            child: SizedBox(),
+                                              );
+                                            } else if (state is ReportLoading) {
+                                              return Expanded(
+                                                child: Center(
+                                                  child: SizedBox(
+                                                    height: 40,
+                                                    width: 40,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                      color:
+                                                          styles.theme.primary,
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            } else {
+                                              return const Expanded(
+                                                child: SizedBox(),
+                                              );
+                                            }
+                                          },
+                                        ),
 
-                                          );
-                                        }
-                                      },
-                                    ),
+                                        ///
 
-
-///
-
-
-                                    BlocConsumer<ReportsBloc, ReportState>(
-                                      listener: (blocContext, state) {
-                                        if (state is SaveLocationSuccess) {
-                                          // print(".......................");
-                                          RSnackBar.success(
-                                            'Location has been  successfully save.',
-                                          ).show(context);
-                                          // Navigator.of(context).pop();
-                                        }
-                                      },
-                                      builder: (context, state)   {
-                                        if (state is GetSavedLocationsSuccess &&
-                                            state.data.isNotEmpty && confirmAddedLocation(state.data,locationType: 'Home')) {
-
-
-
+                                        BlocConsumer<ReportsBloc, ReportState>(
+                                          listener: (blocContext, state) {
+                                            if (state is SaveLocationSuccess) {
+                                              // print(".......................");
+                                              RSnackBar.success(
+                                                'Location has been  successfully save.',
+                                              ).show(context);
+                                              // Navigator.of(context).pop();
+                                            }
+                                          },
+                                          builder: (context, state) {
+                                            if (state
+                                                    is GetSavedLocationsSuccess &&
+                                                state.data.isNotEmpty &&
+                                                confirmAddedLocation(state.data,
+                                                    locationType: 'Home')) {
                                               // pickALocation(state.data,
                                               // locationType: 'Home', )  ;
 
-                                          return ProfileActionItemButton(
-                                            onPressed: () {},
-                                            icon: Assets.icons.homeSmile,
-                                            title: 'Home',
-                                             subTitle: pickedLocationDetail,
-                                            // subTitle: pickedLocationDetail,
-                                            semanticLabel: 'add-home-btn',
-                                          );
-                                        } else {
-
-                                          return Row(
-                                            children: [
-                                              ProfileActionItemButton(
-                                                onPressed: (state
-                                                        is SaveLocationLoading)
-                                                    ? () {}
-                                                    : () async {
-                                                        await showModalBottomSheet(
-                                                          context:
-                                                              widget.context,
-                                                          isScrollControlled:
-                                                              true,
-                                                          backgroundColor:
-                                                              Colors
-                                                                  .transparent,
-                                                          builder: (modalContext) =>
-                                                              AddALocationBySuggestionSearch(
-                                                            onSuggestionTap:
-                                                                (suggestion) {
-                                                              Navigator.of(
-                                                                      modalContext)
-                                                                  .pop();
-                                                              _onSaveASpecificLocation(
-                                                                suggestion,
-                                                                locationName:
-                                                                    'Home',
-                                                              );
-                                                            },
-                                                          ),
-                                                        );
-                                                      },
+                                              return ProfileActionItemButton(
+                                                onPressed: () {},
                                                 icon: Assets.icons.homeSmile,
-                                                title: 'Add Home',
+                                                title: 'Home',
+                                                subTitle: pickedLocationDetail,
+                                                // subTitle: pickedLocationDetail,
                                                 semanticLabel: 'add-home-btn',
-                                              ),
-                                              Gap(styles.insets.md),
-                                              // if (state
-                                              //     is SaveLocationLoading) ...[
-                                              //   const SizedBox(
-                                              //     height: 15,
-                                              //     width: 15,
-                                              //     child: CustomLoader(),
-                                              //   ),
-                                              // ],
-                                            ],
-                                          );
-                                        }
-                                        // SaveLocationLoading
-                                      },
-                                    ),
+                                              );
+                                            } else {
+                                              return Row(
+                                                children: [
+                                                  ProfileActionItemButton(
+                                                    onPressed: (state
+                                                            is SaveLocationLoading)
+                                                        ? () {}
+                                                        : () async {
+                                                            await showModalBottomSheet(
+                                                              context: widget
+                                                                  .context,
+                                                              isScrollControlled:
+                                                                  true,
+                                                              backgroundColor:
+                                                                  Colors
+                                                                      .transparent,
+                                                              builder:
+                                                                  (modalContext) =>
+                                                                      AddALocationBySuggestionSearch(
+                                                                onSuggestionTap:
+                                                                    (suggestion) {
+                                                                  Navigator.of(
+                                                                          modalContext)
+                                                                      .pop();
+                                                                  _onSaveASpecificLocation(
+                                                                    suggestion,
+                                                                    locationName:
+                                                                        'Home',
+                                                                  );
+                                                                },
+                                                              ),
+                                                            );
+                                                          },
+                                                    icon:
+                                                        Assets.icons.homeSmile,
+                                                    title: 'Add Home',
+                                                    semanticLabel:
+                                                        'add-home-btn',
+                                                  ),
+                                                  Gap(styles.insets.md),
+                                                  // if (state
+                                                  //     is SaveLocationLoading) ...[
+                                                  //   const SizedBox(
+                                                  //     height: 15,
+                                                  //     width: 15,
+                                                  //     child: CustomLoader(),
+                                                  //   ),
+                                                  // ],
+                                                ],
+                                              );
+                                            }
+                                            // SaveLocationLoading
+                                          },
+                                        ),
 
-                                    Gap(styles.insets.md),
+                                        Gap(styles.insets.md),
 
-
-                                    ///action item for work
-                                    BlocConsumer<ReportsBloc, ReportState>(
-                                      listener: (blocContext, state) {
-                                        if (state is SaveLocationSuccess) {
-                                          // print(".......................");
-                                          RSnackBar.success(
-                                            'Location has been  successfully save.',
-                                          ).show(context);
-                                          // Navigator.of(context).pop();
-                                        }
-                                      },
-                                      builder: (context, state) {
-                                        if (state is GetSavedLocationsSuccess &&
-                                            state.data.isNotEmpty && confirmAddedLocation(state.data,locationType: 'Work')) {
+                                        ///action item for work
+                                        BlocConsumer<ReportsBloc, ReportState>(
+                                          listener: (blocContext, state) {
+                                            if (state is SaveLocationSuccess) {
+                                              // print(".......................");
+                                              RSnackBar.success(
+                                                'Location has been  successfully save.',
+                                              ).show(context);
+                                              // Navigator.of(context).pop();
+                                            }
+                                          },
+                                          builder: (context, state) {
+                                            if (state
+                                                    is GetSavedLocationsSuccess &&
+                                                state.data.isNotEmpty &&
+                                                confirmAddedLocation(state.data,
+                                                    locationType: 'Work')) {
 // String wrkAddress='';
-                                        ///
+                                              ///
 //                                           pickALocation(state.data,
 //                                               locationType: 'Work',onFindAddressCallBack: (s){
 //                                             print('found address');
 //                                             print(s);
 //                                               } );
 
-                                          return ProfileActionItemButton(
-                                            onPressed: () {},
-                                            icon: Assets.icons.briefcaseSvg,
-                                            title: 'Work',
-                                            subTitle: 'wrkAddress',
-                                            semanticLabel: 'add-work-btn',
-                                          );
-                                        } else {
-
-                                          return Row(
-                                            children: [
-                                              ProfileActionItemButton(
-                                                onPressed: (state
-                                                        is SaveLocationLoading)
-                                                    ? () {}
-                                                    : () async {
-                                                        await showModalBottomSheet(
-                                                          context:
-                                                              widget.context,
-                                                          isScrollControlled:
-                                                              true,
-                                                          backgroundColor:
-                                                              Colors
-                                                                  .transparent,
-                                                          builder: (modalContext) =>
-                                                              AddALocationBySuggestionSearch(
-                                                            onSuggestionTap:
-                                                                (suggestion) {
-                                                              Navigator.of(
-                                                                      modalContext)
-                                                                  .pop();
-                                                              _onSaveASpecificLocation(
-                                                                suggestion,
-                                                                locationName:
-                                                                    'Home',
-                                                              );
-                                                            },
-                                                          ),
-                                                        );
-                                                      },
-                                                icon: Assets.icons.homeSmile,
-                                                title: 'Add Home',
-                                                semanticLabel: 'add-home-btn',
-                                              ),
-                                              Gap(styles.insets.md),
-                                              // if (state
-                                              //     is SaveLocationLoading) ...[
-                                              //   const SizedBox(
-                                              //     height: 15,
-                                              //     width: 15,
-                                              //     child: CustomLoader(),
-                                              //   ),
-                                              // ],
-                                            ],
-                                          );
-                                        }
-                                        // SaveLocationLoading
-                                      },
-                                    ),
-
-                                    Gap(styles.insets.md),
-                                    Row(
-                                      children: [
-                                        ProfileActionItemButton(
-                                          onPressed: () async {
-
-                                            // await showModalBottomSheet(
-                                            //   context: widget.context,
-                                            //   isScrollControlled: true,
-                                            //   backgroundColor:
-                                            //   Colors.transparent,
-                                            //   builder: (modalContext) =>
-                                            //       SelectAndSaveLocation(
-                                            //         position: LatLng(
-                                            //           6.0576611,
-                                            //           5.5200967,
-                                            //         ),
-                                            //         placeId:
-                                            //         'ChIJz2rkqFq9QRARJcRyisb-OQs',
-                                            //       ),
-                                            // );
-
-                                            setState(() {
-                                              getLocationLoading = true;
-                                            });
-
-                                            setState(() {
-                                              getLocationLoading = false;
-                                            });
-
-                                            await showModalBottomSheet(
-                                              context: widget.context,
-                                              isScrollControlled: true,
-                                              backgroundColor:
-                                                  Colors.transparent,
-                                              builder: (modalContext) =>
-                                                  AddALocationBySuggestionSearch(
-                                                onSuggestionTap:
-                                                    (suggestion) async {
-                                                  final details =
-                                                      await _placesService
-                                                          .fetchGooglePlace(
-                                                              suggestion
-                                                                  .placeId);
-                                                  Navigator.of(
-                                                    modalContext,
-                                                  ).pop();
-
-                                                  await showModalBottomSheet(
-                                                    context: widget.context,
-                                                    isScrollControlled: true,
-                                                    backgroundColor:
-                                                        Colors.transparent,
-                                                    builder: (modalContext) =>
-                                                        SelectAndSaveLocation(
-                                                      position: LatLng(
-                                                        details.lat,
-                                                        details.lng,
-                                                      ),
-                                                      placeId:
-                                                          suggestion.placeId,
-                                                    ),
-                                                  );
-                                                },
-                                              ),
-                                            );
+                                              return ProfileActionItemButton(
+                                                onPressed: () {},
+                                                icon: Assets.icons.briefcaseSvg,
+                                                title: 'Work',
+                                                subTitle: 'wrkAddress',
+                                                semanticLabel: 'add-work-btn',
+                                              );
+                                            } else {
+                                              return Row(
+                                                children: [
+                                                  ProfileActionItemButton(
+                                                    onPressed: (state
+                                                            is SaveLocationLoading)
+                                                        ? () {}
+                                                        : () async {
+                                                            await showModalBottomSheet(
+                                                              context: widget
+                                                                  .context,
+                                                              isScrollControlled:
+                                                                  true,
+                                                              backgroundColor:
+                                                                  Colors
+                                                                      .transparent,
+                                                              builder:
+                                                                  (modalContext) =>
+                                                                      AddALocationBySuggestionSearch(
+                                                                onSuggestionTap:
+                                                                    (suggestion) {
+                                                                  Navigator.of(
+                                                                          modalContext)
+                                                                      .pop();
+                                                                  _onSaveASpecificLocation(
+                                                                    suggestion,
+                                                                    locationName:
+                                                                        'Home',
+                                                                  );
+                                                                },
+                                                              ),
+                                                            );
+                                                          },
+                                                    icon:
+                                                        Assets.icons.homeSmile,
+                                                    title: 'Add Home',
+                                                    semanticLabel:
+                                                        'add-home-btn',
+                                                  ),
+                                                  Gap(styles.insets.md),
+                                                  // if (state
+                                                  //     is SaveLocationLoading) ...[
+                                                  //   const SizedBox(
+                                                  //     height: 15,
+                                                  //     width: 15,
+                                                  //     child: CustomLoader(),
+                                                  //   ),
+                                                  // ],
+                                                ],
+                                              );
+                                            }
+                                            // SaveLocationLoading
                                           },
-                                          icon: Assets.icons.plusSvg,
-                                          title: 'Add new location',
-                                          semanticLabel: 'add-action-btn',
                                         ),
-                                        // if (getLocationLoading) ...[
-                                        //   Gap(10),
-                                        //   SizedBox(
-                                        //       height: 15,
-                                        //       width: 15,
-                                        //       child: CustomLoader())
-                                        // ],
+
+                                        Gap(styles.insets.md),
+                                        Row(
+                                          children: [
+                                            ProfileActionItemButton(
+                                              onPressed: () async {
+                                                // await showModalBottomSheet(
+                                                //   context: widget.context,
+                                                //   isScrollControlled: true,
+                                                //   backgroundColor:
+                                                //   Colors.transparent,
+                                                //   builder: (modalContext) =>
+                                                //       SelectAndSaveLocation(
+                                                //         position: LatLng(
+                                                //           6.0576611,
+                                                //           5.5200967,
+                                                //         ),
+                                                //         placeId:
+                                                //         'ChIJz2rkqFq9QRARJcRyisb-OQs',
+                                                //       ),
+                                                // );
+
+                                                setState(() {
+                                                  getLocationLoading = true;
+                                                });
+
+                                                setState(() {
+                                                  getLocationLoading = false;
+                                                });
+
+                                                await showModalBottomSheet(
+                                                  context: widget.context,
+                                                  isScrollControlled: true,
+                                                  backgroundColor:
+                                                      Colors.transparent,
+                                                  builder: (modalContext) =>
+                                                      AddALocationBySuggestionSearch(
+                                                    onSuggestionTap:
+                                                        (suggestion) async {
+                                                      final details =
+                                                          await _placesService
+                                                              .fetchGooglePlace(
+                                                                  suggestion
+                                                                      .placeId);
+                                                      Navigator.of(
+                                                        modalContext,
+                                                      ).pop();
+
+                                                      await showModalBottomSheet(
+                                                        context: widget.context,
+                                                        isScrollControlled:
+                                                            true,
+                                                        backgroundColor:
+                                                            Colors.transparent,
+                                                        builder: (modalContext) =>
+                                                            SelectAndSaveLocation(
+                                                          position: LatLng(
+                                                            details.lat,
+                                                            details.lng,
+                                                          ),
+                                                          placeId: suggestion
+                                                              .placeId,
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
+                                                );
+                                              },
+                                              icon: Assets.icons.plusSvg,
+                                              title: 'Add new location',
+                                              semanticLabel: 'add-action-btn',
+                                            ),
+                                            // if (getLocationLoading) ...[
+                                            //   Gap(10),
+                                            //   SizedBox(
+                                            //       height: 15,
+                                            //       width: 15,
+                                            //       child: CustomLoader())
+                                            // ],
+                                          ],
+                                        ),
+                                        Gap(styles.insets.md),
                                       ],
                                     ),
-                                    Gap(styles.insets.md),
-                                  ],
-                                ),
-                              ),
-                              Gap(styles.insets.md),
-                              // Recent locations section
-                              CustomContainer(
-                                width: context.widthPx,
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: styles.insets.lg,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  styles.corners.lg,
-                                ),
-                                color: styles.theme.background,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Gap(styles.insets.md),
-                                    Text(
-                                      'Recent Locations',
-                                      style: styles.typography.h4
-                                          .textColor(styles.theme.text),
+                                  ),
+                                  Gap(styles.insets.md),
+                                  // Recent locations section
+                                  CustomContainer(
+                                    width: context.widthPx,
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: styles.insets.lg,
                                     ),
-                                    Gap(styles.insets.md),
-                                    ProfileActionItemButton(
-                                      onPressed: () {},
-                                      icon: Assets.icons.homeSmile,
-                                      title: 'Recent Place 1',
-                                      subTitle: 'Address',
-                                      semanticLabel: 'recent-1-btn',
+                                    borderRadius: BorderRadius.circular(
+                                      styles.corners.lg,
                                     ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Divider(
-                                        color: styles.theme.secondary,
-                                      ),
+                                    color: styles.theme.background,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Gap(styles.insets.md),
+                                        Text(
+                                          'Recent Locations',
+                                          style: styles.typography.h4
+                                              .textColor(styles.theme.text),
+                                        ),
+                                        Gap(styles.insets.md),
+                                        // Use the actual recent locations widget instead of hardcoded data
+                                        _RecentLocationsWidget(
+                                          locations: _recentLocations,
+                                          isLoading: _recentLocationsLoading,
+                                          buildCounter: _recentBuildCounter,
+                                        ),
+                                        Gap(styles.insets.md),
+                                      ],
                                     ),
-                                    ProfileActionItemButton(
-                                      icon: Assets.icons.briefcaseSvg,
-                                      title: 'Recent Place 2',
-                                      subTitle: 'Address',
-                                      semanticLabel: 'recent-2-btn',
-                                    ),
-                                    Gap(styles.insets.md),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-
-
-
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -921,11 +933,7 @@ height: 50,width: context.widthPx,
         ));
   }
 
-
-
-
   String pickedLocationDetail = '';
-
 
 //   Future<GooglePlaceDetails> pickALocation(List<SavedLocations> locations,
 //       {required String locationType, ValueChanged<String>?  onFindAddressCallBack})   async {
@@ -960,29 +968,22 @@ height: 50,width: context.widthPx,
 //
 //   }
 
-
-
-  List<SavedLocations> filterAddedLocation(List<SavedLocations> locations,
-       )   {
+  List<SavedLocations> filterAddedLocation(
+    List<SavedLocations> locations,
+  ) {
     final savedLocations = <SavedLocations>[];
     final nameTypeChecker = <String>[];
 
     for (final e in locations) {
-
-      if (nameTypeChecker.contains(e.name) ==false &&   e.placeId!=null ) {
+      if (nameTypeChecker.contains(e.name) == false && e.placeId != null) {
         savedLocations.add(e);
         nameTypeChecker.add(e.name);
       }
       // return savedLocations;
     }
 
-
-
     return savedLocations;
   }
-
-
-
 
   String getIconType(String type) {
     if (type == 'Home') {
@@ -999,14 +1000,14 @@ height: 50,width: context.widthPx,
     }
     if (type == 'Food') {
       return Assets.icons.food.path;
-    }if (type == 'Work') {
+    }
+    if (type == 'Work') {
       return Assets.icons.briefcasePng.path;
     } else {
       return Assets.icons.globePng.path;
     }
   }
 }
-
 
 class AddALocationBySuggestionSearch extends StatefulWidget {
   const AddALocationBySuggestionSearch({
@@ -1119,7 +1120,6 @@ class _AddALocationBySuggestionSearchState
 //
 class SelectAndSaveLocation extends StatefulWidget {
   const SelectAndSaveLocation(
-
       {super.key, required this.position, required this.placeId});
   final LatLng position;
   final String placeId;
@@ -1129,7 +1129,7 @@ class SelectAndSaveLocation extends StatefulWidget {
 
 class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
   var locationName = '';
-  bool selectTypeOfName=false;
+  bool selectTypeOfName = false;
   final TextEditingController nameTypeController = TextEditingController();
   @override
   Widget build(BuildContext context) {
@@ -1144,7 +1144,7 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
           child: BlocConsumer<ReportsBloc, ReportState>(
             listener: (blocContext, state) {
               if (state is SaveLocationSuccess) {
-                 RSnackBar.success(
+                RSnackBar.success(
                   'Location has been saved successfully.',
                 ).show(context);
                 Navigator.of(context).pop();
@@ -1152,16 +1152,19 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
             },
             builder: (context, state) {
               return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Gap(40),
-                    Text(
-                      (selectTypeOfName==true)? 'Enter a preferred name' : 'Select location name',
-                      style: styles.typography.h3.textColor(styles.theme.text),
-                    ),
-                    const Gap(20),
-                    if(selectTypeOfName==false)...[SizedBox(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Gap(40),
+                  Text(
+                    (selectTypeOfName == true)
+                        ? 'Enter a preferred name'
+                        : 'Select location name',
+                    style: styles.typography.h3.textColor(styles.theme.text),
+                  ),
+                  const Gap(20),
+                  if (selectTypeOfName == false) ...[
+                    SizedBox(
                       height: 100,
                       child: ListView(
                         clipBehavior: Clip.none,
@@ -1169,42 +1172,48 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         children: [
                           const Gap(30),
+
                           ///for home  since there must be just one home saved
                           if (state is GetSavedLocationsSuccess &&
-                              state.data.isNotEmpty && confirmAddedLocation(state.data,locationType: 'Home')==false)...[
-                          LocationItem(
-                            key: UniqueKey(),
-                            onSelect: () {
-                              setState(() {
-                                locationName = 'Home';
-                              });
-
-                            },
-                            image: Assets.icons.homeBg
-                                .image(width: 35, height: 35),
-                            bgImagePath: Assets.icons.homeBg.path,
-                            locationName: 'Home',
-                            isSelected: locationName == 'Home' ? true : false,
-                          )],
+                              state.data.isNotEmpty &&
+                              confirmAddedLocation(state.data,
+                                      locationType: 'Home') ==
+                                  false) ...[
+                            LocationItem(
+                              key: UniqueKey(),
+                              onSelect: () {
+                                setState(() {
+                                  locationName = 'Home';
+                                });
+                              },
+                              image: Assets.icons.homeBg
+                                  .image(width: 35, height: 35),
+                              bgImagePath: Assets.icons.homeBg.path,
+                              locationName: 'Home',
+                              isSelected: locationName == 'Home' ? true : false,
+                            )
+                          ],
 
                           ///for work als  since there must be just one work saved
                           if (state is GetSavedLocationsSuccess &&
-                              state.data.isNotEmpty && confirmAddedLocation(state.data,locationType: 'Work')==false)...[
-                          LocationItem(
-                            key: UniqueKey(),
-                            onSelect: () {
-                              setState(() {
-                                locationName = 'Work';
-                              });
-
-                            },
-                            image: Assets.icons.homeBg
-                                .image(width: 35, height: 35),
-                            bgImagePath: Assets.icons.homeBg.path,
-                            locationName: 'Work',
-                            isSelected: locationName == 'Work' ? true : false,
-                          ),],
-
+                              state.data.isNotEmpty &&
+                              confirmAddedLocation(state.data,
+                                      locationType: 'Work') ==
+                                  false) ...[
+                            LocationItem(
+                              key: UniqueKey(),
+                              onSelect: () {
+                                setState(() {
+                                  locationName = 'Work';
+                                });
+                              },
+                              image: Assets.icons.homeBg
+                                  .image(width: 35, height: 35),
+                              bgImagePath: Assets.icons.homeBg.path,
+                              locationName: 'Work',
+                              isSelected: locationName == 'Work' ? true : false,
+                            ),
+                          ],
 
                           LocationItem(
                               key: UniqueKey(),
@@ -1212,7 +1221,6 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                                 setState(() {
                                   locationName = 'Gas';
                                 });
-
                               },
                               image:
                                   Assets.icons.gas.image(width: 35, height: 35),
@@ -1259,30 +1267,27 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                               isSelected:
                                   locationName == 'Park' ? true : false),
 
-
-
-
                           LocationItem(
-                              key: UniqueKey(),
-                              onSelect: () {
-                                setState(() {
-                                  selectTypeOfName=true;
-                                });
-                              },
-                              image: Assets.icons.plusPng
-                                  .image(width: 35, height: 35),
-                              bgImagePath: Assets.icons.plusPng.path,
-                              locationName: 'Add new',
-                              isSelected:
-                                   false,
+                            key: UniqueKey(),
+                            onSelect: () {
+                              setState(() {
+                                selectTypeOfName = true;
+                              });
+                            },
+                            image: Assets.icons.plusPng
+                                .image(width: 35, height: 35),
+                            bgImagePath: Assets.icons.plusPng.path,
+                            locationName: 'Add new',
+                            isSelected: false,
                           ),
                         ],
                       ),
-                    ),],
-
-                    if(selectTypeOfName==true)...[SizedBox(
+                    ),
+                  ],
+                  if (selectTypeOfName == true) ...[
+                    SizedBox(
                       height: 100,
-                      child:   CustomTextField(
+                      child: CustomTextField(
                         hintText: 'Enter location name ',
                         prefix: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -1306,42 +1311,43 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                         onChanged: (value) {},
                         controller: nameTypeController,
                       ),
-
-
-                    )],
-                    const Gap(50),
-                    PrimaryButton(
-                      textColor: styles.theme.white,
-                      isLoading: state is SaveLocationLoading,
-                      onPressed: () {
-                        if (locationName == '') {
-                          RSnackBar.info(
-                            'Please select a location name to save this location.',
-                          );
-                        } if (selectTypeOfName==true && locationName == '' )  {
-                          context.read<ReportsBloc>().add(
-                                ReportsEvent.saveLocation(
-                                  locationName: nameTypeController.text,
-                                  lat: widget.position.latitude,
-                                  lng: widget.position.longitude,
-                                  placeId: widget.placeId,
-                                ),
-                              );
-                        }else {
-                          context.read<ReportsBloc>().add(
-                                ReportsEvent.saveLocation(
-                                  locationName: locationName,
-                                  lat: widget.position.latitude,
-                                  lng: widget.position.longitude,
-                                  placeId: widget.placeId,
-                                ),
-                              );
-                        }
-                      },
-                      text: 'Save',
-                    ),
-                     Gap((selectTypeOfName==true)?context.heightPx*0.2:5),
-                  ],);
+                    )
+                  ],
+                  const Gap(50),
+                  PrimaryButton(
+                    textColor: styles.theme.white,
+                    isLoading: state is SaveLocationLoading,
+                    onPressed: () {
+                      if (locationName == '') {
+                        RSnackBar.info(
+                          'Please select a location name to save this location.',
+                        );
+                      }
+                      if (selectTypeOfName == true && locationName == '') {
+                        context.read<ReportsBloc>().add(
+                              ReportsEvent.saveLocation(
+                                locationName: nameTypeController.text,
+                                lat: widget.position.latitude,
+                                lng: widget.position.longitude,
+                                placeId: widget.placeId,
+                              ),
+                            );
+                      } else {
+                        context.read<ReportsBloc>().add(
+                              ReportsEvent.saveLocation(
+                                locationName: locationName,
+                                lat: widget.position.latitude,
+                                lng: widget.position.longitude,
+                                placeId: widget.placeId,
+                              ),
+                            );
+                      }
+                    },
+                    text: 'Save',
+                  ),
+                  Gap((selectTypeOfName == true) ? context.heightPx * 0.2 : 5),
+                ],
+              );
             },
           ),
         ),
@@ -1583,18 +1589,20 @@ class _RecentLocationItem extends StatelessWidget {
   }
 }
 
-
-
 ///universal truth
 ///
-bool confirmAddedLocation(List<SavedLocations> locations,
-    {required String locationType,})   {
+bool confirmAddedLocation(
+  List<SavedLocations> locations, {
+  required String locationType,
+}) {
   final savedHome = <SavedLocations>[];
-  var containsLocationType=false;
+  var containsLocationType = false;
   for (final e in locations) {
-    if (e.name.toLowerCase() == locationType.toLowerCase() && e.placeId!=null&& savedHome.isEmpty) {
+    if (e.name.toLowerCase() == locationType.toLowerCase() &&
+        e.placeId != null &&
+        savedHome.isEmpty) {
       savedHome.add(e);
-      containsLocationType=true;
+      containsLocationType = true;
     }
   }
   return containsLocationType;

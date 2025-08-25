@@ -205,6 +205,9 @@ class $AssetsIconsGen {
   /// File path: assets/icons/recent_places.svg
   String get recentPlaces => 'assets/icons/recent_places.svg';
 
+  /// Directory path: assets/icons/reports
+  $AssetsIconsReportsGen get reports => const $AssetsIconsReportsGen();
+
   /// File path: assets/icons/route_logo.svg
   String get routeLogo => 'assets/icons/route_logo.svg';
 
@@ -388,6 +391,22 @@ class $AssetsImagesGen {
         routemap3d,
         splashBackground
       ];
+}
+
+class $AssetsIconsReportsGen {
+  const $AssetsIconsReportsGen();
+
+  /// File path: assets/icons/reports/police.svg
+  String get police => 'assets/icons/reports/police.svg';
+
+  /// File path: assets/icons/reports/road_closure.svg
+  String get roadClosure => 'assets/icons/reports/road_closure.svg';
+
+  /// File path: assets/icons/reports/trafic.svg
+  String get trafic => 'assets/icons/reports/trafic.svg';
+
+  /// List of all assets
+  List<String> get values => [police, roadClosure, trafic];
 }
 
 class Assets {

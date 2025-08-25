@@ -11,15 +11,15 @@ abstract class NavigationState extends Equatable {
 class NavigationInitial extends NavigationState {}
 
 class NavigationInProgress extends NavigationState {
-  final DirectionsRoute route;
-  final DirectionsStep currentStep;
+  final MapboxRoute route;
+  final MapboxStep currentStep;
   final int currentStepIndex;
   final int currentLegIndex;
   final Position? userPosition;
   final bool isOverviewVisible;
-  final int distanceToNextManeuver;
-  final int remainingDistance;
-  final int remainingDuration;
+  final double distanceToNextManeuver;
+  final double remainingDistance;
+  final double remainingDuration;
   final bool isRerouting;
   final bool hasAdvancedStep;
   final bool isNavigationComplete;
@@ -33,7 +33,7 @@ class NavigationInProgress extends NavigationState {
     required this.currentLegIndex,
     this.userPosition,
     this.isOverviewVisible = false,
-    this.distanceToNextManeuver = 0,
+    this.distanceToNextManeuver = 0.0,
     required this.remainingDistance,
     required this.remainingDuration,
     this.isRerouting = false,
@@ -62,15 +62,15 @@ class NavigationInProgress extends NavigationState {
       ];
 
   NavigationInProgress copyWith({
-    DirectionsRoute? route,
-    DirectionsStep? currentStep,
+    MapboxRoute? route,
+    MapboxStep? currentStep,
     int? currentStepIndex,
     int? currentLegIndex,
     Position? userPosition,
     bool? isOverviewVisible,
-    int? distanceToNextManeuver,
-    int? remainingDistance,
-    int? remainingDuration,
+    double? distanceToNextManeuver,
+    double? remainingDistance,
+    double? remainingDuration,
     bool? isRerouting,
     bool? hasAdvancedStep,
     bool? isNavigationComplete,
@@ -98,19 +98,19 @@ class NavigationInProgress extends NavigationState {
 
   // Utility getters for UI
   String get formattedDistanceToManeuver =>
-      NavigationUtils.formatDistance(distanceToNextManeuver);
+      MapboxNavigationUtils.formatDistance(distanceToNextManeuver);
 
   String get formattedRemainingDistance =>
-      NavigationUtils.formatDistance(remainingDistance);
+      MapboxNavigationUtils.formatDistance(remainingDistance);
 
   String get formattedRemainingDuration =>
-      NavigationUtils.formatDuration(remainingDuration);
+      MapboxNavigationUtils.formatDuration(remainingDuration);
 
-  String get formattedETA => NavigationUtils.formatETA(remainingDuration);
+  String get formattedETA => MapboxNavigationUtils.formatETA(remainingDuration);
 
   String get cleanedInstruction =>
-      NavigationUtils.cleanInstruction(currentStep.htmlInstr);
+      MapboxNavigationUtils.cleanInstruction(currentStep.maneuver.instruction);
 
   String? get roadName =>
-      NavigationUtils.extractRoadName(currentStep.htmlInstr);
+      MapboxNavigationUtils.extractRoadName(currentStep.name);
 }

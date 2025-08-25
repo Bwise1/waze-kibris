@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
@@ -134,8 +135,8 @@ class MapboxNavigationUtils {
     return closestIndex;
   }
 
-  /// Calculate remaining distance from current position
-  static double calculateRemainingDistance(
+  /// Calculate remaining distance from current position along route geometry
+  static double calculateRemainingDistanceFromGeometry(
     LatLng userLocation, 
     List<List<double>> routeCoordinates,
     int currentIndex,
@@ -212,6 +213,68 @@ class MapboxNavigationUtils {
     });
     
     return sortedRoutes;
+  }
+
+  // Navigation-specific constants and methods
+  static const double stepAdvanceThreshold = 20.0; // meters
+  static const double destinationReachedThreshold = 15.0; // meters
+  static const double offRouteThreshold = 50.0; // meters
+
+  /// Calculate remaining distance from position along route steps
+  static double calculateRemainingDistance(
+    Position position,
+    MapboxStep currentStep,
+    List<MapboxStep> allSteps,
+    int currentStepIndex,
+  ) {
+    double remainingDistance = 0.0;
+
+    // Add distance to end of current step
+    remainingDistance += Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      currentStep.maneuver.location[1], // lat
+      currentStep.maneuver.location[0], // lng
+    );
+
+    // Add distances for remaining steps
+    for (int i = currentStepIndex + 1; i < allSteps.length; i++) {
+      remainingDistance += allSteps[i].distance;
+    }
+
+    return remainingDistance;
+  }
+
+  /// Calculate remaining time based on remaining distance and current speed
+  static double calculateRemainingTime(
+    double remainingDistance,
+    double? currentSpeed,
+    List<MapboxStep> remainingSteps,
+  ) {
+    // Always use route-based durations for stability instead of volatile GPS speed
+    final routeBasedTime = remainingSteps.fold(0.0, (total, step) => total + step.duration);
+    
+    // Only use current speed if it's reasonable and for fine-tuning
+    if (currentSpeed != null && currentSpeed > 2.0 && currentSpeed < 50.0) { // 2-50 m/s (7-180 km/h)
+      final speedBasedTime = remainingDistance / currentSpeed;
+      // Blend route time with speed time for stability (70% route, 30% current speed)
+      return (routeBasedTime * 0.7) + (speedBasedTime * 0.3);
+    } else {
+      // Use route-based time for stability
+      return routeBasedTime;
+    }
+  }
+
+  /// Check if user is off the designated route
+  static bool isOffRoute(Position position, MapboxStep currentStep) {
+    final distanceToManeuver = Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      currentStep.maneuver.location[1], // lat
+      currentStep.maneuver.location[0], // lng
+    );
+
+    return distanceToManeuver > offRouteThreshold;
   }
 }
 

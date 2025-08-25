@@ -1,8 +1,9 @@
-// route_overview.dart
+// route_overview.dart - Mapbox Compatible
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
+import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
 import 'package:waze_kibris/common.dart';
-import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
+import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 
 class RouteOverviewWidget extends StatelessWidget {
   final NavigationInProgress navigationState;
@@ -14,21 +15,28 @@ class RouteOverviewWidget extends StatelessWidget {
     required this.onBackToNavigation,
   }) : super(key: key);
 
-  String _formatDistance(int distanceMeters) {
-    if (distanceMeters < 1000) {
-      return '${distanceMeters}m';
-    } else {
-      final km = (distanceMeters / 1000).toStringAsFixed(1);
-      return '${km}km';
-    }
+  String _formatDistance(double distanceMeters) {
+    return MapboxNavigationUtils.formatDistance(distanceMeters);
   }
 
-  String _cleanInstruction(String htmlInstruction) {
-    String instruction = htmlInstruction;
-    instruction = instruction.replaceAll(RegExp(r'<[^>]*>'), '');
-    instruction = instruction.replaceAll('&nbsp;', ' ');
-    instruction = instruction.replaceAll('&amp;', '&');
-    return instruction.trim();
+  String _cleanInstruction(String instruction) {
+    return MapboxNavigationUtils.cleanInstruction(instruction);
+  }
+
+  String _getManeuverIcon(String maneuverType, String? modifier) {
+    return MapboxNavigationUtils.getManeuverIcon(maneuverType, modifier);
+  }
+
+  int _getTotalStepsCount(MapboxRoute route) {
+    return route.legs.fold(0, (total, leg) => total + leg.steps.length);
+  }
+
+  List<MapboxStep> _getAllSteps(MapboxRoute route) {
+    List<MapboxStep> allSteps = [];
+    for (final leg in route.legs) {
+      allSteps.addAll(leg.steps);
+    }
+    return allSteps;
   }
 
   @override
@@ -79,7 +87,7 @@ class RouteOverviewWidget extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '${navigationState.route.legs.first.steps.length} steps • ${_formatDistance(navigationState.route.legs.first.distance.value)}',
+                        '${_getTotalStepsCount(navigationState.route)} steps • ${_formatDistance(navigationState.route.distance)}',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey[600],
@@ -98,13 +106,13 @@ class RouteOverviewWidget extends StatelessWidget {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              itemCount: navigationState.route.legs.first.steps.length,
+              itemCount: _getTotalStepsCount(navigationState.route),
               itemBuilder: (context, index) {
-                final step = navigationState.route.legs.first.steps[index];
+                final allSteps = _getAllSteps(navigationState.route);
+                final step = allSteps[index];
                 final isCurrentStep = index == navigationState.currentStepIndex;
                 final isPastStep = index < navigationState.currentStepIndex;
-                final isLastStep =
-                    index == navigationState.route.legs.first.steps.length - 1;
+                final isLastStep = index == allSteps.length - 1;
 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 8),
@@ -196,7 +204,7 @@ class RouteOverviewWidget extends StatelessWidget {
                             children: [
                               // Step instruction
                               Text(
-                                _cleanInstruction(step.htmlInstr),
+                                _cleanInstruction(step.maneuver.instruction),
                                 style: TextStyle(
                                   fontWeight: isCurrentStep
                                       ? FontWeight.bold
@@ -228,7 +236,7 @@ class RouteOverviewWidget extends StatelessWidget {
                                           Border.all(color: Colors.grey[300]!),
                                     ),
                                     child: Text(
-                                      _formatDistance(step.distance.value),
+                                      _formatDistance(step.distance),
                                       style: const TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w500,
@@ -251,7 +259,7 @@ class RouteOverviewWidget extends StatelessWidget {
                                           Border.all(color: Colors.grey[300]!),
                                     ),
                                     child: Text(
-                                      '${(step.duration.value / 60).round()}m',
+                                      MapboxNavigationUtils.formatDuration(step.duration),
                                       style: const TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w500,

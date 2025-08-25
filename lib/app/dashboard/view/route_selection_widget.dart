@@ -1,17 +1,18 @@
-// Updated route_selection_widget.dart
+// Updated route_selection_widget.dart - Mapbox Navigation
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
+import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
 import 'package:waze_kibris/common.dart';
-import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
+import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart';
 import 'package:waze_kibris/core/models/location/recent_location.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 
 class RouteSelectionSheet extends StatefulWidget {
-  final List<DirectionsRoute> routes;
-  final ValueChanged<DirectionsRoute> onRouteSelected;
-  final ValueChanged<DirectionsRoute>? onStartNavigation;
+  final List<MapboxRoute> routes;
+  final ValueChanged<MapboxRoute> onRouteSelected;
+  final ValueChanged<MapboxRoute>? onStartNavigation;
   final GooglePlaceDetails? placeDetails; // Add place details
 
   const RouteSelectionSheet({
@@ -27,47 +28,34 @@ class RouteSelectionSheet extends StatefulWidget {
 }
 
 class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
-  late DirectionsRoute _selectedRoute;
+  late MapboxRoute _selectedRoute;
   bool _isStartingNavigation = false;
+  late List<RouteOption> _routeOptions;
 
   @override
   void initState() {
     super.initState();
-    // Initially, the first route is selected
+    // Initially, the first route is selected (Mapbox's recommended route)
     if (widget.routes.isNotEmpty) {
       _selectedRoute = widget.routes.first;
+      _routeOptions = _createRouteOptions();
     }
   }
 
-  String _formatDuration(int durationSeconds) {
-    final minutes = (durationSeconds / 60).round();
-    final hours = minutes ~/ 60;
-    final remainingMinutes = minutes % 60;
-
-    if (hours > 0) {
-      return '${hours}h ${remainingMinutes}m';
-    } else {
-      return '${minutes}m';
-    }
+  List<RouteOption> _createRouteOptions() {
+    return widget.routes.asMap().entries.map((entry) {
+      final index = entry.key;
+      final route = entry.value;
+      return RouteOption.fromMapboxRoute(route, isRecommended: index == 0);
+    }).toList();
   }
 
-  String _formatDistance(int distanceMeters) {
-    if (distanceMeters < 1000) {
-      // Show in meters for distances under 1km
-      return '${distanceMeters}m';
-    } else {
-      final km = distanceMeters / 1000;
-      if (km < 10) {
-        // Show one decimal place for distances under 10km
-        return '${km.toStringAsFixed(1)} km';
-      } else if (km < 100) {
-        // Show one decimal place for distances under 100km
-        return '${km.toStringAsFixed(1)} km';
-      } else {
-        // Round to nearest km for longer distances
-        return '${km.round()} km';
-      }
-    }
+  String _formatDuration(double durationSeconds) {
+    return MapboxNavigationUtils.formatDuration(durationSeconds);
+  }
+
+  String _formatDistance(double distanceMeters) {
+    return MapboxNavigationUtils.formatDistance(distanceMeters);
   }
 
   @override
@@ -124,10 +112,11 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                 Flexible(
                   child: ListView.builder(
                     shrinkWrap: true,
-                    itemCount: widget.routes.length,
+                    itemCount: _routeOptions.length,
                     itemBuilder: (context, index) {
-                      final route = widget.routes[index];
-                      final isPrimary = index == 0;
+                      final routeOption = _routeOptions[index];
+                      final route = routeOption.route;
+                      final isPrimary = routeOption.isRecommended;
                       final isSelected = route == _selectedRoute;
 
                       return InkWell(
@@ -175,9 +164,7 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                                     Row(
                                       children: [
                                         Text(
-                                          _formatDuration(route
-                                                  .legs.first.duration?.value ??
-                                              0),
+                                          _formatDuration(route.duration),
                                           style: TextStyle(
                                             color: isSelected
                                                 ? Colors.red
@@ -188,9 +175,7 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                                         ),
                                         const Spacer(),
                                         Text(
-                                          _formatDistance(route
-                                                  .legs.first.distance?.value ??
-                                              0),
+                                          _formatDistance(route.distance),
                                           style: const TextStyle(
                                             color: Colors.black54,
                                             fontWeight: FontWeight.bold,
@@ -201,7 +186,7 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      route.summary,
+                                      routeOption.subtitle,
                                       style: const TextStyle(
                                         fontSize: 13,
                                         color: Colors.black87,
@@ -209,6 +194,27 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
+                                    if (routeOption.isRecommended) ...[
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green[100],
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          'RECOMMENDED',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.green[700],
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
 
                                     // Additional route info for primary route
                                     // if (isPrimary && route.warnings.isNotEmpty) ...[
