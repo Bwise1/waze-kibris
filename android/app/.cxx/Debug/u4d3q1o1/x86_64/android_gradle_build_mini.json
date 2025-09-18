@@ -1,0 +1,20 @@
+{
+  "buildFiles": [
+    "/Users/tim/flutter/flutter/packages/flutter_tools/gradle/src/main/groovy/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/tim/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/tim/Documents/GitHub/waze-kibris/android/app/.cxx/Debug/u4d3q1o1/x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/tim/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/tim/Documents/GitHub/waze-kibris/android/app/.cxx/Debug/u4d3q1o1/x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {}
+}

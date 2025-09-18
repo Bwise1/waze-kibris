@@ -63,5 +63,11 @@
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>Waze Kibris needs access to your location to provide navigation, show nearby places, and calculate routes to your destination.</string>
 
+    <!-- TTS Permission Descriptions -->
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>This app uses text-to-speech for navigation voice instructions.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>This app uses the microphone for voice navigation features.</string>
+
 </dict>
 </plist>

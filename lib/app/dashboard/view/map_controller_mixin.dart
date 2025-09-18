@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/services/snap_to_road_service.dart';
+import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 
@@ -24,7 +25,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   Timer? _cameraResetTimer;
   Timer? _cameraUpdateTimer;
   Timer? _polylineUpdateTimer;
+  Timer? _reportIconUpdateTimer;
   Position? _lastCameraPosition;
+  
+  // Store current reports for zoom updates
+  List<ReportData> _currentReports = [];
   // Removed: LineLayer handles width automatically
 
   // Track current polyline for adaptive width updates
@@ -76,7 +81,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       });
     });
 
-
     // Listen for map interactions to update polyline width
     _setupMapListeners();
 
@@ -102,10 +106,13 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     try {
       // Create Waze-style circular report icons with chat bubbles
-      await _createWazeStyleReportIcon('police-icon', 'assets/icons/police.png', const Color(0xFF4285F4)); // Blue
-      await _createWazeStyleReportIcon('traffic-icon', 'assets/icons/warning-cars.png', const Color(0xFFFF9800)); // Orange  
-      await _createWazeStyleReportIcon('accident-icon', 'assets/icons/accident.png', const Color(0xFFF44336)); // Red
-      
+      await _createWazeStyleReportIcon('police-icon', 'assets/icons/police.png',
+          const Color(0xFF4285F4)); // Blue
+      await _createWazeStyleReportIcon('traffic-icon',
+          'assets/icons/warning-cars.png', const Color(0xFFFF9800)); // Orange
+      await _createWazeStyleReportIcon('accident-icon',
+          'assets/icons/accident.png', const Color(0xFFF44336)); // Red
+
       debugPrint('✅ Waze-style report icons created successfully');
     } catch (e) {
       debugPrint('❌ Error creating Waze-style report icons: $e');
@@ -113,7 +120,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   /// Create a Waze-style circular report icon with chat bubble effect
-  Future<void> _createWazeStyleReportIcon(String iconId, String assetPath, Color backgroundColor) async {
+  Future<void> _createWazeStyleReportIcon(
+      String iconId, String assetPath, Color backgroundColor) async {
     try {
       // Load the original icon
       final ByteData iconData = await rootBundle.load(assetPath);
@@ -127,13 +135,13 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       const double iconSize = 32.0;
       const double bubbleRadius = 28.0;
       const double tailHeight = 12.0;
-      
+
       final ui.PictureRecorder recorder = ui.PictureRecorder();
       final Canvas canvas = Canvas(recorder);
       final Paint bubblePaint = Paint()
         ..color = backgroundColor
         ..style = PaintingStyle.fill;
-      
+
       final Paint borderPaint = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.stroke
@@ -153,9 +161,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
       // Draw chat bubble tail shadow
       final Path tailShadowPath = Path();
-      tailShadowPath.moveTo(bubbleRadius + shadowOffset, bubbleSize - tailHeight + shadowOffset);
-      tailShadowPath.lineTo(bubbleRadius - 6 + shadowOffset, bubbleSize + shadowOffset);
-      tailShadowPath.lineTo(bubbleRadius + 6 + shadowOffset, bubbleSize + shadowOffset);
+      tailShadowPath.moveTo(
+          bubbleRadius + shadowOffset, bubbleSize - tailHeight + shadowOffset);
+      tailShadowPath.lineTo(
+          bubbleRadius - 6 + shadowOffset, bubbleSize + shadowOffset);
+      tailShadowPath.lineTo(
+          bubbleRadius + 6 + shadowOffset, bubbleSize + shadowOffset);
       tailShadowPath.close();
       canvas.drawPath(tailShadowPath, shadowPaint);
 
@@ -189,19 +200,22 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         bubbleRadius - (iconSize / 2),
         bubbleRadius - (iconSize / 2),
       );
-      
+
       canvas.drawImageRect(
         originalIcon,
-        Rect.fromLTWH(0, 0, originalIcon.width.toDouble(), originalIcon.height.toDouble()),
+        Rect.fromLTWH(0, 0, originalIcon.width.toDouble(),
+            originalIcon.height.toDouble()),
         Rect.fromLTWH(iconOffset.dx, iconOffset.dy, iconSize, iconSize),
         Paint(),
       );
 
       // Convert to image
       final ui.Picture picture = recorder.endRecording();
-      final ui.Image finalImage = await picture.toImage(bubbleSize.toInt(), (bubbleSize + tailHeight).toInt());
-      final ByteData? byteData = await finalImage.toByteData(format: ui.ImageByteFormat.png);
-      
+      final ui.Image finalImage = await picture.toImage(
+          bubbleSize.toInt(), (bubbleSize + tailHeight).toInt());
+      final ByteData? byteData =
+          await finalImage.toByteData(format: ui.ImageByteFormat.png);
+
       if (byteData != null) {
         final Uint8List finalImageBytes = byteData.buffer.asUint8List();
 
@@ -220,7 +234,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           [],
           null,
         );
-        
+
         debugPrint('✅ Created Waze-style icon: $iconId');
       }
     } catch (e) {
@@ -268,15 +282,18 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
 
     try {
+      // Store current reports for zoom updates
+      _currentReports = reports;
+      
       // Clear existing report markers
       await reportAnnotationManager!.deleteAll();
-      
+
       debugPrint('🗺️ Adding ${reports.length} report markers to map');
 
       for (final report in reports) {
         await _addReportMarker(report);
       }
-      
+
       debugPrint('✅ Successfully added ${reports.length} report markers');
     } catch (e) {
       debugPrint('❌ Error displaying reports on map: $e');
@@ -289,7 +306,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     try {
       final iconId = _getReportIcon(report.type);
-      
+      final iconSize = await _getAdaptiveReportIconSize();
+
       await reportAnnotationManager!.create(
         mp.PointAnnotationOptions(
           geometry: mp.Point(
@@ -299,7 +317,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             ),
           ),
           iconImage: iconId,
-          iconSize: 0.7, // Optimized size for Waze-style bubbles
+          iconSize: iconSize, // Dynamic size based on zoom level
           iconOpacity: 1.0, // Full opacity for better visibility
           // Ensure reports appear above other elements but below user location
           iconAnchor: mp.IconAnchor.BOTTOM, // Anchor at bottom like chat bubble
@@ -307,8 +325,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           iconOffset: [0.0, -5.0], // Lift slightly above ground level
         ),
       );
-      
-      debugPrint('📍 Added Waze-style ${report.type} report marker at ${report.latitude}, ${report.longitude}');
+
+      debugPrint(
+          '📍 Added Waze-style ${report.type} report marker at ${report.latitude}, ${report.longitude}');
     } catch (e) {
       debugPrint('Error adding report marker: $e');
     }
@@ -327,7 +346,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         return 'police-icon'; // Default fallback
     }
   }
-
 
   void updateMapForNavigationMode(bool isNavigating) async {
     if (_mapboxMapController == null) return;
@@ -452,6 +470,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       ));
 
       // Add main route layer with professional Waze-style expressions
+      // Add below location puck to ensure user location stays on top
       await _mapboxMapController!.style.addLayer(mp.LineLayer(
         id: "route-layer-main",
         sourceId: "route-source",
@@ -510,6 +529,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
       // Fit camera to route bounds
       await _fitCameraToRoute(routePoints);
+
+      // Ensure location puck stays on top after adding route layers
+      _refreshLocationPuckOnTop();
 
       debugPrint('Professional route layer created successfully');
     } catch (e) {
@@ -704,6 +726,38 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
+  /// Calculate adaptive report icon size based on zoom level
+  Future<double> _getAdaptiveReportIconSize() async {
+    if (_mapboxMapController == null) return 0.7;
+
+    try {
+      final cameraState = await _mapboxMapController?.getCameraState();
+      if (cameraState == null) return 0.7;
+
+      final zoom = cameraState.zoom;
+
+      // Report icon sizing - smaller than route markers but still responsive
+      if (zoom >= 19) {
+        return 1.2; // Very close zoom - larger reports
+      } else if (zoom >= 18) {
+        return 1.0; // Close zoom - standard size
+      } else if (zoom >= 16) {
+        return 0.8; // Medium-close zoom
+      } else if (zoom >= 14) {
+        return 0.7; // Medium zoom - default size
+      } else if (zoom >= 12) {
+        return 0.6; // Medium-far zoom
+      } else if (zoom >= 10) {
+        return 0.5; // Far zoom - smaller
+      } else {
+        return 0.4; // Very far zoom - minimal but visible
+      }
+    } catch (e) {
+      debugPrint('Error getting camera state for report icon size: $e');
+      return 0.7;
+    }
+  }
+
   /// Calculate adaptive line width based on zoom level (Waze-style with limits)
   Future<double> _getAdaptiveLineWidth() async {
     if (_mapboxMapController == null) return 8.0;
@@ -850,34 +904,49 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     _userPositionStream =
         Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (Position position) {
+      (Position position) async {
         // Apply snap-to-road during navigation
         final currentState = navigationBloc.state;
         Position processedPosition = position;
 
         if (currentState is NavigationInProgress) {
-          final snapResult = _snapToRoadService.snapToRoad(position);
+          try {
+            final snapResult = await _snapToRoadService.snapToRoad(position);
 
-          // Create new position with snapped coordinates and route bearing
-          processedPosition = Position(
-            latitude: snapResult.snappedPosition.latitude,
-            longitude: snapResult.snappedPosition.longitude,
-            timestamp: position.timestamp,
-            accuracy: position.accuracy,
-            altitude: position.altitude,
-            altitudeAccuracy: position.altitudeAccuracy,
-            heading:
-                snapResult.bearing, // Use route bearing instead of GPS heading
-            headingAccuracy: position.headingAccuracy,
-            speed: position.speed,
-            speedAccuracy: position.speedAccuracy,
-          );
+            // Create new position with snapped coordinates and route bearing
+            processedPosition = Position(
+              latitude: snapResult.snappedPosition.latitude,
+              longitude: snapResult.snappedPosition.longitude,
+              timestamp: position.timestamp,
+              accuracy: position.accuracy,
+              altitude: position.altitude,
+              altitudeAccuracy: position.altitudeAccuracy,
+              heading: snapResult.bearing, // Use calculated route bearing
+              headingAccuracy: position.headingAccuracy,
+              speed: position.speed,
+              speedAccuracy: position.speedAccuracy,
+            );
 
-          // Check if user is off route
-          if (snapResult.isOffRoute) {
-            debugPrint(
-                'User is off route - distance: ${snapResult.distanceFromRoute}m');
-            // You can trigger rerouting here
+            // Log route status for debugging
+            if (snapResult.needsReroute) {
+              debugPrint(
+                  '🔄 REROUTE NEEDED: ${snapResult.distanceFromRoute.toStringAsFixed(1)}m from route');
+              // Trigger rerouting in navigation bloc
+              // navigationBloc.add(TriggerReroute(
+              //   currentPosition: position,
+              //   reason: 'User deviated ${snapResult.distanceFromRoute.toStringAsFixed(1)}m from route',
+              // ));
+            } else if (snapResult.isOffRoute) {
+              debugPrint(
+                  '⚠️ USER OFF ROUTE: ${snapResult.distanceFromRoute.toStringAsFixed(1)}m away');
+            } else if (snapResult.isOnRoute) {
+              debugPrint(
+                  '✅ ON ROUTE: Progress ${(snapResult.routeProgress * 100).toStringAsFixed(1)}%');
+            }
+          } catch (e) {
+            debugPrint('Snap-to-road error: $e');
+            // Use original position if snapping fails
+            processedPosition = position;
           }
         }
 
@@ -944,6 +1013,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           .then((_) {
         // Update polyline width after camera change (debounced)
         _debouncedUpdatePolylineWidth();
+        
+        // Update report icon sizes after camera/zoom change (debounced)
+        _debouncedUpdateReportIconSizes();
       });
     } else if (currentState is NavigationInProgress &&
         currentState.isOverviewVisible) {
@@ -963,6 +1035,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           .then((_) {
         // Update polyline width after camera change (debounced)
         _debouncedUpdatePolylineWidth();
+        
+        // Update report icon sizes after camera/zoom change (debounced)
+        _debouncedUpdateReportIconSizes();
       });
     } else {
       // Normal browsing mode: update position and bearing but preserve zoom
@@ -987,11 +1062,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  /// Setup map event listeners for adaptive polyline updates
+  /// Setup map event listeners for adaptive polyline and marker updates
   void _setupMapListeners() {
     // Note: Mapbox Flutter SDK might not have direct camera change listeners
-    // The polyline width will update automatically during our camera animations
-    // and can be manually triggered when needed
+    // The polyline width and marker sizes will update automatically during our camera animations
+    // and can be manually triggered when needed via debounced functions
   }
 
   /// Debounced polyline width update to prevent excessive recreations
@@ -1000,6 +1075,33 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _polylineUpdateTimer = Timer(const Duration(milliseconds: 50), () {
       _updatePolylineWidth();
     });
+  }
+
+  /// Debounced report icon size update to prevent excessive recreations
+  void _debouncedUpdateReportIconSizes() {
+    _reportIconUpdateTimer?.cancel();
+    _reportIconUpdateTimer = Timer(const Duration(milliseconds: 100), () {
+      _updateReportIconSizes();
+    });
+  }
+
+  /// Update all report marker sizes based on current zoom level
+  Future<void> _updateReportIconSizes() async {
+    if (_currentReports.isEmpty) return;
+    
+    try {
+      // Clear existing report markers
+      await reportAnnotationManager?.deleteAll();
+      
+      // Re-add all reports with updated sizes
+      for (final report in _currentReports) {
+        await _addReportMarker(report);
+      }
+      
+      debugPrint('🔄 Updated ${_currentReports.length} report icon sizes');
+    } catch (e) {
+      debugPrint('❌ Error updating report icon sizes: $e');
+    }
   }
 
   /// Update polyline width based on current zoom level
@@ -1060,11 +1162,15 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   /// Initialize snap-to-road service with route data
-  void initializeSnapToRoad(MapboxRoute route) {
+  void initializeSnapToRoad(MapboxRoute route, {PlacesService? placesService}) {
     debugPrint('Initializing snap-to-road with Mapbox route');
-    // Note: You may need to update SnapToRoadService to handle MapboxRoute
-    // or create a conversion method
     _snapToRoadService.setMapboxRoute(route);
+    
+    // Set PlacesService for Map Matching functionality
+    if (placesService != null) {
+      _snapToRoadService.setPlacesService(placesService);
+      debugPrint('🗺️ Map Matching enabled for edge cases');
+    }
   }
 
   /// Clear snap-to-road service
@@ -1160,6 +1266,27 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
+  /// Refresh location puck to ensure it stays on top of route layers
+  void _refreshLocationPuckOnTop() {
+    try {
+      // Re-enable the location component which brings it to the top layer
+      _mapboxMapController?.location.updateSettings(
+        mp.LocationComponentSettings(
+          enabled: true,
+          puckBearingEnabled: true,
+          puckBearing: mp.PuckBearing.COURSE,
+          pulsingEnabled: true,
+          showAccuracyRing: false,
+          pulsingColor: 0xFF4285F4, // Blue pulsing color
+        ),
+      );
+      
+      debugPrint('🎯 Location puck refreshed to stay on top of route layers');
+    } catch (e) {
+      debugPrint('Error refreshing location puck: $e');
+    }
+  }
+
   /// Setup location puck with custom image
   Future<void> _setupLocationPuck() async {
     try {
@@ -1208,6 +1335,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _cameraResetTimer?.cancel();
     _cameraUpdateTimer?.cancel();
     _polylineUpdateTimer?.cancel();
+    _reportIconUpdateTimer?.cancel();
     reportAnnotationManager?.deleteAll(); // Clean up report markers
     _mapboxMapController?.dispose();
     super.dispose();

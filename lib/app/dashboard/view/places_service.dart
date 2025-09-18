@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:geolocator/geolocator.dart' as geo;
 import 'package:latlong2/latlong.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart'
     show Point, Position;
@@ -449,6 +450,112 @@ class PlacesService {
           .add(Point(coordinates: Position(point.longitude, point.latitude)));
     }
     return mapboxPoints;
+  }
+
+  /// Map Matching API for snapping GPS traces to road network
+  /// Used sparingly for edge cases to minimize API usage
+  Future<List<LatLng>> mapMatchGpsTrace({
+    required List<MapMatchingCoordinate> coordinates,
+    List<double>? radiuses, // Search radius per coordinate (optional)
+    String approach = 'unrestricted', // 'unrestricted' or 'curb'
+  }) async {
+    if (coordinates.isEmpty) {
+      throw Exception('Coordinates list cannot be empty');
+    }
+
+    final payload = {
+      'coordinates': coordinates.map((coord) => {
+        'lat': coord.lat,
+        'lng': coord.lng,
+        'timestamp': coord.timestamp?.millisecondsSinceEpoch,
+      }).toList(),
+      'approach': approach,
+    };
+
+    // Add radiuses if provided
+    if (radiuses != null && radiuses.isNotEmpty) {
+      payload['radiuses'] = radiuses;
+    }
+
+    try {
+      debugPrint('🗺️ Calling Map Matching API with ${coordinates.length} coordinates');
+      
+      final response = await _dio.post(
+        '$backendBaseUrl/places/mapboxmapmatching',
+        data: payload,
+        options: Options(headers: _authHeaders),
+      );
+
+      if (response.statusCode == 200) {
+        final dynamic responseData = response.data;
+        final data = responseData['data'] ?? responseData;
+
+        // Parse Map Matching response
+        if (data is Map<String, dynamic> && data.containsKey('matchings')) {
+          final matchings = data['matchings'] as List;
+          
+          if (matchings.isNotEmpty) {
+            final firstMatching = matchings[0] as Map<String, dynamic>;
+            final geometry = firstMatching['geometry'] as Map<String, dynamic>;
+            final coordinates = geometry['coordinates'] as List;
+            
+            // Convert coordinates to LatLng
+            return coordinates.map<LatLng>((coord) {
+              final coordList = coord as List;
+              return LatLng(coordList[1] as double, coordList[0] as double); // [lng, lat] -> LatLng(lat, lng)
+            }).toList();
+          }
+        }
+
+        // If no matchings found, return original coordinates
+        debugPrint('⚠️ No map matching results found');
+        return coordinates.map((coord) => LatLng(coord.lat, coord.lng)).toList();
+        
+      } else {
+        throw Exception('Map Matching API Error: ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      debugPrint('Map Matching Dio error: ${e.response?.data}');
+      
+      // Fallback to original coordinates on network error
+      debugPrint('🔄 Map Matching failed, using original coordinates');
+      return coordinates.map((coord) => LatLng(coord.lat, coord.lng)).toList();
+      
+    } catch (e) {
+      debugPrint('Map Matching parsing error: $e');
+      
+      // Fallback to original coordinates on parsing error
+      return coordinates.map((coord) => LatLng(coord.lat, coord.lng)).toList();
+    }
+  }
+}
+
+/// Data class for Map Matching coordinates with optional timestamp
+class MapMatchingCoordinate {
+  final double lat;
+  final double lng;
+  final DateTime? timestamp;
+
+  MapMatchingCoordinate({
+    required this.lat,
+    required this.lng,
+    this.timestamp,
+  });
+
+  factory MapMatchingCoordinate.fromGeolocatorPosition(geo.Position position, {DateTime? timestamp}) {
+    return MapMatchingCoordinate(
+      lat: position.latitude,
+      lng: position.longitude,
+      timestamp: timestamp ?? position.timestamp,
+    );
+  }
+
+  factory MapMatchingCoordinate.fromLatLng(LatLng latLng, {DateTime? timestamp}) {
+    return MapMatchingCoordinate(
+      lat: latLng.latitude,
+      lng: latLng.longitude,
+      timestamp: timestamp,
+    );
   }
 }
 
