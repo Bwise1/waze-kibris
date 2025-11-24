@@ -10,38 +10,49 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/services/snap_to_road_service.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
+import 'package:waze_kibris/core/controllers/camera_controller.dart';
+import 'package:waze_kibris/core/services/route_visualization_service.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 
 mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   mp.MapboxMap? _mapboxMapController;
   StreamSubscription<Position>? _userPositionStream;
-  // Removed: Using LineLayer instead of PolylineAnnotationManager
   mp.PointAnnotationManager? pointAnnotationManager;
-  mp.PointAnnotationManager? reportAnnotationManager;
+  // mp.PointAnnotationManager? reportAnnotationManager; // Removed in favor of clustering
+  // Navigation puck layer constants
+  static const String _puckSourceId = 'navigation-puck-source';
+  static const String _puckLayerId = 'navigation-puck-layer';
 
-  // Camera tracking variables
-  bool _isFollowingUser = true;
-  Timer? _cameraResetTimer;
-  Timer? _cameraUpdateTimer;
-  Timer? _polylineUpdateTimer;
+  // State
+  // mp.PointAnnotationManager? navigationPuckManager; // Removed
+  // mp.PointAnnotation? _navigationPuckAnnotation; // Removed // The actual puck annotation
+
+  // Camera controller - replaces individual camera variables
+  late final CameraController _cameraController;
+  // Route visualization service - replaces old polyline drawing
+  late final RouteVisualizationService _routeVisualizationService;
   Timer? _reportIconUpdateTimer;
-  Position? _lastCameraPosition;
-  
+
   // Store current reports for zoom updates
   List<ReportData> _currentReports = [];
-  // Removed: LineLayer handles width automatically
-
-  // Track current polyline for adaptive width updates
-  // Removed: No longer using encoded polylines
   List<PointLatLng>? _currentPolylinePoints;
 
   // Snap to road service
   final SnapToRoadService _snapToRoadService = SnapToRoadService();
 
+  // Clustering Constants
+  static const List<String> _reportTypes = ['police', 'traffic', 'accident'];
+  
+  String _getReportSourceId(String type) => 'report-source-$type';
+  String _getClusterLayerId(String type) => 'report-layer-clusters-$type';
+  String _getClusterCountLayerId(String type) => 'report-layer-cluster-count-$type';
+  String _getUnclusteredLayerId(String type) => 'report-layer-unclustered-$type';
+
   // Getters for subclasses
   mp.MapboxMap? get mapboxMapController => _mapboxMapController;
-  bool get isFollowingUser => _isFollowingUser;
+  bool get isFollowingUser => _cameraController.isFollowingUser;
+  CameraController get cameraController => _cameraController;
 
   // Navigation bloc must be provided by the implementing class
   NavigationBloc get navigationBloc;
@@ -51,17 +62,32 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     // Override in implementing class to handle position updates
   }
 
+  @override
+  void initState() {
+    super.initState();
+    _cameraController = CameraController();
+    _routeVisualizationService = RouteVisualizationService();
+  }
+
   // Setters for camera following
   void setIsFollowingUser(bool value) {
-    setState(() {
-      _isFollowingUser = value;
-    });
+    if (value) {
+      _cameraController.enableFollowUser();
+    } else {
+      _cameraController.disableFollowUser();
+    }
   }
 
   void onMapCreated(mp.MapboxMap controller) {
     setState(() {
       _mapboxMapController = controller;
     });
+
+    // Initialize camera controller with map
+    _cameraController.initialize(controller);
+
+    // Initialize route visualization service with map (await it)
+    _initializeRouteVisualization(controller);
 
     // Setup annotation managers
     _mapboxMapController?.annotations
@@ -72,14 +98,23 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       });
     });
 
-    // Setup report annotation manager
-    _mapboxMapController?.annotations
-        .createPointAnnotationManager()
-        .then((manager) {
-      setState(() {
-        reportAnnotationManager = manager;
-      });
-    });
+    // Setup report annotation manager - REMOVED for clustering
+    // _mapboxMapController?.annotations
+    //     .createPointAnnotationManager()
+    //     .then((manager) {
+    //   setState(() {
+    //     reportAnnotationManager = manager;
+    //   });
+    // });
+
+    // Setup navigation puck manager - REMOVED
+    // _mapboxMapController?.annotations
+    //     .createPointAnnotationManager()
+    //     .then((manager) {
+    //   setState(() {
+    //     navigationPuckManager = manager;
+    //   });
+    // });
 
     // Listen for map interactions to update polyline width
     _setupMapListeners();
@@ -97,7 +132,103 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         .updateSettings(mp.ScaleBarSettings(enabled: false));
 
     // Add report icons to map style
-    _setupReportIcons();
+    _setupReportIcons().then((_) {
+      // Initialize clustering after icons are loaded
+      _setupReportClustering();
+    });
+  }
+
+  /// Setup GeoJSON source and layers for report clustering (Type-Based)
+  Future<void> _setupReportClustering() async {
+    if (_mapboxMapController == null) return;
+
+    try {
+      for (final type in _reportTypes) {
+        final sourceId = _getReportSourceId(type);
+        final clusterLayerId = _getClusterLayerId(type);
+        final clusterCountLayerId = _getClusterCountLayerId(type);
+        final unclusteredLayerId = _getUnclusteredLayerId(type);
+        final iconId = _getReportIcon(type); // e.g., 'police-icon'
+
+        // Determine offset based on type to prevent overlap
+        List<double> offset = [0.0, -5.0]; // Default (Police/Center)
+        if (type == 'traffic') {
+          offset = [20.0, -5.0]; // Right
+        } else if (type == 'accident') {
+          offset = [-20.0, -5.0]; // Left
+        }
+
+        // 1. Add GeoJSON Source with clustering enabled
+        await _mapboxMapController!.style.addSource(
+          mp.GeoJsonSource(
+            id: sourceId,
+            data: jsonEncode({'type': 'FeatureCollection', 'features': []}),
+            cluster: true,
+            clusterRadius: 50, // Radius of each cluster when clustering points
+            clusterMaxZoom: 14, // Max zoom to cluster points on
+          ),
+        );
+
+        // 2. Add Cluster Layer (Icon with Count)
+        // Instead of a circle, we use the report icon itself for the cluster
+        await _mapboxMapController!.style.addLayer(
+          mp.SymbolLayer(
+            id: clusterLayerId,
+            sourceId: sourceId,
+            filter: ['has', 'point_count'], // Only show when clustered
+            iconImage: iconId, // Use the specific report icon
+            iconSize: 0.7, // Reduced from 0.9
+            iconAllowOverlap: true,
+            iconAnchor: mp.IconAnchor.BOTTOM,
+            iconOffset: offset, // Apply offset
+          ),
+        );
+
+        // 3. Add Cluster Count Layer (Text on top of icon)
+        await _mapboxMapController!.style.addLayer(
+          mp.SymbolLayer(
+            id: clusterCountLayerId,
+            sourceId: sourceId,
+            filter: ['has', 'point_count'],
+            textField: jsonEncode(['get', 'point_count_abbreviated']),
+            textSize: 10.0, // Reduced from 12.0
+            textColor: 0xFFFFFFFF, // White text
+            textHaloColor: 0xFF000000, // Black outline for readability
+            textHaloWidth: 1.0,
+            textAnchor: mp.TextAnchor.CENTER,
+            textOffset: [offset[0] / 10.0, -1.5], // Adjust text position to match icon offset (approximate scale)
+          ),
+        );
+
+        // 4. Add Unclustered Layer (Individual Icons)
+        await _mapboxMapController!.style.addLayer(
+          mp.SymbolLayer(
+            id: unclusteredLayerId,
+            sourceId: sourceId,
+            filter: ['!', ['has', 'point_count']], // Only show when NOT clustered
+            iconImage: iconId, // Use the specific report icon
+            iconSize: 0.5, // Reduced from 0.7
+            iconAllowOverlap: true,
+            iconAnchor: mp.IconAnchor.BOTTOM,
+            iconOffset: offset, // Apply offset
+          ),
+        );
+      }
+
+      debugPrint('✅ Type-based report clustering setup completed');
+    } catch (e) {
+      debugPrint('❌ Error setting up report clustering: $e');
+    }
+  }
+
+  /// Initialize route visualization service asynchronously
+  Future<void> _initializeRouteVisualization(mp.MapboxMap controller) async {
+    try {
+      await _routeVisualizationService.initialize(controller);
+      debugPrint('✅ RouteVisualizationService initialized in MapControllerMixin');
+    } catch (e) {
+      debugPrint('❌ Failed to initialize RouteVisualizationService: $e');
+    }
   }
 
   /// Add report icons to map style for different report types (Waze-style)
@@ -134,7 +265,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       const double bubbleSize = 64.0;
       const double iconSize = 32.0;
       const double bubbleRadius = 28.0;
-      const double tailHeight = 12.0;
+      // const double tailHeight = 12.0; // Removed tail
 
       final ui.PictureRecorder recorder = ui.PictureRecorder();
       final Canvas canvas = Canvas(recorder);
@@ -159,17 +290,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         shadowPaint,
       );
 
-      // Draw chat bubble tail shadow
-      final Path tailShadowPath = Path();
-      tailShadowPath.moveTo(
-          bubbleRadius + shadowOffset, bubbleSize - tailHeight + shadowOffset);
-      tailShadowPath.lineTo(
-          bubbleRadius - 6 + shadowOffset, bubbleSize + shadowOffset);
-      tailShadowPath.lineTo(
-          bubbleRadius + 6 + shadowOffset, bubbleSize + shadowOffset);
-      tailShadowPath.close();
-      canvas.drawPath(tailShadowPath, shadowPaint);
-
       // Draw main circular background
       canvas.drawCircle(
         Offset(bubbleRadius, bubbleRadius),
@@ -177,23 +297,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         bubblePaint,
       );
 
-      // Draw chat bubble tail
-      final Path tailPath = Path();
-      tailPath.moveTo(bubbleRadius, bubbleSize - tailHeight);
-      tailPath.lineTo(bubbleRadius - 6, bubbleSize);
-      tailPath.lineTo(bubbleRadius + 6, bubbleSize);
-      tailPath.close();
-      canvas.drawPath(tailPath, bubblePaint);
-
       // Draw white border around circle
       canvas.drawCircle(
         Offset(bubbleRadius, bubbleRadius),
         bubbleRadius,
         borderPaint,
       );
-
-      // Draw white border around tail
-      canvas.drawPath(tailPath, borderPaint);
 
       // Draw the icon in the center of the circle
       final Offset iconOffset = Offset(
@@ -212,7 +321,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       // Convert to image
       final ui.Picture picture = recorder.endRecording();
       final ui.Image finalImage = await picture.toImage(
-          bubbleSize.toInt(), (bubbleSize + tailHeight).toInt());
+          bubbleSize.toInt(), bubbleSize.toInt()); // Square canvas
       final ByteData? byteData =
           await finalImage.toByteData(format: ui.ImageByteFormat.png);
 
@@ -221,7 +330,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
         final mp.MbxImage mbxImage = mp.MbxImage(
           width: bubbleSize.toInt(),
-          height: (bubbleSize + tailHeight).toInt(),
+          height: bubbleSize.toInt(),
           data: finalImageBytes,
         );
 
@@ -274,64 +383,59 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  /// Display reports as markers on the map
+  /// Display reports using GeoJSON source for clustering (Type-Based)
   Future<void> displayReportsOnMap(List<ReportData> reports) async {
-    if (reportAnnotationManager == null) {
-      debugPrint('Report annotation manager not ready');
-      return;
-    }
+    if (_mapboxMapController == null) return;
 
     try {
-      // Store current reports for zoom updates
       _currentReports = reports;
-      
-      // Clear existing report markers
-      await reportAnnotationManager!.deleteAll();
 
-      debugPrint('🗺️ Adding ${reports.length} report markers to map');
+      for (final type in _reportTypes) {
+        // Filter reports for this specific type
+        // Note: We need to handle case-insensitivity and potential mismatches
+        final typeReports = reports.where((r) => 
+          r.type.toLowerCase() == type.toLowerCase() || 
+          (type == 'police' && r.type.toLowerCase() == 'police') || // Explicit checks if needed
+          (type == 'traffic' && r.type.toLowerCase() == 'traffic')
+        ).toList();
 
-      for (final report in reports) {
-        await _addReportMarker(report);
+        // Convert to Features
+        final features = typeReports.map((report) {
+          return {
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [report.longitude, report.latitude],
+            },
+            'properties': {
+              'id': report.id,
+              'type': report.type,
+            },
+          };
+        }).toList();
+
+        final geoJson = {
+          'type': 'FeatureCollection',
+          'features': features,
+        };
+
+        // Update the specific source for this type
+        final sourceId = _getReportSourceId(type);
+        await _mapboxMapController!.style.setStyleSourceProperty(
+          sourceId,
+          'data',
+          jsonEncode(geoJson),
+        );
       }
 
-      debugPrint('✅ Successfully added ${reports.length} report markers');
+      debugPrint('✅ Updated report sources with ${reports.length} features across types');
     } catch (e) {
       debugPrint('❌ Error displaying reports on map: $e');
     }
   }
 
-  /// Add a single report marker to the map (Waze-style optimized)
-  Future<void> _addReportMarker(ReportData report) async {
-    if (reportAnnotationManager == null) return;
+  // Removed _addReportMarker as we now use GeoJSON source
 
-    try {
-      final iconId = _getReportIcon(report.type);
-      final iconSize = await _getAdaptiveReportIconSize();
-
-      await reportAnnotationManager!.create(
-        mp.PointAnnotationOptions(
-          geometry: mp.Point(
-            coordinates: mp.Position(
-              report.longitude,
-              report.latitude,
-            ),
-          ),
-          iconImage: iconId,
-          iconSize: iconSize, // Dynamic size based on zoom level
-          iconOpacity: 1.0, // Full opacity for better visibility
-          // Ensure reports appear above other elements but below user location
-          iconAnchor: mp.IconAnchor.BOTTOM, // Anchor at bottom like chat bubble
-          // Add slight offset to avoid overlap with user location
-          iconOffset: [0.0, -5.0], // Lift slightly above ground level
-        ),
-      );
-
-      debugPrint(
-          '📍 Added Waze-style ${report.type} report marker at ${report.latitude}, ${report.longitude}');
-    } catch (e) {
-      debugPrint('Error adding report marker: $e');
-    }
-  }
 
   /// Get appropriate icon ID for report type
   String _getReportIcon(String reportType) {
@@ -350,42 +454,46 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   void updateMapForNavigationMode(bool isNavigating) async {
     if (_mapboxMapController == null) return;
 
+    // Use camera controller for navigation mode
+    if (isNavigating) {
+      _cameraController.enableNavigationMode();
+    } else {
+      _cameraController.disableNavigationMode();
+    }
+
     final locationPuckBytes = await _loadLocationPuckImage();
 
     if (isNavigating) {
-      // Navigation mode: enhanced location tracking like Waze with larger, more visible icon
+      // Navigation mode: Disable built-in location component and use custom snapped puck
       await _mapboxMapController?.location.updateSettings(
         mp.LocationComponentSettings(
-          enabled: true,
+          enabled: false, // Disable built-in to prevent "ghost" puck
           puckBearingEnabled: true,
           puckBearing: mp.PuckBearing.COURSE,
-          locationPuck: mp.LocationPuck(
-            locationPuck2D: mp.LocationPuck2D(
-              topImage: locationPuckBytes,
-              scaleExpression: json.encode([
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                10.0,
-                1.0,
-                14.0,
-                1.0,
-                16.0,
-                1.0,
-                18.0,
-                1.0,
-                20.0,
-                1.0
-              ]),
-            ),
-          ),
-          pulsingColor: 0xFFFF0000,
-          pulsingEnabled: true,
-          showAccuracyRing: false,
         ),
       );
+
+      // Ensure the puck image is in the style
+      await _ensureNavigationPuckImageLoaded();
+
+      // Create the custom puck if it doesn't exist
+      // _navigationPuckAnnotation is removed, now we check for layer existence
+      if (!await _mapboxMapController!.style.styleLayerExists(_puckLayerId)) {
+        await _createNavigationPuck();
+      }
     } else {
-      // Normal mode: smaller, standard location display
+      // Normal mode: Enable built-in location component
+      
+      // Remove custom puck if it exists
+      if (_mapboxMapController != null) {
+        if (await _mapboxMapController!.style.styleLayerExists(_puckLayerId)) {
+          await _mapboxMapController!.style.removeStyleLayer(_puckLayerId);
+        }
+        if (await _mapboxMapController!.style.styleSourceExists(_puckSourceId)) {
+          await _mapboxMapController!.style.removeStyleSource(_puckSourceId);
+        }
+      }
+
       await _mapboxMapController?.location.updateSettings(
         mp.LocationComponentSettings(
           enabled: true,
@@ -397,16 +505,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
                 'interpolate',
                 ['linear'],
                 ['zoom'],
-                10.0,
-                1.0,
-                14.0,
-                1.0,
-                16.0,
-                1.0,
-                18.0,
-                1.0,
-                20.0,
-                1.0
+                10.0, 1.0,
+                14.0, 1.0,
+                16.0, 1.0,
+                18.0, 1.0,
+                20.0, 1.0
               ]),
             ),
           ),
@@ -418,9 +521,239 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
+  /// Ensure navigation puck image is loaded into map style
+  Future<void> _ensureNavigationPuckImageLoaded() async {
+    if (_mapboxMapController == null) return;
+
+    try {
+      // Check if image already exists (optional, but good for performance)
+      // For now, we'll just try to add it. If it exists, it might update or throw, 
+      // but addStyleImage usually handles updates fine or we can catch.
+      
+      // Load the image data
+      final ByteData byteData = await rootBundle.load('assets/icons/4.0x/CurrentPosition.png');
+      final Uint8List imageBytes = byteData.buffer.asUint8List();
+
+      // Get dimensions to create MbxImage
+      final codec = await ui.instantiateImageCodec(imageBytes);
+      final frameInfo = await codec.getNextFrame();
+      final ui.Image image = frameInfo.image;
+
+      final mbxImage = mp.MbxImage(
+        width: image.width,
+        height: image.height,
+        data: imageBytes,
+      );
+
+      await _mapboxMapController!.style.addStyleImage(
+        'navigation-puck',
+        4.0, // Scale factor (since we loaded 4.0x asset)
+        mbxImage,
+        false,
+        [],
+        [],
+        null,
+      );
+      debugPrint('✅ Navigation puck image added to style');
+    } catch (e) {
+      debugPrint('⚠️ Error adding navigation puck image: $e');
+    }
+  }
+
+  // Animation controller for smooth puck movement
+  AnimationController? _puckAnimationController;
+  Animation<double>? _latAnimation;
+  Animation<double>? _lngAnimation;
+  Animation<double>? _bearingAnimation;
+  
+  // Track last known puck state for interpolation
+  mp.Position? _lastPuckPosition;
+  double? _lastPuckBearing;
+
+
+
+  /// Create the custom navigation puck using SymbolLayer for smooth scaling
+  Future<void> _createNavigationPuck() async {
+    if (_mapboxMapController == null) return;
+
+    try {
+      // Get current position to start
+      final position = await Geolocator.getCurrentPosition();
+      _lastPuckPosition = mp.Position(position.longitude, position.latitude);
+      _lastPuckBearing = position.heading;
+      
+      // Initialize animation controller if needed
+      if (_puckAnimationController == null && this is TickerProvider) {
+        _puckAnimationController = AnimationController(
+          vsync: this as TickerProvider,
+          duration: const Duration(milliseconds: 1000), // Smooth 1s transition
+        );
+        
+        _puckAnimationController!.addListener(() {
+          if (_latAnimation != null && _lngAnimation != null && _bearingAnimation != null) {
+            final currentLat = _latAnimation!.value;
+            final currentLng = _lngAnimation!.value;
+            final currentBearing = _bearingAnimation!.value;
+            
+            // Update the GeoJSON source with interpolated position
+            _updatePuckSource(mp.Position(currentLng, currentLat), currentBearing);
+          }
+        });
+      }
+
+      // 1. Add GeoJSON Source
+      final initialGeoJson = {
+        'type': 'FeatureCollection',
+        'features': [
+          {
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [position.longitude, position.latitude],
+            },
+            'properties': {
+              'bearing': position.heading,
+            },
+          }
+        ],
+      };
+
+      if (!await _mapboxMapController!.style.styleSourceExists(_puckSourceId)) {
+        await _mapboxMapController!.style.addSource(
+          mp.GeoJsonSource(
+            id: _puckSourceId,
+            data: jsonEncode(initialGeoJson),
+          ),
+        );
+      }
+
+      // 2. Add Symbol Layer with Smooth Scaling Expression
+      if (!await _mapboxMapController!.style.styleLayerExists(_puckLayerId)) {
+        await _mapboxMapController!.style.addLayer(
+          mp.SymbolLayer(
+            id: _puckLayerId,
+            sourceId: _puckSourceId,
+            iconImage: 'navigation-puck',
+            iconAllowOverlap: true,
+            iconIgnorePlacement: true,
+            iconRotationAlignment: mp.IconRotationAlignment.MAP,
+            iconRotateExpression: ['get', 'bearing'], // Rotate based on bearing property
+            // Smooth scaling expression matching destination marker logic
+            iconSizeExpression: [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              10.0, 1.0,  // Zoom 10 -> 1.0
+              13.0, 1.5,
+              16.0, 2.5,  // Zoom 16 -> 2.5
+              19.0, 3.5,
+              22.0, 4.5,  // Zoom 22 -> 4.5
+            ],
+            symbolSortKey: 1000, // Ensure on top
+          ),
+        );
+      }
+
+      debugPrint('✅ Custom navigation puck created with SymbolLayer (smooth scaling)');
+      
+      // Ensure puck is on top of route
+      await _ensureNavigationPuckOnTop();
+    } catch (e) {
+      debugPrint('❌ Error creating navigation puck: $e');
+    }
+  }
+
+  /// Update the puck source data
+  Future<void> _updatePuckSource(mp.Position position, double bearing) async {
+    if (_mapboxMapController == null) return;
+
+    try {
+      final geoJson = {
+        'type': 'FeatureCollection',
+        'features': [
+          {
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [position.lng, position.lat],
+            },
+            'properties': {
+              'bearing': bearing,
+            },
+          }
+        ],
+      };
+
+      await _mapboxMapController!.style.setStyleSourceProperty(
+        _puckSourceId,
+        'data',
+        jsonEncode(geoJson),
+      );
+    } catch (e) {
+      // Ignore updates if source doesn't exist yet
+    }
+  }
+
+  /// Ensure the navigation puck layer is above the route layer
+  Future<void> _ensureNavigationPuckOnTop() async {
+    if (_mapboxMapController == null) return;
+
+    try {
+      if (await _mapboxMapController!.style.styleLayerExists(_puckLayerId)) {
+        await _mapboxMapController!.style.moveStyleLayer(_puckLayerId, null); // Move to very top
+        debugPrint('✅ Moved navigation puck layer ($_puckLayerId) to top');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error moving navigation puck layer: $e');
+    }
+  }
+
+  /// Update the custom navigation puck position and rotation with smoothing
+  void _updateNavigationPuck(Position position) {
+    if (_mapboxMapController == null) return;
+
+    try {
+      final newLat = position.latitude;
+      final newLng = position.longitude;
+      final newBearing = position.heading;
+
+      // If we have an animation controller, animate to the new position
+      if (_puckAnimationController != null) {
+        final startLat = _lastPuckPosition?.lat.toDouble() ?? newLat;
+        final startLng = _lastPuckPosition?.lng.toDouble() ?? newLng;
+        final startBearing = _lastPuckBearing ?? newBearing;
+
+        // Handle bearing wrap-around (e.g. 350 -> 10 degrees)
+        double targetBearing = newBearing;
+        if ((targetBearing - startBearing).abs() > 180) {
+          if (targetBearing > startBearing) {
+            targetBearing -= 360;
+          } else {
+            targetBearing += 360;
+          }
+        }
+
+        _latAnimation = Tween<double>(begin: startLat, end: newLat).animate(_puckAnimationController!);
+        _lngAnimation = Tween<double>(begin: startLng, end: newLng).animate(_puckAnimationController!);
+        _bearingAnimation = Tween<double>(begin: startBearing, end: targetBearing).animate(_puckAnimationController!);
+
+        _puckAnimationController!.forward(from: 0.0);
+        
+        // Update last known state
+        _lastPuckPosition = mp.Position(newLng, newLat);
+        _lastPuckBearing = newBearing;
+      } else {
+        // Fallback to immediate update if no animation controller
+        _updatePuckSource(mp.Position(newLng, newLat), newBearing);
+      }
+    } catch (e) {
+      debugPrint('Error updating navigation puck: $e');
+    }
+  }
+
   // Removed: Old drawPolyline method - now using professional LineLayer approach
 
-  /// Draw polyline using professional GeoJsonSource + LineLayer (Waze-style)
+  /// Draw route using advanced RouteVisualizationService
   Future<void> drawMapboxPolyline(MapboxRoute route) async {
     await clearRoutePolyline();
 
@@ -447,187 +780,41 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       // Store points for adaptive updates
       _currentPolylinePoints = routePoints;
 
-      // Create GeoJSON source with route data
-      final geoJsonData = {
-        'type': 'Feature',
-        'properties': {
-          'route-color': _getTrafficColor(route), // Traffic-aware color
-          'route-congestion': _getCongestionLevel(route), // Congestion data
-        },
-        'geometry': {
-          'type': 'LineString',
-          'coordinates': route.geometry.coordinates,
-        }
-      };
+      // Use RouteVisualizationService to draw the route
+      await _routeVisualizationService.drawRoute(route);
 
-      // Remove existing sources and layers
-      await _removeRouteLayer();
+      // Update SnapToRoadService with the new route
+      _snapToRoadService.setMapboxRoute(route);
 
-      // Add GeoJSON source
-      await _mapboxMapController!.style.addSource(mp.GeoJsonSource(
-        id: "route-source",
-        data: json.encode(geoJsonData),
-      ));
-
-      // Add main route layer with professional Waze-style expressions
-      // Add below location puck to ensure user location stays on top
-      await _mapboxMapController!.style.addLayer(mp.LineLayer(
-        id: "route-layer-main",
-        sourceId: "route-source",
-        lineJoin: mp.LineJoin.ROUND,
-        lineCap: mp.LineCap.ROUND,
-        // Dynamic width based on zoom level (Waze-style)
-        lineWidthExpression: [
-          'interpolate',
-          ['exponential', 1.5],
-          ['zoom'],
-          10.0, 4.0, // Far zoom: thin line
-          13.0, 8.0, // Medium zoom
-          16.0, 12.0, // Close zoom
-          19.0, 18.0, // Very close: thick navigation line
-          22.0, 24.0, // Maximum zoom: very thick
-        ],
-        // Traffic-aware color with fallback (Waze-style)
-        lineColorExpression: [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          8.0, '#3366ff', // Blue at far zoom
-          11.0,
-          [
-            'coalesce',
-            ['get', 'route-color'],
-            '#ff4444' // Default red for navigation
-          ],
-        ],
-        lineOpacity: 0.9,
-      ));
-
-      // Add route border/outline layer for depth (like Waze)
-      await _mapboxMapController!.style.addLayer(mp.LineLayer(
-        id: "route-layer-border",
-        sourceId: "route-source",
-        lineJoin: mp.LineJoin.ROUND,
-        lineCap: mp.LineCap.ROUND,
-        // Border is slightly wider than main line
-        lineWidthExpression: [
-          'interpolate',
-          ['exponential', 1.5],
-          ['zoom'],
-          10.0, 6.0, // Far zoom: thin border
-          13.0, 10.0, // Medium zoom
-          16.0, 14.0, // Close zoom
-          19.0, 20.0, // Very close
-          22.0, 26.0, // Maximum zoom
-        ],
-        lineColor: 0xFFCC0000, // Darker red border
-        lineOpacity: 0.6,
-      ));
-
-      // Add route markers
+      // Add route markers using existing functionality
       await _addRouteMarkers(routePoints);
 
       // Fit camera to route bounds
       await _fitCameraToRoute(routePoints);
 
-      // Ensure location puck stays on top after adding route layers
-      _refreshLocationPuckOnTop();
-
-      debugPrint('Professional route layer created successfully');
+      debugPrint('Advanced route visualization created successfully');
     } catch (e) {
-      debugPrint('Error creating professional route layer: $e');
+      debugPrint('Error creating route visualization: $e');
       // Could implement user notification here
     }
   }
 
-  /// Get traffic-aware color based on route congestion (Waze-style)
-  String _getTrafficColor(MapboxRoute route) {
-    // For now, use route duration/distance ratio to estimate congestion
-    final avgSpeed = route.distance / route.duration * 3.6; // km/h
+  /// Update route progress during navigation
+  Future<void> updateRouteProgress(MapboxRoute route, int currentStepIndex, {Position? currentPosition}) async {
+    if (_mapboxMapController == null) return;
 
-    if (avgSpeed > 60) {
-      return '#00ff00'; // Green: free flow
-    } else if (avgSpeed > 40) {
-      return '#ffff00'; // Yellow: moderate traffic
-    } else if (avgSpeed > 20) {
-      return '#ff8800'; // Orange: slow traffic
-    } else {
-      return '#ff0000'; // Red: heavy traffic
-    }
-  }
-
-  /// Get congestion level for advanced styling
-  double _getCongestionLevel(MapboxRoute route) {
-    final avgSpeed = route.distance / route.duration * 3.6; // km/h
-    return (60 - avgSpeed).clamp(0.0, 60.0) / 60.0; // 0-1 scale
-  }
-
-  /// Remove existing route layers
-  Future<void> _removeRouteLayer() async {
     try {
-      // Remove layers if they exist
-      if (await _mapboxMapController!.style
-          .styleLayerExists("route-layer-main")) {
-        await _mapboxMapController!.style.removeStyleLayer("route-layer-main");
-      }
-      if (await _mapboxMapController!.style
-          .styleLayerExists("route-layer-border")) {
-        await _mapboxMapController!.style
-            .removeStyleLayer("route-layer-border");
-      }
-      // Remove source if it exists
-      if (await _mapboxMapController!.style.styleSourceExists("route-source")) {
-        await _mapboxMapController!.style.removeStyleSource("route-source");
-      }
+      await _routeVisualizationService.updateRouteProgress(
+        route,
+        currentStepIndex,
+        currentPosition: currentPosition,
+      );
     } catch (e) {
-      debugPrint('Error removing existing route layers: $e');
+      debugPrint('Error updating route progress: $e');
     }
   }
 
-  /// Fallback method - show error message if LineLayer fails
-  Future<void> _fallbackToAnnotationMethod(MapboxRoute route) async {
-    debugPrint(
-        'LineLayer failed - no fallback available. Route not displayed.');
-    // Could show a user-friendly error message here if needed
-  }
 
-  /// Smooth polyline points for better curve representation (Waze-style)
-  List<PointLatLng> _smoothPolylinePoints(List<PointLatLng> points) {
-    if (points.length < 3) return points;
-
-    List<PointLatLng> smoothed = [];
-    smoothed.add(points.first); // Keep first point
-
-    for (int i = 1; i < points.length - 1; i++) {
-      final prev = points[i - 1];
-      final current = points[i];
-      final next = points[i + 1];
-
-      // Calculate distances
-      final distToPrev = _calculateDistance(prev, current);
-      final distToNext = _calculateDistance(current, next);
-
-      // Only smooth if points are close enough (avoid smoothing long straight segments)
-      if (distToPrev < 100 && distToNext < 100) {
-        // Apply gentle smoothing factor
-        const smoothingFactor = 0.15;
-
-        final smoothedLat = current.latitude +
-            smoothingFactor *
-                ((prev.latitude + next.latitude) / 2 - current.latitude);
-        final smoothedLng = current.longitude +
-            smoothingFactor *
-                ((prev.longitude + next.longitude) / 2 - current.longitude);
-
-        smoothed.add(PointLatLng(smoothedLat, smoothedLng));
-      } else {
-        smoothed.add(current); // Keep original point for long segments
-      }
-    }
-
-    smoothed.add(points.last); // Keep last point
-    return smoothed;
-  }
 
   /// Calculate distance between two points in meters
   double _calculateDistance(PointLatLng point1, PointLatLng point2) {
@@ -672,17 +859,31 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         iconImage: 'destination-marker', // Reference the added image by ID
       ),
     );
+
+    // Ensure markers are on top of route line
+    try {
+      final layerId = pointAnnotationManager!.id;
+      await _mapboxMapController!.style.moveStyleLayer(layerId, null); // Move to top
+      debugPrint('✅ Moved route markers layer ($layerId) to top');
+      
+      // Ensure navigation puck is even higher if it exists
+      await _ensureNavigationPuckOnTop();
+    } catch (e) {
+      debugPrint('⚠️ Error moving marker layer: $e');
+    }
   }
 
   Future<void> clearRoutePolyline() async {
-    // Clear professional LineLayer routes
-    await _removeRouteLayer();
+    // Clear route using RouteVisualizationService
+    await _routeVisualizationService.clearRoute();
+
+    // Clear route in SnapToRoadService
+    _snapToRoadService.clearRoute();
 
     // Clear route markers
     await pointAnnotationManager?.deleteAll();
 
     // Clear stored polyline data
-    // Using LineLayer instead of encoded polylines
     _currentPolylinePoints = null;
   }
 
@@ -758,96 +959,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  /// Calculate adaptive line width based on zoom level (Waze-style with limits)
-  Future<double> _getAdaptiveLineWidth() async {
-    if (_mapboxMapController == null) return 8.0;
-
-    try {
-      final cameraState = await _mapboxMapController!.getCameraState();
-      final zoom = cameraState.zoom;
-      final currentState = navigationBloc.state;
-      final isNavigating = currentState is NavigationInProgress;
-
-      // Waze-style adaptive width - thicker and more visible
-      double baseWidth;
-
-      if (zoom >= 19) {
-        // Maximum detail - very thick like Waze
-        baseWidth = isNavigating ? 24.0 : 18.0;
-      } else if (zoom >= 18) {
-        // Very close zoom - thick navigation line
-        baseWidth = isNavigating ? 20.0 : 16.0;
-      } else if (zoom >= 17) {
-        // Close zoom - prominent visibility
-        baseWidth = isNavigating ? 18.0 : 14.0;
-      } else if (zoom >= 16) {
-        // Medium-close zoom - standard thick navigation
-        baseWidth = isNavigating ? 16.0 : 12.0;
-      } else if (zoom >= 15) {
-        // Medium zoom - still thick
-        baseWidth = isNavigating ? 14.0 : 10.0;
-      } else if (zoom >= 14) {
-        // Medium-far zoom - visible thickness
-        baseWidth = isNavigating ? 12.0 : 8.0;
-      } else if (zoom >= 12) {
-        // Far zoom - thinner but still visible
-        baseWidth = isNavigating ? 10.0 : 6.0;
-      } else if (zoom >= 10) {
-        // Very far zoom - moderate thickness
-        baseWidth = isNavigating ? 8.0 : 4.0;
-      } else if (zoom >= 8) {
-        // Overview level - thin but visible
-        baseWidth = isNavigating ? 6.0 : 3.0;
-      } else {
-        // Maximum zoom out - minimal but visible
-        baseWidth = isNavigating ? 4.0 : 2.0;
-      }
-
-      // Apply maximum width limit to prevent overly thick lines
-      const double maxWidth = 28.0; // Allows thicker Waze-style lines
-      const double minWidth = 1.0; // Allows very thin lines when zoomed out
-
-      return baseWidth.clamp(minWidth, maxWidth);
-    } catch (e) {
-      debugPrint('Error getting camera state for adaptive width: $e');
-      return 8.0; // Better default fallback
-    }
-  }
 
   Future<void> _fitCameraToRoute(List<PointLatLng> points) async {
-    if (_mapboxMapController == null || points.isEmpty) return;
-
-    double minLat = points.first.latitude;
-    double maxLat = points.first.latitude;
-    double minLng = points.first.longitude;
-    double maxLng = points.first.longitude;
-
-    for (var point in points) {
-      if (point.latitude < minLat) minLat = point.latitude;
-      if (point.latitude > maxLat) maxLat = point.latitude;
-      if (point.longitude < minLng) minLng = point.longitude;
-      if (point.longitude > maxLng) maxLng = point.longitude;
-    }
-
-    final bounds = mp.CoordinateBounds(
-      southwest: mp.Point(coordinates: mp.Position(minLng, minLat)),
-      northeast: mp.Point(coordinates: mp.Position(maxLng, maxLat)),
-      infiniteBounds: false,
-    );
-
-    final cameraOptions = await _mapboxMapController!.cameraForCoordinateBounds(
-      bounds,
-      mp.MbxEdgeInsets(top: 150.0, left: 80.0, bottom: 200.0, right: 80.0),
-      null,
-      null,
-      null,
-      null,
-    );
-
-    await _mapboxMapController!.flyTo(
-      cameraOptions,
-      mp.MapAnimationOptions(duration: 1500),
-    );
+    // Use camera controller for route fitting
+    await _cameraController.fitToRoute(points);
   }
 
   Future<void> setupPositionTracking() async {
@@ -878,6 +993,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     );
 
     _userPositionStream?.cancel();
+
+    // Refresh location puck now that we have permissions (fixes iOS startup issue)
+    if (_mapboxMapController != null) {
+      await _setupLocationPuck();
+    }
 
     // Get current position immediately and move camera to user location
     try {
@@ -957,9 +1077,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         // Notify implementing class of position update
         onPositionUpdate(processedPosition);
 
-        // Update map camera if following user
-        if (_mapboxMapController != null && _isFollowingUser) {
+        // Update map camera if following user using camera controller
+        if (_mapboxMapController != null && _cameraController.isFollowingUser) {
           updateMapCamera(processedPosition);
+        }
+
+        // Update custom navigation puck if in navigation mode
+        if (currentState is NavigationInProgress) {
+          _updateNavigationPuck(processedPosition);
         }
       },
       onError: (Object error) {
@@ -971,96 +1096,21 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   void updateMapCamera(Position position) {
     if (_mapboxMapController == null) return;
 
-    // Check if user has moved significantly to avoid unnecessary updates
-    if (_lastCameraPosition != null) {
-      final distance = Geolocator.distanceBetween(
-        _lastCameraPosition!.latitude,
-        _lastCameraPosition!.longitude,
-        position.latitude,
-        position.longitude,
-      );
-      if (distance < 3.0) return; // Reduced threshold for more frequent updates
-    }
-
-    // Debounce camera updates to prevent excessive calls
-    _cameraUpdateTimer?.cancel();
-    _cameraUpdateTimer = Timer(const Duration(milliseconds: 300), () {
-      _actuallyUpdateCamera(position);
-    });
-  }
-
-  void _actuallyUpdateCamera(Position position) {
-    if (_mapboxMapController == null) return;
-
-    _lastCameraPosition = position;
     final currentState = navigationBloc.state;
+    final isOverviewMode = currentState is NavigationInProgress && currentState.isOverviewVisible;
 
-    if (currentState is NavigationInProgress &&
-        !currentState.isOverviewVisible) {
-      // Navigation mode: Waze-style flat view following user direction
-      _mapboxMapController
-          ?.easeTo(
-        mp.CameraOptions(
-          center: mp.Point(
-            coordinates: mp.Position(position.longitude, position.latitude),
-          ),
-          zoom: 17.0, // Reduced from 18.0 to prevent super zoom
-          bearing: position.heading, // Follow user's heading direction
-          pitch: 0.0, // Flat view like Waze, no 3D tilt
-        ),
-        mp.MapAnimationOptions(duration: 1500),
-      )
-          .then((_) {
-        // Update polyline width after camera change (debounced)
-        _debouncedUpdatePolylineWidth();
-        
-        // Update report icon sizes after camera/zoom change (debounced)
-        _debouncedUpdateReportIconSizes();
-      });
-    } else if (currentState is NavigationInProgress &&
-        currentState.isOverviewVisible) {
-      // Overview mode during navigation: flat top-down for route overview
-      _mapboxMapController
-          ?.easeTo(
-        mp.CameraOptions(
-          center: mp.Point(
-            coordinates: mp.Position(position.longitude, position.latitude),
-          ),
-          zoom: 14.0,
-          bearing: 0.0,
-          pitch: 0.0,
-        ),
-        mp.MapAnimationOptions(duration: 1500),
-      )
-          .then((_) {
-        // Update polyline width after camera change (debounced)
-        _debouncedUpdatePolylineWidth();
-        
-        // Update report icon sizes after camera/zoom change (debounced)
-        _debouncedUpdateReportIconSizes();
-      });
-    } else {
-      // Normal browsing mode: update position and bearing but preserve zoom
-      _mapboxMapController?.getCameraState().then((currentCamera) {
-        _mapboxMapController
-            ?.easeTo(
-          mp.CameraOptions(
-            center: mp.Point(
-              coordinates: mp.Position(position.longitude, position.latitude),
-            ),
-            zoom: currentCamera?.zoom, // Preserve current zoom level
-            bearing: position.heading, // Update bearing for map rotation
-            pitch: 0.0, // Keep flat view
-          ),
-          mp.MapAnimationOptions(duration: 1500),
-        )
-            .then((_) {
-          // Update polyline width after camera change
-          _updatePolylineWidth();
-        });
-      });
-    }
+    // Use camera controller for all camera updates
+    _cameraController.updateCamera(
+      userPosition: position,
+      userBearing: position.heading >= 0 ? position.heading : null,
+      isOverviewMode: isOverviewMode,
+    );
+
+    // Update report icons after camera change
+    _debouncedUpdateReportIconSizes();
   }
+
+  // Removed: _actuallyUpdateCamera - now handled by CameraController
 
   /// Setup map event listeners for adaptive polyline and marker updates
   void _setupMapListeners() {
@@ -1069,47 +1119,24 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     // and can be manually triggered when needed via debounced functions
   }
 
-  /// Debounced polyline width update to prevent excessive recreations
-  void _debouncedUpdatePolylineWidth() {
-    _polylineUpdateTimer?.cancel();
-    _polylineUpdateTimer = Timer(const Duration(milliseconds: 50), () {
-      _updatePolylineWidth();
-    });
-  }
 
   /// Debounced report icon size update to prevent excessive recreations
   void _debouncedUpdateReportIconSizes() {
     _reportIconUpdateTimer?.cancel();
     _reportIconUpdateTimer = Timer(const Duration(milliseconds: 100), () {
-      _updateReportIconSizes();
+      // _updateReportIconSizes(); // No longer needed with clustering layers
+      // _updatePuckSize(); // No longer needed with SymbolLayer expressions
     });
   }
 
-  /// Update all report marker sizes based on current zoom level
-  Future<void> _updateReportIconSizes() async {
-    if (_currentReports.isEmpty) return;
-    
-    try {
-      // Clear existing report markers
-      await reportAnnotationManager?.deleteAll();
-      
-      // Re-add all reports with updated sizes
-      for (final report in _currentReports) {
-        await _addReportMarker(report);
-      }
-      
-      debugPrint('🔄 Updated ${_currentReports.length} report icon sizes');
-    } catch (e) {
-      debugPrint('❌ Error updating report icon sizes: $e');
-    }
-  }
+  /// Update navigation puck size based on zoom level
+  // Future<void> _updatePuckSize() async {
+  //   // Removed: Handled by SymbolLayer expression
+  // }
 
-  /// Update polyline width based on current zoom level
-  void _updatePolylineWidth() async {
-    // LineLayer automatically handles width updates via expressions
-    // No manual width updates needed - zoom-based styling is built into the layer
-    debugPrint('LineLayer handles width automatically via zoom expressions');
-  }
+  // Removed _updateReportIconSizes as layer handles sizing
+  // Future<void> _updateReportIconSizes() async { ... }
+
 
   /// Update markers with adaptive sizing for current zoom level
   Future<void> _updateMarkersForZoom() async {
@@ -1140,22 +1167,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       // Get current position immediately
       final currentPosition = await Geolocator.getCurrentPosition();
 
-      // Immediately zoom to navigation level
-      await _mapboxMapController?.easeTo(
-        mp.CameraOptions(
-          center: mp.Point(
-            coordinates: mp.Position(
-                currentPosition.longitude, currentPosition.latitude),
-          ),
-          zoom: 17.0, // Reduced navigation zoom level to prevent super zoom
-          bearing: currentPosition.heading,
-          pitch: 0.0,
-        ),
-        mp.MapAnimationOptions(duration: 500), // Faster animation
-      );
+      // Use camera controller for navigation zoom
+      await _cameraController.forceNavigationZoom(currentPosition);
 
-      // Immediately update polyline width without debouncing
-      _updatePolylineWidth();
+      // No need to update polyline width - RouteVisualizationService handles this automatically
     } catch (e) {
       debugPrint('Error forcing navigation zoom: $e');
     }
@@ -1331,12 +1346,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   @override
   void dispose() {
+    _puckAnimationController?.dispose();
     _userPositionStream?.cancel();
-    _cameraResetTimer?.cancel();
-    _cameraUpdateTimer?.cancel();
-    _polylineUpdateTimer?.cancel();
     _reportIconUpdateTimer?.cancel();
-    reportAnnotationManager?.deleteAll(); // Clean up report markers
+    // reportAnnotationManager?.deleteAll(); // Removed
+    _cameraController.dispose(); // Clean up camera controller
+    _routeVisualizationService.dispose(); // Clean up route visualization service
     _mapboxMapController?.dispose();
     super.dispose();
   }

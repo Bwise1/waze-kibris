@@ -44,6 +44,16 @@ class _MainDashboardState extends State<MainDashboard>
   void onPositionUpdate(Position position) {
     // Fetch reports when user moves significantly
     _fetchNearbyReports(position);
+
+    // Update route progress during navigation
+    final currentState = _navigationBloc.state;
+    if (currentState is NavigationInProgress) {
+      updateRouteProgress(
+        currentState.route,
+        currentState.currentStepIndex,
+        currentPosition: position,
+      );
+    }
   }
 
   @override
@@ -275,27 +285,7 @@ class _MainDashboardState extends State<MainDashboard>
                       ),
                     ),
 
-                  // Re-center button during navigation
-                  if (state is NavigationInProgress && !state.isOverviewVisible)
-                    Positioned(
-                      right: 16,
-                      bottom: 120,
-                      child: FloatingActionButton(
-                        mini: true,
-                        onPressed: () {
-                          setIsFollowingUser(true);
-                        },
-                        backgroundColor: isFollowingUser
-                            ? styles.theme.primary
-                            : Colors.white,
-                        child: Icon(
-                          Icons.my_location,
-                          color: isFollowingUser
-                              ? Colors.white
-                              : styles.theme.primary,
-                        ),
-                      ),
-                    ),
+
                 ],
               );
             },

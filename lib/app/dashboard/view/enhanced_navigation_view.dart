@@ -127,7 +127,7 @@ class _EnhancedNavigationViewState extends State<EnhancedNavigationView> {
           if (_currentStep != null) ...[
             // Maneuver banner at the top
             Positioned(
-              top: MediaQuery.of(context).padding.top,
+              top: 0,
               left: 0,
               right: 0,
               child: ManeuverBanner(

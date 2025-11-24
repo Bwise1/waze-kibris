@@ -54,11 +54,11 @@ class LaneGuidanceWidget extends StatelessWidget {
                         ]
                       : null,
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: _buildLaneArrows(lane.indications),
-                ),
-              );
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: _buildLaneArrows(lane.indications),
+                  ),
+                );
             }).toList(),
           ),
         ),

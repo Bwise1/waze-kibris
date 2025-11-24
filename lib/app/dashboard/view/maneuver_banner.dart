@@ -2,18 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
 import 'package:waze_kibris/app/dashboard/view/lane_guidance_widget.dart';
+import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
+
 import 'package:waze_kibris/app/dashboard/services/enhanced_navigation_controller.dart';
 
 class ManeuverBanner extends StatelessWidget {
   final MapboxStep step;
   final double distanceRemaining;
+  final NavigationBloc? navigationBloc;
   final EnhancedNavigationController? navigationController;
+  final MapboxStep? nextStep; // Next-next instruction preview
 
   const ManeuverBanner({
     super.key,
     required this.step,
     required this.distanceRemaining,
+    this.navigationBloc,
     this.navigationController,
+    this.nextStep,
   });
 
   MapboxBannerInstruction? get _currentBanner {
@@ -26,6 +32,20 @@ class ManeuverBanner extends StatelessWidget {
     return step.bannerInstructions.isNotEmpty ? step.bannerInstructions.first : null;
   }
 
+  bool get _isVoiceEnabled {
+    if (navigationBloc != null) return navigationBloc!.isVoiceEnabled;
+    if (navigationController != null) return navigationController!.isVoiceEnabled;
+    return false;
+  }
+
+  Future<void> _speakCurrentInstruction() async {
+    if (navigationBloc != null) {
+      await navigationBloc!.speakCurrentInstruction();
+    } else if (navigationController != null) {
+      await navigationController!.speakCurrentInstruction();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final maneuver = step.maneuver;
@@ -34,7 +54,7 @@ class ManeuverBanner extends StatelessWidget {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       elevation: 8,
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(16, 44, 16, 16),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
         child: Column(
@@ -54,13 +74,13 @@ class ManeuverBanner extends StatelessWidget {
                       // Distance
                       Text(
                         MapboxNavigationUtils.formatDistance(distanceRemaining),
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
                       ),
                       
                       // Primary instruction (use banner if available, fallback to maneuver)
                       Text(
                         currentBanner?.primary.text ?? maneuver.instruction,
-                        style: const TextStyle(fontSize: 16),
+                        style: const TextStyle(fontSize: 16, color: Colors.black),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -69,7 +89,7 @@ class ManeuverBanner extends StatelessWidget {
                       if (currentBanner?.secondary != null)
                         Text(
                           currentBanner!.secondary!.text,
-                          style: const TextStyle(fontSize: 14, color: Colors.blue),
+                          style: const TextStyle(fontSize: 14, color: Colors.grey),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -88,17 +108,16 @@ class ManeuverBanner extends StatelessWidget {
                 // Voice button
                 IconButton(
                   icon: Icon(
-                    navigationController?.isVoiceEnabled == true 
-                        ? Icons.volume_up 
+                    _isVoiceEnabled
+                        ? Icons.volume_up
                         : Icons.volume_off,
-                    color: navigationController?.isVoiceEnabled == true 
-                        ? null 
+                    color: _isVoiceEnabled
+                        ? Colors.black
                         : Colors.grey,
                   ),
                   onPressed: () async {
-                    if (navigationController != null) {
-                      await navigationController!.speakCurrentInstruction();
-                    }
+                    // Toggle voice and speak current instruction
+                    await _speakCurrentInstruction();
                   },
                 ),
               ],
@@ -119,6 +138,13 @@ class ManeuverBanner extends StatelessWidget {
                   lanes: step.intersections.first.lanes,
                 ),
               ),
+
+            // Next-next instruction preview (Waze-style)
+            if (nextStep != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: _buildNextStepPreview(),
+              ),
           ],
         ),
       ),
@@ -133,7 +159,7 @@ class ManeuverBanner extends StatelessWidget {
       return Stack(
         alignment: Alignment.center,
         children: [
-          Text(iconText, style: const TextStyle(fontSize: 32)),
+          Text(iconText, style: const TextStyle(fontSize: 32, color: Colors.black)),
           Positioned(
             bottom: 2,
             child: Container(
@@ -156,7 +182,7 @@ class ManeuverBanner extends StatelessWidget {
       );
     }
     
-    return Text(iconText, style: const TextStyle(fontSize: 32));
+    return Text(iconText, style: const TextStyle(fontSize: 32, color: Colors.black));
   }
 
   bool _hasEnhancedInfo() {
@@ -224,5 +250,98 @@ class ManeuverBanner extends StatelessWidget {
 
   bool _hasLaneGuidance() {
     return step.intersections.isNotEmpty && step.intersections.first.lanes.isNotEmpty;
+  }
+
+  Widget _buildNextStepPreview() {
+    if (nextStep == null) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Row(
+        children: [
+          // "Then" label
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.blue,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Text(
+              'THEN',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // Next maneuver icon (smaller)
+          Text(
+            MapboxNavigationUtils.getManeuverIcon(
+              nextStep!.maneuver.type,
+              nextStep!.maneuver.modifier,
+            ),
+            style: const TextStyle(fontSize: 20, color: Colors.black),
+          ),
+          const SizedBox(width: 8),
+
+          // Next instruction text
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  nextStep!.maneuver.instruction,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.black87,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (nextStep!.name.isNotEmpty)
+                  Text(
+                    nextStep!.name,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[600],
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+
+          // Distance to next step
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              MapboxNavigationUtils.formatDistance(
+                step.distance, // Distance of current step
+              ),
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
