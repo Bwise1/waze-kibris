@@ -140,20 +140,32 @@ class _NavigationOverlayState extends State<NavigationOverlay>
               children: [
                 // Progress indicator
                 if (!navigationState.isOverviewVisible) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: LinearProgressIndicator(
-                          value: (navigationState.route.distance -
-                                  navigationState.remainingDistance) /
-                              navigationState.route.distance,
-                          backgroundColor: Colors.grey[200],
-                          valueColor:
-                              const AlwaysStoppedAnimation<Color>(Colors.blue),
-                          minHeight: 4,
-                        ),
-                      ),
-                    ],
+                  Builder(
+                    builder: (context) {
+                      // Calculate progress safely to avoid NaN/Infinity errors
+                      double progress = 0.0;
+                      if (navigationState.route.distance > 0) {
+                        progress = (navigationState.route.distance -
+                                navigationState.remainingDistance) /
+                            navigationState.route.distance;
+                        // Ensure valid range [0.0, 1.0]
+                        progress = progress.clamp(0.0, 1.0);
+                      }
+                      
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: LinearProgressIndicator(
+                              value: progress,
+                              backgroundColor: Colors.grey[200],
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                  Colors.blue),
+                              minHeight: 4,
+                            ),
+                          ),
+                        ],
+                      );
+                    }
                   ),
                   const SizedBox(height: 16),
                 ],

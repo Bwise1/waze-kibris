@@ -1,6 +1,14 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:vector_graphics/vector_graphics.dart' as vg;
+import 'package:vector_graphics/src/listener.dart' as internal; // For decodeVectorGraphics
+import 'package:vector_graphics_compiler/vector_graphics_compiler.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
@@ -13,6 +21,8 @@ class RouteVisualizationService {
   static const String _traveledRouteLayerId = 'route-layer-traveled'; // New layer for traveled route
   static const String _arrowSourceId = 'route-arrows-source';
   static const String _arrowLayerId = 'route-arrows-layer';
+  static const String _laneGuidanceSourceId = 'lane-guidance-source';
+  static const String _laneGuidanceLayerId = 'lane-guidance-layer';
 
   MapboxMap? _mapboxMap;
   MapboxRoute? _currentRoute;
@@ -60,6 +70,7 @@ class RouteVisualizationService {
     try {
       await _setupRouteLayers();
       await _setupArrowLayers();
+      await _setupLaneGuidanceLayers();
       print('✅ RouteVisualizationService initialized successfully');
     } catch (e) {
       print('❌ RouteVisualizationService initialization failed: $e');
@@ -105,6 +116,8 @@ class RouteVisualizationService {
         await _updateRouteLayerStyling(route);
         // Add directional arrows
         await _updateRouteArrows(route);
+        // Add lane guidance
+        await _drawLaneGuidance(route);
       }
 
       print('✅ Route drawing completed successfully');
@@ -347,19 +360,19 @@ class RouteVisualizationService {
           sourceId: _routeSourceId,
           lineJoin: LineJoin.ROUND,
           lineCap: LineCap.ROUND,
-          // Dynamic width based on zoom level (Waze-style)
+          // Thicker casing for professional look (Main width + ~4px)
           lineWidthExpression: [
             'interpolate',
             ['exponential', 1.5],
             ['zoom'],
-            10.0, 5.0, // Far zoom: thin border
-            13.0, 8.0, // Medium zoom
-            16.0, 11.0, // Close zoom
-            19.0, 16.0, // Very close
-            22.0, 21.0, // Maximum zoom
+            10.0, 7.0,  // 3 + 4
+            13.0, 10.0, // 6 + 4
+            16.0, 13.0, // 9 + 4
+            19.0, 18.0, // 14 + 4
+            22.0, 23.0, // 19 + 4
           ],
-          lineColor: 0xFF1565C0, // Darker blue border
-          lineOpacity: 0.6,
+          lineColor: 0xFF1556B8, // Professional Dark Blue Border
+          lineOpacity: 1.0, // Solid opacity
         ),
       );
       print('✅ Added route border layer: $_routeBorderLayerId');
@@ -381,8 +394,8 @@ class RouteVisualizationService {
             19.0, 14.0,
             22.0, 19.0,
           ],
-          lineColor: routeTraveledColor,
-          lineOpacity: routeTraveledOpacity,
+          lineColor: 0xFFCFD8DC, // Subtle Grey
+          lineOpacity: 1.0,
           filter: ['==', ['get', 'is_traveled'], true], // Only show traveled segments
         ),
       );
@@ -406,8 +419,8 @@ class RouteVisualizationService {
             19.0, 14.0, // Very close: thick navigation line
             22.0, 19.0, // Maximum zoom: very thick
           ],
-          lineColor: routeDefaultColor,
-          lineOpacity: routeOpacity,
+          lineColor: 0xFF4A90E2, // Vibrant Professional Blue
+          lineOpacity: 1.0, // Solid opacity
           filter: ['!=', ['get', 'is_traveled'], true], // Only show remaining segments
         ),
       );
@@ -512,14 +525,16 @@ class RouteVisualizationService {
     return buffer.toString().hashCode.toString();
   }
 
-  /// Setup arrow layers for route visualization
+  /// Setup arrow layers on the map
   Future<void> _setupArrowLayers() async {
     if (_mapboxMap == null) return;
 
     try {
+      // Load arrow image
+      await _loadSvgImage();
+
       const emptyGeoJson = {'type': 'FeatureCollection', 'features': []};
 
-      // Remove existing arrow layers if they exist
       if (await _mapboxMap!.style.styleLayerExists(_arrowLayerId)) {
         await _mapboxMap!.style.removeStyleLayer(_arrowLayerId);
       }
@@ -527,169 +542,277 @@ class RouteVisualizationService {
         await _mapboxMap!.style.removeStyleSource(_arrowSourceId);
       }
 
-      // Add arrow source
       await _mapboxMap!.style.addSource(
         GeoJsonSource(id: _arrowSourceId, data: jsonEncode(emptyGeoJson)),
       );
 
-      // Add arrow symbol layer with expression-based properties
       await _mapboxMap!.style.addLayer(
         SymbolLayer(
           id: _arrowLayerId,
           sourceId: _arrowSourceId,
-          iconImage: 'triangle-11', // Use built-in Mapbox arrow
-          iconSizeExpression: [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            10.0, 0.3, // Small at far zoom
-            13.0, 0.5,
-            16.0, 0.7, // Medium at close zoom
-            19.0, 1.0, // Large at very close zoom
-          ],
-          iconRotationAlignment: IconRotationAlignment.MAP,
+          iconImage: _arrowImageId,
+          iconSize: 0.5, // Adjusted size for SVG
+          symbolPlacement: SymbolPlacement.LINE,
+          symbolSpacing: 50.0, // Default spacing
           iconAllowOverlap: true,
-          iconIgnorePlacement: false,
-          iconRotateExpression: ['get', 'bearing'],
-          iconColor: 0xFFFFFFFF, // White arrows
-          iconOpacity: 0.9,
+          iconIgnorePlacement: true,
+          iconRotationAlignment: IconRotationAlignment.MAP,
         ),
       );
-
-      print('✅ Arrow layers setup completed');
+      print('✅ Arrow layers setup');
     } catch (e) {
       print('❌ Failed to setup arrow layers: $e');
-      // Non-critical, continue anyway
     }
   }
 
   /// Update route arrows based on route geometry
-  Future<void> _updateRouteArrows(MapboxRoute route, {double? currentZoom}) async {
+  Future<void> _updateRouteArrows(MapboxRoute route) async {
     if (_mapboxMap == null) return;
 
     try {
-      final arrowPoints = await _generateArrowPoints(route, currentZoom: currentZoom);
+      // Create a line string from route coordinates
+      final geometry = route.geometry;
+      final feature = {
+        'type': 'Feature',
+        'geometry': geometry.toJson(),
+        'properties': {},
+      };
 
-      final arrowGeoJson = {
+      final geoJson = {
         'type': 'FeatureCollection',
-        'features': arrowPoints.map((point) {
-          return {
-            'type': 'Feature',
-            'geometry': {
-              'type': 'Point',
-              'coordinates': [point['lng'], point['lat']],
-            },
-            'properties': {
-              'bearing': point['bearing'],
-            },
-          };
-        }).toList(),
+        'features': [feature],
       };
 
       await _mapboxMap!.style.setStyleSourceProperty(
         _arrowSourceId,
         'data',
-        jsonEncode(arrowGeoJson),
+        jsonEncode(geoJson),
       );
-
-      print('✅ Updated ${arrowPoints.length} route arrows');
     } catch (e) {
       print('⚠️ Failed to update route arrows: $e');
-      // Non-critical error
+    }
+  }
+
+  /// Load SVG image from assets and convert to Mapbox image
+  Future<void> _loadSvgImage() async {
+    if (_mapboxMap == null) return;
+
+    try {
+      // Load SVG string
+      final String svgString = await rootBundle.loadString('assets/icons/route_chevron.svg');
+      
+      // Compile and decode SVG
+      final Uint8List compiledBytes = await encodeSvg(xml: svgString, debugName: 'route_chevron');
+      final PictureInfo pictureInfo = await internal.decodeVectorGraphics(
+        compiledBytes.buffer.asByteData(), // Positional argument
+        loader: MemoryBytesLoader(compiledBytes.buffer.asByteData()),
+        textDirection: TextDirection.ltr,
+        locale: const Locale('en', 'US'), // Dummy locale
+        clipViewbox: false,
+      );
+      
+      // Define target size (e.g., 48x48 for high res)
+      const double targetSize = 48.0;
+      
+      // Create picture recorder and canvas
+      final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
+      final ui.Canvas canvas = ui.Canvas(pictureRecorder);
+      
+      // Calculate scale
+      final double scale = targetSize / pictureInfo.size.width;
+      canvas.scale(scale);
+      
+      // Draw picture
+      canvas.drawPicture(pictureInfo.picture);
+      
+      // Convert to image
+      final ui.Image image = await pictureRecorder.endRecording().toImage(targetSize.toInt(), targetSize.toInt());
+      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      
+      if (byteData == null) return;
+      
+      final Uint8List list = byteData.buffer.asUint8List();
+      
+      // Add image to style
+      await _mapboxMap!.style.addStyleImage(
+        _arrowImageId,
+        2.0, // Scale
+        MbxImage(width: targetSize.toInt(), height: targetSize.toInt(), data: list),
+        false, // sdf
+        [], [], null
+      );
+      print('✅ Loaded route chevron SVG');
+    } catch (e) {
+      print('⚠️ Failed to load arrow SVG: $e');
+    }
+  }
+
+// ...
+
+  /// Load lane guidance SVG images
+  Future<void> _loadLaneImages() async {
+    if (_mapboxMap == null) return;
+
+    final laneIcons = {
+      'lane_straight': 'assets/icons/lane_straight.svg',
+      'lane_left': 'assets/icons/lane_left.svg',
+      'lane_right': 'assets/icons/lane_right.svg',
+      'lane_straight_left': 'assets/icons/lane_straight_left.svg',
+      'lane_straight_right': 'assets/icons/lane_straight_right.svg',
+    };
+
+    for (final entry in laneIcons.entries) {
+      try {
+        final String svgString = await rootBundle.loadString(entry.value);
+        
+        // Compile and decode SVG
+        final Uint8List compiledBytes = await encodeSvg(xml: svgString, debugName: entry.key);
+        final PictureInfo pictureInfo = await internal.decodeVectorGraphics(
+          compiledBytes.buffer.asByteData(), // Positional argument
+          loader: MemoryBytesLoader(compiledBytes.buffer.asByteData()),
+          textDirection: TextDirection.ltr,
+          locale: const Locale('en', 'US'),
+          clipViewbox: false,
+        );
+        
+        const double targetSize = 48.0; // Consistent size
+        final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
+        final ui.Canvas canvas = ui.Canvas(pictureRecorder);
+        final double scale = targetSize / pictureInfo.size.width;
+        canvas.scale(scale);
+        canvas.drawPicture(pictureInfo.picture);
+        
+        final ui.Image image = await pictureRecorder.endRecording().toImage(targetSize.toInt(), targetSize.toInt());
+        final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+        
+        if (byteData != null) {
+          final Uint8List list = byteData.buffer.asUint8List();
+          await _mapboxMap!.style.addStyleImage(
+            entry.key,
+            2.0, // Scale
+            MbxImage(width: targetSize.toInt(), height: targetSize.toInt(), data: list),
+            false,
+            [], [], null
+          );
+        }
+      } catch (e) {
+        print('⚠️ Failed to load lane icon ${entry.key}: $e');
+      }
+    }
+    print('✅ Loaded lane guidance icons');
+  }
+
+  /// Setup lane guidance layers
+  Future<void> _setupLaneGuidanceLayers() async {
+    if (_mapboxMap == null) return;
+
+    try {
+      await _loadLaneImages();
+
+      const emptyGeoJson = {'type': 'FeatureCollection', 'features': []};
+
+      if (await _mapboxMap!.style.styleLayerExists(_laneGuidanceLayerId)) {
+        await _mapboxMap!.style.removeStyleLayer(_laneGuidanceLayerId);
+      }
+      if (await _mapboxMap!.style.styleSourceExists(_laneGuidanceSourceId)) {
+        await _mapboxMap!.style.removeStyleSource(_laneGuidanceSourceId);
+      }
+
+      await _mapboxMap!.style.addSource(
+        GeoJsonSource(id: _laneGuidanceSourceId, data: jsonEncode(emptyGeoJson)),
+      );
+
+      await _mapboxMap!.style.addLayer(
+        SymbolLayer(
+          id: _laneGuidanceLayerId,
+          sourceId: _laneGuidanceSourceId,
+          iconImage: "{icon}", // Use token replacement for data-driven styling
+          iconSize: 0.8,
+          iconAllowOverlap: true,
+          iconIgnorePlacement: true,
+          iconOpacity: 1.0,
+          // Offset slightly above the intersection point if needed, or just center it
+          iconAnchor: IconAnchor.CENTER, 
+        ),
+      );
+      print('✅ Lane guidance layers setup');
+    } catch (e) {
+      print('❌ Failed to setup lane guidance layers: $e');
+    }
+  }
+
+  /// Draw lane guidance arrows based on route data
+  Future<void> _drawLaneGuidance(MapboxRoute route) async {
+    if (_mapboxMap == null) return;
+
+    try {
+      List<Map<String, dynamic>> features = [];
+
+      for (final leg in route.legs) {
+        for (final step in leg.steps) {
+          for (final intersection in step.intersections) {
+            if (intersection.lanes.isEmpty) continue;
+
+            // Check for active lanes
+            final activeLanes = intersection.lanes.where((l) => l.active).toList();
+            if (activeLanes.isEmpty) continue;
+
+            // Collect indications
+            final Set<String> indications = {};
+            for (final lane in activeLanes) {
+              indications.addAll(lane.indications);
+            }
+
+            String? iconName;
+            if (indications.contains('straight') && indications.contains('left')) {
+              iconName = 'lane_straight_left';
+            } else if (indications.contains('straight') && indications.contains('right')) {
+              iconName = 'lane_straight_right';
+            } else if (indications.contains('left')) {
+              iconName = 'lane_left';
+            } else if (indications.contains('right')) {
+              iconName = 'lane_right';
+            } else if (indications.contains('straight')) {
+              iconName = 'lane_straight';
+            }
+
+            if (iconName != null) {
+              features.add({
+                'type': 'Feature',
+                'geometry': {
+                  'type': 'Point',
+                  'coordinates': intersection.location,
+                },
+                'properties': {
+                  'icon': iconName,
+                },
+              });
+            }
+          }
+        }
+      }
+
+      final geoJson = {
+        'type': 'FeatureCollection',
+        'features': features,
+      };
+
+      await _mapboxMap!.style.setStyleSourceProperty(
+        _laneGuidanceSourceId,
+        'data',
+        jsonEncode(geoJson),
+      );
+      print('✅ Drawn ${features.length} lane guidance arrows');
+
+    } catch (e) {
+      print('⚠️ Failed to draw lane guidance: $e');
     }
   }
 
   /// Update arrow density based on zoom level
   Future<void> updateArrowDensity(double zoom) async {
-    if (_currentRoute == null) return;
-    await _updateRouteArrows(_currentRoute!, currentZoom: zoom);
-  }
-
-  /// Generate arrow points along the route at regular intervals
-  Future<List<Map<String, double>>> _generateArrowPoints(MapboxRoute route, {double? currentZoom}) async {
-    final List<Map<String, double>> arrowPoints = [];
-    final coordinates = route.geometry.coordinates;
-
-    if (coordinates.length < 2) return arrowPoints;
-
-    // Determine arrow spacing based on zoom level
-    double arrowSpacing = _arrowSpacingMeters;
-    if (currentZoom != null) {
-      arrowSpacing = _getArrowSpacingForZoom(currentZoom);
-    }
-
-    double accumulatedDistance = 0.0;
-    double nextArrowDistance = arrowSpacing;
-
-    for (int i = 0; i < coordinates.length - 1; i++) {
-      final start = coordinates[i];
-      final end = coordinates[i + 1];
-
-      final segmentDistance = _calculateDistance(
-        start[1], start[0], // lat, lng
-        end[1], end[0],
-      );
-
-      // Check if we should place arrow(s) in this segment
-      while (accumulatedDistance + segmentDistance >= nextArrowDistance) {
-        final distanceIntoSegment = nextArrowDistance - accumulatedDistance;
-        final ratio = distanceIntoSegment / segmentDistance;
-
-        // Interpolate position
-        final arrowLng = start[0] + (end[0] - start[0]) * ratio;
-        final arrowLat = start[1] + (end[1] - start[1]) * ratio;
-
-        // Calculate bearing for arrow rotation
-        final bearing = _calculateBearing(start[1], start[0], end[1], end[0]);
-
-        arrowPoints.add({
-          'lng': arrowLng,
-          'lat': arrowLat,
-          'bearing': bearing,
-        });
-
-        nextArrowDistance += arrowSpacing;
-      }
-
-      accumulatedDistance += segmentDistance;
-    }
-
-    return arrowPoints;
-  }
-
-  /// Calculate bearing between two points (in degrees)
-  double _calculateBearing(double lat1, double lng1, double lat2, double lng2) {
-    final dLng = (lng2 - lng1) * (math.pi / 180);
-    final lat1Rad = lat1 * (math.pi / 180);
-    final lat2Rad = lat2 * (math.pi / 180);
-
-    final y = math.sin(dLng) * math.cos(lat2Rad);
-    final x = math.cos(lat1Rad) * math.sin(lat2Rad) -
-        math.sin(lat1Rad) * math.cos(lat2Rad) * math.cos(dLng);
-
-    final bearing = math.atan2(y, x) * (180 / math.pi);
-    return (bearing + 360) % 360; // Normalize to 0-360
-  }
-
-  /// Get arrow spacing based on zoom level (more arrows when zoomed in)
-  double _getArrowSpacingForZoom(double zoom) {
-    final zoomInt = zoom.round();
-
-    // Find closest zoom level in map
-    if (_zoomToSpacing.containsKey(zoomInt)) {
-      return _zoomToSpacing[zoomInt]!;
-    }
-
-    // Interpolate between zoom levels
-    final lowerZoom = _zoomToSpacing.keys.where((z) => z <= zoomInt).fold<int?>(null, (max, z) => max == null || z > max ? z : max);
-    final upperZoom = _zoomToSpacing.keys.where((z) => z >= zoomInt).fold<int?>(null, (min, z) => min == null || z < min ? z : min);
-
-    if (lowerZoom != null && upperZoom != null && lowerZoom != upperZoom) {
-      final t = (zoom - lowerZoom) / (upperZoom - lowerZoom);
-      return _zoomToSpacing[lowerZoom]! + (_zoomToSpacing[upperZoom]! - _zoomToSpacing[lowerZoom]!) * t;
-    }
-
-    return _arrowSpacingMeters; // Default fallback
+    // With SymbolPlacement.LINE, symbolSpacing handles density automatically.
+    // We could dynamically update symbolSpacing here if needed, but fixed spacing usually works well.
   }
 
   /// Dispose and cleanup
@@ -705,6 +828,12 @@ class RouteVisualizationService {
         if (await _mapboxMap!.style.styleSourceExists(_arrowSourceId)) {
           await _mapboxMap!.style.removeStyleSource(_arrowSourceId);
         }
+        if (await _mapboxMap!.style.styleLayerExists(_laneGuidanceLayerId)) {
+          await _mapboxMap!.style.removeStyleLayer(_laneGuidanceLayerId);
+        }
+        if (await _mapboxMap!.style.styleSourceExists(_laneGuidanceSourceId)) {
+          await _mapboxMap!.style.removeStyleSource(_laneGuidanceSourceId);
+        }
       } catch (e) {
         // Ignore cleanup errors
       }
@@ -717,5 +846,20 @@ class RouteVisualizationService {
   /// Getters
   MapboxRoute? get currentRoute => _currentRoute;
   bool get isInitialized => _isInitialized;
+}
+
+/// Custom BytesLoader for in-memory ByteData
+class MemoryBytesLoader extends vg.BytesLoader {
+  final ByteData _data;
+  const MemoryBytesLoader(this._data);
+
+  @override
+  Future<ByteData> loadBytes(BuildContext? context) async => _data;
+
+  @override
+  int get hashCode => _data.hashCode;
+
+  @override
+  bool operator ==(Object other) => other is MemoryBytesLoader && other._data == _data;
 }
 

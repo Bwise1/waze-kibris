@@ -24,6 +24,9 @@ dependencies:
   flutter_map: ^8.1.1
   flutter_polyline_points: ^2.1.0
   flutter_svg: ^2.0.16
+  vector_graphics: ^1.1.0
+  vector_graphics_compiler: ^1.1.0
+  vector_graphics_codec: ^1.1.0
   gap: ^3.0.1
   geocoding: ^3.0.0
   geolocator: ^11.0.0

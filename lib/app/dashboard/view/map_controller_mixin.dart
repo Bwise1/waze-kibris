@@ -2,12 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:vector_graphics/vector_graphics.dart' as vg;
+import 'package:vector_graphics/src/listener.dart' as internal; // For decodeVectorGraphics
+import 'package:vector_graphics_compiler/vector_graphics_compiler.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
+import 'package:waze_kibris/gen/assets.gen.dart';
 import 'package:waze_kibris/app/dashboard/services/snap_to_road_service.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/core/controllers/camera_controller.dart';
@@ -216,6 +222,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       }
 
       debugPrint('✅ Type-based report clustering setup completed');
+      
+      // If we have pending reports that were skipped during setup, display them now
+      if (_currentReports.isNotEmpty) {
+        displayReportsOnMap(_currentReports);
+      }
     } catch (e) {
       debugPrint('❌ Error setting up report clustering: $e');
     }
@@ -237,12 +248,22 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     try {
       // Create Waze-style circular report icons with chat bubbles
-      await _createWazeStyleReportIcon('police-icon', 'assets/icons/police.png',
-          const Color(0xFF4285F4)); // Blue
-      await _createWazeStyleReportIcon('traffic-icon',
-          'assets/icons/warning-cars.png', const Color(0xFFFF9800)); // Orange
-      await _createWazeStyleReportIcon('accident-icon',
-          'assets/icons/accident.png', const Color(0xFFF44336)); // Red
+      // Using softer colors as requested
+      await _createWazeStyleReportIcon(
+          'police-icon',
+          Assets.icons.reports.police,
+          const Color(0xFF5B96F5)); // Softer Blue
+      
+      await _createWazeStyleReportIcon(
+          'traffic-icon',
+          Assets.icons.reports.trafic,
+          const Color(0xFFFFB74D), // Softer Orange
+          manualOffset: const Offset(0, 5)); // Nudge traffic icon down slightly
+      
+      await _createWazeStyleReportIcon(
+          'accident-icon',
+          Assets.icons.reports.accident,
+          const Color(0xFFE57373)); // Softer Red
 
       debugPrint('✅ Waze-style report icons created successfully');
     } catch (e) {
@@ -252,116 +273,66 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Create a Waze-style circular report icon with chat bubble effect
   Future<void> _createWazeStyleReportIcon(
-      String iconId, String assetPath, Color backgroundColor) async {
+      String iconId, String assetPath, Color backgroundColor,
+      {Offset? manualOffset}) async {
     try {
-      // Load the original icon
-      final ByteData iconData = await rootBundle.load(assetPath);
-      final Uint8List iconBytes = iconData.buffer.asUint8List();
-      final ui.Codec iconCodec = await ui.instantiateImageCodec(iconBytes);
-      final ui.FrameInfo iconFrame = await iconCodec.getNextFrame();
-      final ui.Image originalIcon = iconFrame.image;
+      // Scale factor for high-resolution rendering (3x for crispness)
+      const double scaleFactor = 3.0;
+      
+      // Base dimensions (will be multiplied by scaleFactor)
+      const double baseBubbleSize = 64.0;
+      const double baseIconSize = 42.0;
+      const double baseBubbleRadius = 28.0;
+      
+      // Scaled dimensions
+      const double bubbleSize = baseBubbleSize * scaleFactor;
+      const double iconSize = baseIconSize * scaleFactor;
+      const double bubbleRadius = baseBubbleRadius * scaleFactor;
 
-      // Create a larger canvas for the Waze-style bubble
-      const double bubbleSize = 64.0;
-      const double iconSize = 32.0;
-      const double bubbleRadius = 28.0;
-      // const double tailHeight = 12.0; // Removed tail
-
-      final ui.PictureRecorder recorder = ui.PictureRecorder();
-      final Canvas canvas = Canvas(recorder);
-      final Paint bubblePaint = Paint()
-        ..color = backgroundColor
-        ..style = PaintingStyle.fill;
-
-      final Paint borderPaint = Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.0;
-
-      final Paint shadowPaint = Paint()
-        ..color = Colors.black.withOpacity(0.3)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-
-      // Draw shadow (slightly offset)
-      const double shadowOffset = 2.0;
-      canvas.drawCircle(
-        Offset(bubbleRadius + shadowOffset, bubbleRadius + shadowOffset),
-        bubbleRadius,
-        shadowPaint,
-      );
-
-      // Draw main circular background
-      canvas.drawCircle(
-        Offset(bubbleRadius, bubbleRadius),
-        bubbleRadius,
-        bubblePaint,
-      );
-
-      // Draw white border around circle
-      canvas.drawCircle(
-        Offset(bubbleRadius, bubbleRadius),
-        bubbleRadius,
-        borderPaint,
-      );
-
-      // Draw the icon in the center of the circle
-      final Offset iconOffset = Offset(
-        bubbleRadius - (iconSize / 2),
-        bubbleRadius - (iconSize / 2),
-      );
-
-      canvas.drawImageRect(
-        originalIcon,
-        Rect.fromLTWH(0, 0, originalIcon.width.toDouble(),
-            originalIcon.height.toDouble()),
-        Rect.fromLTWH(iconOffset.dx, iconOffset.dy, iconSize, iconSize),
-        Paint(),
-      );
-
-      // Convert to image
-      final ui.Picture picture = recorder.endRecording();
-      final ui.Image finalImage = await picture.toImage(
-          bubbleSize.toInt(), bubbleSize.toInt()); // Square canvas
-      final ByteData? byteData =
-          await finalImage.toByteData(format: ui.ImageByteFormat.png);
-
-      if (byteData != null) {
-        final Uint8List finalImageBytes = byteData.buffer.asUint8List();
-
-        final mp.MbxImage mbxImage = mp.MbxImage(
-          width: bubbleSize.toInt(),
-          height: bubbleSize.toInt(),
-          data: finalImageBytes,
+      // Load the original icon (SVG or PNG)
+      ui.Image image;
+      
+      if (assetPath.endsWith('.svg')) {
+        // Load SVG
+        final String svgString = await rootBundle.loadString(assetPath);
+        final Uint8List compiledBytes = await encodeSvg(xml: svgString, debugName: assetPath);
+        final PictureInfo pictureInfo = await internal.decodeVectorGraphics(
+          compiledBytes.buffer.asByteData(), // Positional argument
+          loader: MemoryBytesLoader(compiledBytes.buffer.asByteData()),
+          textDirection: TextDirection.ltr,
+          locale: const Locale('en', 'US'),
+          clipViewbox: false,
         );
+        
+        // Calculate scale to fit target size
+        final double scaleX = iconSize / pictureInfo.size.width;
+        final double scaleY = iconSize / pictureInfo.size.height;
+        final double scale = math.min(scaleX, scaleY);
+        
+        // Draw scaled picture to image
+        final ui.PictureRecorder recorder = ui.PictureRecorder();
+        final Canvas canvas = Canvas(recorder);
+        
+        // Scale the canvas to make the SVG larger
+        canvas.scale(scale);
+        canvas.drawPicture(pictureInfo.picture);
+        
+        final ui.Picture scaledPicture = recorder.endRecording();
+        image = await scaledPicture.toImage(iconSize.toInt(), iconSize.toInt());
+        
+        pictureInfo.picture.dispose();
+      } else {
+        final ByteData byteData = await rootBundle.load(assetPath);
+        final Uint8List imageBytes = byteData.buffer.asUint8List();
 
-        await _mapboxMapController!.style.addStyleImage(
-          iconId,
-          1.0,
-          mbxImage,
-          false,
-          [],
-          [],
-          null,
-        );
-
-        debugPrint('✅ Created Waze-style icon: $iconId');
+        final codec = await ui.instantiateImageCodec(imageBytes);
+        final frameInfo = await codec.getNextFrame();
+        image = frameInfo.image;
       }
-    } catch (e) {
-      debugPrint('❌ Error creating Waze-style icon $iconId: $e');
-      // Fallback to simple icon
-      await _addReportIconToStyle(iconId, assetPath);
-    }
-  }
 
-  /// Add a specific report icon to map style
-  Future<void> _addReportIconToStyle(String iconId, String assetPath) async {
-    try {
-      final ByteData byteData = await rootBundle.load(assetPath);
+      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return;
       final Uint8List imageBytes = byteData.buffer.asUint8List();
-
-      final codec = await ui.instantiateImageCodec(imageBytes);
-      final frameInfo = await codec.getNextFrame();
-      final ui.Image image = frameInfo.image;
 
       final mbxImage = mp.MbxImage(
         width: image.width,
@@ -421,11 +392,17 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
         // Update the specific source for this type
         final sourceId = _getReportSourceId(type);
-        await _mapboxMapController!.style.setStyleSourceProperty(
-          sourceId,
-          'data',
-          jsonEncode(geoJson),
-        );
+        
+        // Check if source exists before trying to update it (prevents race condition)
+        if (await _mapboxMapController!.style.styleSourceExists(sourceId)) {
+          await _mapboxMapController!.style.setStyleSourceProperty(
+            sourceId,
+            'data',
+            jsonEncode(geoJson),
+          );
+        } else {
+          debugPrint('⚠️ Source $sourceId not ready yet, skipping update');
+        }
       }
 
       debugPrint('✅ Updated report sources with ${reports.length} features across types');
@@ -637,17 +614,15 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             iconAllowOverlap: true,
             iconIgnorePlacement: true,
             iconRotationAlignment: mp.IconRotationAlignment.MAP,
+            iconPitchAlignment: mp.IconPitchAlignment.MAP, // Lie flat on the road
             iconRotateExpression: ['get', 'bearing'], // Rotate based on bearing property
-            // Smooth scaling expression matching destination marker logic
+            // Fixed size matching non-navigation mode
             iconSizeExpression: [
               'interpolate',
               ['linear'],
               ['zoom'],
-              10.0, 1.0,  // Zoom 10 -> 1.0
-              13.0, 1.5,
-              16.0, 2.5,  // Zoom 16 -> 2.5
-              19.0, 3.5,
-              22.0, 4.5,  // Zoom 22 -> 4.5
+              10.0, 1.0,
+              22.0, 1.0,
             ],
             symbolSortKey: 1000, // Ensure on top
           ),
@@ -855,7 +830,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           points.last.longitude,
           points.last.latitude,
         )),
-        iconSize: markerSize * 1.2, // Destination marker slightly larger
+        iconSize: markerSize * 0.6, // Destination marker reduced size
         iconImage: 'destination-marker', // Reference the added image by ID
       ),
     );
@@ -1355,4 +1330,19 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _mapboxMapController?.dispose();
     super.dispose();
   }
+}
+
+/// Custom BytesLoader for in-memory ByteData
+class MemoryBytesLoader extends vg.BytesLoader {
+  final ByteData _data;
+  const MemoryBytesLoader(this._data);
+
+  @override
+  Future<ByteData> loadBytes(BuildContext? context) async => _data;
+
+  @override
+  int get hashCode => _data.hashCode;
+
+  @override
+  bool operator ==(Object other) => other is MemoryBytesLoader && other._data == _data;
 }

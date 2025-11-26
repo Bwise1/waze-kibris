@@ -83,6 +83,24 @@ class _MainDashboardState extends State<MainDashboard>
   }
 
   void _startNavigation(MapboxRoute route) {
+    // Check if we are already at the destination (e.g., distance < 50 meters)
+    if (route.distance < 50) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('🎉 Destination Reached!'),
+          content: const Text('You have arrived at your destination.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     // Draw the route polyline first
     drawMapboxPolyline(route);
 
