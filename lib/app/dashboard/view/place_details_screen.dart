@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:waze_kibris/app/dashboard/view/route_bar.dart';
 import 'package:waze_kibris/common.dart';
 
@@ -124,7 +125,7 @@ class PlaceDetailsSheet extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${distanceKm.toStringAsFixed(1)} km away',
+                  '${_formatDistance(distanceKm)} km away',
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black54),
                 ),
@@ -227,5 +228,13 @@ class PlaceDetailsSheet extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _formatDistance(double km) {
+    if (km >= 100) {
+      return NumberFormat('#,###').format(km);
+    } else {
+      return NumberFormat('#,##0.1').format(km);
+    }
   }
 }

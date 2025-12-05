@@ -8,7 +8,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:vector_graphics/vector_graphics.dart' as vg;
 import 'package:vector_graphics/src/listener.dart' as internal; // For decodeVectorGraphics
-import 'package:vector_graphics_compiler/vector_graphics_compiler.dart';
+import 'package:vector_graphics_compiler/vector_graphics_compiler.dart' hide Paint, Path, Color;
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
@@ -40,12 +40,12 @@ class RouteVisualizationService {
 
   // Zoom-based arrow spacing (more arrows when zoomed in)
   static const Map<int, double> _zoomToSpacing = {
-    10: 200.0, // Far zoom: sparse arrows
-    12: 150.0,
-    14: 100.0,
-    16: 50.0,  // Default
-    18: 30.0,  // Close zoom: dense arrows
-    20: 20.0,  // Very close: very dense
+    10: 300.0, // Far zoom: very sparse
+    12: 200.0,
+    14: 150.0,
+    16: 100.0, // Default
+    18: 70.0,  // Close zoom
+    20: 50.0,  // Very close
   };
 
   /// Route visualization constants
@@ -114,16 +114,87 @@ class RouteVisualizationService {
       if (isNewRoute) {
         print('🎨 Updating route layer styling');
         await _updateRouteLayerStyling(route);
-        // Add directional arrows
-        await _updateRouteArrows(route);
-        // Add lane guidance
-        await _drawLaneGuidance(route);
       }
+
+      // Always update arrows and lane guidance for now to ensure they are visible
+      print('🏹 Updating route arrows and lane guidance (Force update)');
+      // await _updateRouteArrows(route); // Disabled continuous chevrons
+      // await _drawLaneGuidance(route); // Disabled per user request
+      // await _drawManeuverArrows(route); // Disabled per user request
 
       print('✅ Route drawing completed successfully');
     } catch (e) {
       print('❌ Failed to draw route: $e');
       throw Exception('Failed to draw route: $e');
+    }
+  }
+
+  /// Draw maneuver arrows at decision points (turns)
+  Future<void> _drawManeuverArrows(MapboxRoute route) async {
+    if (_mapboxMap == null) return;
+
+    try {
+      List<Map<String, dynamic>> features = [];
+
+      for (final leg in route.legs) {
+        for (final step in leg.steps) {
+          final maneuver = step.maneuver;
+          if (maneuver == null) continue;
+
+          String? iconName;
+          final String modifier = maneuver.modifier ?? '';
+          final String type = maneuver.type ?? '';
+
+          // Determine icon based on modifier/type
+          if (modifier.contains('left')) {
+            iconName = 'lane_left'; // Reusing lane icons for now
+            if (modifier.contains('slight')) iconName = 'lane_straight_left'; // Approx
+          } else if (modifier.contains('right')) {
+            iconName = 'lane_right';
+            if (modifier.contains('slight')) iconName = 'lane_straight_right';
+          } else if (type == 'arrive') {
+            iconName = 'destination_icon'; // Need a destination icon?
+          }
+
+          if (iconName != null) {
+             // Calculate rotation: align with bearing_before (arrival direction)
+             // Note: Icons usually point UP. If we rotate by bearing, it points in that direction.
+             // bearing_before is the direction of travel *towards* the maneuver.
+             final double bearing = (maneuver.bearingBefore ?? 0.0).toDouble();
+
+            features.add({
+              'type': 'Feature',
+              'geometry': {
+                'type': 'Point',
+                'coordinates': maneuver.location,
+              },
+              'properties': {
+                'icon': iconName,
+                'rotation': bearing,
+              },
+            });
+          }
+        }
+      }
+
+      final geoJson = {
+        'type': 'FeatureCollection',
+        'features': features,
+      };
+
+      // Reuse lane guidance source/layer or create new one?
+      // Let's reuse the lane guidance layer logic but with rotation support
+      // Actually, let's update _setupLaneGuidanceLayers to support rotation
+      
+      await _mapboxMap!.style.setStyleSourceProperty(
+        _laneGuidanceSourceId,
+        'data',
+        jsonEncode(geoJson),
+      );
+      print('✅ Drawn ${features.length} maneuver arrows');
+
+    } catch (e) {
+      print('⚠️ Failed to draw maneuver arrows: $e');
     }
   }
 
@@ -174,60 +245,76 @@ class RouteVisualizationService {
       final coordinates = route.geometry.coordinates;
       if (coordinates.isEmpty) return;
 
-      // Find the closest point index on the route geometry
-      int closestIndex = 0;
+      // Find the closest point on the route geometry (projected)
+      // We search for the closest segment
+      int closestSegmentIndex = 0;
       double minDistance = double.infinity;
+      List<double> projectedPoint = coordinates[0];
 
-      // Search for closest point
-      for (int i = 0; i < coordinates.length; i++) {
-        final coord = coordinates[i];
+      for (int i = 0; i < coordinates.length - 1; i++) {
+        final p1 = coordinates[i];
+        final p2 = coordinates[i + 1];
+        
+        final proj = _projectPointOnSegment(
+          [currentPosition.longitude, currentPosition.latitude],
+          p1,
+          p2,
+        );
+        
         final dist = _calculateDistance(
           currentPosition.latitude,
           currentPosition.longitude,
-          coord[1], // lat
-          coord[0], // lng
+          proj[1], // lat
+          proj[0], // lng
         );
-        
+
         if (dist < minDistance) {
           minDistance = dist;
-          closestIndex = i;
+          closestSegmentIndex = i;
+          projectedPoint = proj;
         }
       }
 
       // Create features list
       List<Map<String, dynamic>> features = [];
 
-      // 1. Traveled Route (Start to closestIndex)
-      // We go up to closestIndex to ensure it connects with the remaining route
-      if (closestIndex > 0) {
-        final traveledCoordinates = coordinates.sublist(0, closestIndex + 1);
-        if (traveledCoordinates.length >= 2) {
-          features.add({
-            'type': 'Feature',
-            'geometry': {
-              'type': 'LineString',
-              'coordinates': traveledCoordinates,
-            },
-            'properties': {
-              'route_id': route.hashCode.toString(),
-              'is_traveled': true,
-              'is_remaining': false,
-            },
-          });
-        }
+      // 1. Traveled Route (Start -> ... -> SegmentStart -> ProjectedPoint)
+      List<List<double>> traveledCoords = [];
+      if (closestSegmentIndex >= 0) {
+        traveledCoords.addAll(coordinates.sublist(0, closestSegmentIndex + 1));
+        traveledCoords.add(projectedPoint);
+      } else {
+        traveledCoords.add(projectedPoint);
       }
 
-      // 2. Remaining Route (closestIndex - 1 to End)
-      // We start from closestIndex - 1 (or 0) to ensure overlap and prevent gaps under the puck
-      final startIndex = math.max(0, closestIndex - 1);
-      final remainingCoordinates = coordinates.sublist(startIndex);
-
-      if (remainingCoordinates.length >= 2) {
+      if (traveledCoords.length >= 2) {
         features.add({
           'type': 'Feature',
           'geometry': {
             'type': 'LineString',
-            'coordinates': remainingCoordinates,
+            'coordinates': traveledCoords,
+          },
+          'properties': {
+            'route_id': route.hashCode.toString(),
+            'is_traveled': true,
+            'is_remaining': false,
+          },
+        });
+      }
+
+      // 2. Remaining Route (ProjectedPoint -> SegmentEnd -> ... -> End)
+      List<List<double>> remainingCoords = [];
+      remainingCoords.add(projectedPoint);
+      if (closestSegmentIndex + 1 < coordinates.length) {
+        remainingCoords.addAll(coordinates.sublist(closestSegmentIndex + 1));
+      }
+
+      if (remainingCoords.length >= 2) {
+        features.add({
+          'type': 'Feature',
+          'geometry': {
+            'type': 'LineString',
+            'coordinates': remainingCoords,
           },
           'properties': {
             'route_id': route.hashCode.toString(),
@@ -237,16 +324,15 @@ class RouteVisualizationService {
         });
       }
 
-      final routeGeoJson = {
+      final geoJson = {
         'type': 'FeatureCollection',
         'features': features,
       };
 
-      // Update main route source
       await _mapboxMap!.style.setStyleSourceProperty(
         _routeSourceId,
         'data',
-        jsonEncode(routeGeoJson),
+        jsonEncode(geoJson),
       );
 
       // Cache update info
@@ -255,12 +341,32 @@ class RouteVisualizationService {
       _lastUpdateTime = DateTime.now();
       
     } catch (e) {
-      print('⚠️ Error updating route split: $e');
+      print('❌ Failed to update route split: $e');
       // Fallback to full route
       await _showFullRoute(route);
     }
   }
 
+
+  /// Project point p onto segment v-w
+  List<double> _projectPointOnSegment(List<double> p, List<double> v, List<double> w) {
+    final l2 = _distSq(v, w);
+    if (l2 == 0) return v;
+    
+    final t = ((p[0] - v[0]) * (w[0] - v[0]) + (p[1] - v[1]) * (w[1] - v[1])) / l2;
+    
+    if (t < 0) return v;
+    if (t > 1) return w;
+    
+    return [
+      v[0] + t * (w[0] - v[0]),
+      v[1] + t * (w[1] - v[1]),
+    ];
+  }
+
+  double _distSq(List<double> v, List<double> w) {
+    return math.pow(v[0] - w[0], 2) + math.pow(v[1] - w[1], 2).toDouble();
+  }
 
   /// Create GeoJSON for full route
   Map<String, dynamic> _createRouteGeoJson(MapboxRoute route) {
@@ -373,11 +479,12 @@ class RouteVisualizationService {
           ],
           lineColor: 0xFF1556B8, // Professional Dark Blue Border
           lineOpacity: 1.0, // Solid opacity
+          filter: ['!=', ['get', 'is_traveled'], true], // Only border the remaining route
         ),
       );
       print('✅ Added route border layer: $_routeBorderLayerId');
 
-      // 2. Traveled Route Layer (Grey)
+      // 2. Traveled Route Layer (Faded Blue)
       await _mapboxMap!.style.addLayer(
         LineLayer(
           id: _traveledRouteLayerId,
@@ -394,8 +501,8 @@ class RouteVisualizationService {
             19.0, 14.0,
             22.0, 19.0,
           ],
-          lineColor: 0xFFCFD8DC, // Subtle Grey
-          lineOpacity: 1.0,
+          lineColor: 0xFF89CFF0, // Faded/Baby Blue
+          lineOpacity: 0.6, // Slightly transparent for "faded" look
           filter: ['==', ['get', 'is_traveled'], true], // Only show traveled segments
         ),
       );
@@ -530,8 +637,8 @@ class RouteVisualizationService {
     if (_mapboxMap == null) return;
 
     try {
-      // Load arrow image
-      await _loadSvgImage();
+      // Create arrow image programmatically
+      await _createChevronImage();
 
       const emptyGeoJson = {'type': 'FeatureCollection', 'features': []};
 
@@ -551,14 +658,21 @@ class RouteVisualizationService {
           id: _arrowLayerId,
           sourceId: _arrowSourceId,
           iconImage: _arrowImageId,
-          iconSize: 0.5, // Adjusted size for SVG
+          iconSize: 0.8, // Good size for 64px image
           symbolPlacement: SymbolPlacement.LINE,
-          symbolSpacing: 50.0, // Default spacing
+          symbolSpacing: 100.0,
           iconAllowOverlap: true,
           iconIgnorePlacement: true,
-          iconRotationAlignment: IconRotationAlignment.MAP,
         ),
       );
+      
+      // Ensure it's on top
+      try {
+        await _mapboxMap!.style.moveStyleLayer(_arrowLayerId, null);
+      } catch (e) {
+        // Ignore if already on top or fails
+      }
+      
       print('✅ Arrow layers setup');
     } catch (e) {
       print('❌ Failed to setup arrow layers: $e');
@@ -588,66 +702,62 @@ class RouteVisualizationService {
         'data',
         jsonEncode(geoJson),
       );
+      print('✅ Updated route arrows source with ${geometry.coordinates.length} coordinates');
     } catch (e) {
       print('⚠️ Failed to update route arrows: $e');
     }
   }
 
-  /// Load SVG image from assets and convert to Mapbox image
-  Future<void> _loadSvgImage() async {
+  /// Create a chevron image programmatically using Canvas
+  Future<void> _createChevronImage() async {
     if (_mapboxMap == null) return;
 
     try {
-      // Load SVG string
-      final String svgString = await rootBundle.loadString('assets/icons/route_chevron.svg');
-      
-      // Compile and decode SVG
-      final Uint8List compiledBytes = await encodeSvg(xml: svgString, debugName: 'route_chevron');
-      final PictureInfo pictureInfo = await internal.decodeVectorGraphics(
-        compiledBytes.buffer.asByteData(), // Positional argument
-        loader: MemoryBytesLoader(compiledBytes.buffer.asByteData()),
-        textDirection: TextDirection.ltr,
-        locale: const Locale('en', 'US'), // Dummy locale
-        clipViewbox: false,
-      );
-      
-      // Define target size (e.g., 48x48 for high res)
-      const double targetSize = 48.0;
-      
-      // Create picture recorder and canvas
+      const double size = 64.0;
       final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
       final ui.Canvas canvas = ui.Canvas(pictureRecorder);
       
-      // Calculate scale
-      final double scale = targetSize / pictureInfo.size.width;
-      canvas.scale(scale);
+      // Draw a white filled triangle (chevron)
+      final ui.Paint paint = ui.Paint()
+        ..color = const ui.Color(0xFFFFFFFF)
+        ..style = ui.PaintingStyle.fill;
+
+      final ui.Path path = ui.Path();
+      // Pointing right (0 degrees) to align with line direction
+      path.moveTo(size * 0.2, size * 0.2); // Top left
+      path.lineTo(size * 0.8, size * 0.5); // Middle right (tip)
+      path.lineTo(size * 0.2, size * 0.8); // Bottom left
+      path.close();
+
+      canvas.drawPath(path, paint);
       
-      // Draw picture
-      canvas.drawPicture(pictureInfo.picture);
-      
-      // Convert to image
-      final ui.Image image = await pictureRecorder.endRecording().toImage(targetSize.toInt(), targetSize.toInt());
+      // Add a black outline for better visibility on light roads
+      final ui.Paint strokePaint = ui.Paint()
+        ..color = const ui.Color(0xFF000000)
+        ..style = ui.PaintingStyle.stroke
+        ..strokeWidth = 4.0
+        ..strokeJoin = ui.StrokeJoin.round;
+        
+      canvas.drawPath(path, strokePaint);
+
+      final ui.Image image = await pictureRecorder.endRecording().toImage(size.toInt(), size.toInt());
       final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       
-      if (byteData == null) return;
-      
-      final Uint8List list = byteData.buffer.asUint8List();
-      
-      // Add image to style
-      await _mapboxMap!.style.addStyleImage(
-        _arrowImageId,
-        2.0, // Scale
-        MbxImage(width: targetSize.toInt(), height: targetSize.toInt(), data: list),
-        false, // sdf
-        [], [], null
-      );
-      print('✅ Loaded route chevron SVG');
+      if (byteData != null) {
+        final Uint8List list = byteData.buffer.asUint8List();
+        await _mapboxMap!.style.addStyleImage(
+          _arrowImageId,
+          2.0, // Scale
+          MbxImage(width: size.toInt(), height: size.toInt(), data: list),
+          false,
+          [], [], null
+        );
+        print('✅ Created and loaded programmatic chevron image');
+      }
     } catch (e) {
-      print('⚠️ Failed to load arrow SVG: $e');
+      print('❌ Failed to create chevron image: $e');
     }
   }
-
-// ...
 
   /// Load lane guidance SVG images
   Future<void> _loadLaneImages() async {
@@ -727,14 +837,22 @@ class RouteVisualizationService {
           id: _laneGuidanceLayerId,
           sourceId: _laneGuidanceSourceId,
           iconImage: "{icon}", // Use token replacement for data-driven styling
-          iconSize: 0.8,
+          iconSize: 1.0, // Larger size for maneuvers
           iconAllowOverlap: true,
           iconIgnorePlacement: true,
           iconOpacity: 1.0,
-          // Offset slightly above the intersection point if needed, or just center it
-          iconAnchor: IconAnchor.CENTER, 
+          iconAnchor: IconAnchor.CENTER,
+          iconRotationAlignment: IconRotationAlignment.MAP, // Align with map/road
         ),
       );
+      
+      // Set data-driven rotation
+      await _mapboxMap!.style.setStyleLayerProperty(
+        _laneGuidanceLayerId,
+        'icon-rotate',
+        jsonEncode(["get", "rotation"]),
+      );
+      
       print('✅ Lane guidance layers setup');
     } catch (e) {
       print('❌ Failed to setup lane guidance layers: $e');
@@ -747,6 +865,7 @@ class RouteVisualizationService {
 
     try {
       List<Map<String, dynamic>> features = [];
+      int activeLanesCount = 0;
 
       for (final leg in route.legs) {
         for (final step in leg.steps) {
@@ -756,6 +875,7 @@ class RouteVisualizationService {
             // Check for active lanes
             final activeLanes = intersection.lanes.where((l) => l.active).toList();
             if (activeLanes.isEmpty) continue;
+            activeLanesCount++;
 
             // Collect indications
             final Set<String> indications = {};
@@ -802,7 +922,7 @@ class RouteVisualizationService {
         'data',
         jsonEncode(geoJson),
       );
-      print('✅ Drawn ${features.length} lane guidance arrows');
+      print('✅ Drawn ${features.length} lane guidance arrows (found $activeLanesCount active intersections)');
 
     } catch (e) {
       print('⚠️ Failed to draw lane guidance: $e');

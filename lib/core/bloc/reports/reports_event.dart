@@ -47,12 +47,14 @@ abstract class ReportsEvent extends Equatable {
 
   factory ReportsEvent.saveLocation({
     required String locationName,
+    String? address,
     required double lat,
     required double lng,
     required String placeId,
   }) {
     return SaveLocation(
       locationName: locationName,
+      address: address,
       lat: lat,
       lng: lng,
       placeId: placeId,
@@ -163,18 +165,20 @@ class GetVotesOnReport extends ReportsEvent {
 class SaveLocation extends ReportsEvent {
   const SaveLocation({
     required this.locationName,
+    this.address,
     required this.lat,
     required this.lng,
     required this.placeId,
   });
 
   final String locationName;
+  final String? address;
   final double lat;
   final double lng;
   final String placeId;
 
   @override
-  List<Object?> get props => [locationName, lat, lng, placeId];
+  List<Object?> get props => [locationName, address, lat, lng, placeId];
 }
 
 class GetSavedLocations extends ReportsEvent {

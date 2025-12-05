@@ -180,6 +180,8 @@ class _MainDashboardState extends State<MainDashboard>
     displayReportsOnMap(reports);
   }
 
+  final GlobalKey _mapWidgetKey = GlobalKey();
+
   @override
   Widget build(BuildContext context) {
     // Trigger initial reports fetch after first build
@@ -190,6 +192,8 @@ class _MainDashboardState extends State<MainDashboard>
       });
     }
     
+    debugPrint('🔥 MainDashboard build() called');
+
     return BlocProvider.value(
       value: _navigationBloc,
       child: Scaffold(
@@ -241,8 +245,9 @@ class _MainDashboardState extends State<MainDashboard>
                 children: [
                   // Map widget
                   mp.MapWidget(
-                    key: const ValueKey('mapWidget'),
+                    key: _mapWidgetKey,
                     onMapCreated: onMapCreated,
+                    onTapListener: onMapTap,
                   ),
 
                   // Show route bar if there's an active suggestion and not navigating
@@ -288,20 +293,42 @@ class _MainDashboardState extends State<MainDashboard>
                       ),
                   ],
 
-                  // Show bottom sheet only when not navigating and no modal is open
-                  if (state is! NavigationInProgress && !_isModalOpen)
-                    Positioned.fill(
-                      top: kToolbarHeight +
-                          MediaQuery.of(context).padding.top -
-                          8,
-                      child: MapSheet(
-                        controller: controller,
-                        onSuggestionSelected: _onSuggestionSelected,
-                        onDrawMapboxPolyline: drawMapboxPolyline,
-                        onStartNavigation: _startNavigation,
-                        context: context,
+                    // Show bottom sheet only when not navigating and no modal is open
+                    if (state is! NavigationInProgress && !_isModalOpen)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final screenHeight = MediaQuery.of(context).size.height;
+                            return AnimatedBuilder(
+                              animation: controller.animation,
+                              builder: (context, child) {
+                                // Calculate the visible height of the sheet
+                                // Use a minimum of 120 to ensure the handle is always touchable
+                                final visibleHeight = (screenHeight * controller.animation.value).clamp(120.0, screenHeight);
+                                
+                                return SizedBox(
+                                  height: visibleHeight,
+                                  child: OverflowBox(
+                                    minHeight: screenHeight,
+                                    maxHeight: screenHeight,
+                                    alignment: Alignment.bottomCenter,
+                                    child: MapSheet(
+                                      controller: controller,
+                                      onSuggestionSelected: _onSuggestionSelected,
+                                      onDrawMapboxPolyline: drawMapboxPolyline,
+                                      onStartNavigation: _startNavigation,
+                                      context: context,
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
                       ),
-                    ),
 
 
                 ],
@@ -309,56 +336,7 @@ class _MainDashboardState extends State<MainDashboard>
             },
           ),
         ),
-        floatingActionButton: BlocBuilder<NavigationBloc, NavigationState>(
-          builder: (context, state) {
-            // Hide FABs during navigation
-            if (state is NavigationInProgress) {
-              return const SizedBox.shrink();
-            }
 
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FloatingActionButton(
-                  onPressed: () async {
-                    setState(() {
-                      _isModalOpen = true;
-                    });
-
-                    await CustomDialogRoutes.showBottomSheet<bool>(
-                      context,
-                      const ReportEventModal(),
-                    );
-
-                    setState(() {
-                      _isModalOpen = false;
-                    });
-                  },
-                  heroTag: 'add-report',
-                  backgroundColor: styles.theme.yellow,
-                  child: Icon(
-                    Icons.warning_amber_rounded,
-                    color: styles.theme.black,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                FloatingActionButton(
-                  onPressed: () {
-                    setIsFollowingUser(true);
-                  },
-                  heroTag: 'location',
-                  backgroundColor:
-                      isFollowingUser ? styles.theme.primary : Colors.white,
-                  child: Icon(
-                    Icons.my_location,
-                    color:
-                        isFollowingUser ? Colors.white : styles.theme.primary,
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
       ),
     );
   }

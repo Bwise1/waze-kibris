@@ -7,6 +7,8 @@ import 'package:waze_kibris/core/controllers/navigation_controller.dart' as nav_
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/navigation/waypoint.dart';
 import 'package:waze_kibris/app/dashboard/services/voice_instruction_service.dart';
+import 'package:waze_kibris/app/dashboard/view/places_service.dart';
+import 'package:waze_kibris/di.dart';
 
 part 'navigation_event.dart';
 part 'navigation_state.dart';
@@ -97,6 +99,11 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       final updatedState =
           _updateNavigationProgress(currentState, event.position);
 
+      // Check if off-route was detected (isRerouting set to true by _updateNavigationProgress)
+      if (updatedState.isRerouting && !currentState.isRerouting) {
+        add(NavigationRerouteRequested());
+      }
+
       // Process voice instructions for current step
       if (updatedState.distanceToNextManeuver != null) {
         await _voiceService.processVoiceInstructions(
@@ -139,11 +146,76 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
   }
 
   void _onRerouteRequested(
-      NavigationRerouteRequested event, Emitter<NavigationState> emit) {
+      NavigationRerouteRequested event, Emitter<NavigationState> emit) async {
     final currentState = state;
     if (currentState is NavigationInProgress) {
+      // 1. Set rerouting flag
       emit(currentState.copyWith(isRerouting: true));
-      // Implement rerouting logic here
+
+      try {
+        final placesService = getIt<PlacesService>();
+        final currentPos = currentState.userPosition;
+        
+        if (currentPos == null) {
+          print('❌ Cannot reroute: Unknown user position');
+          emit(currentState.copyWith(isRerouting: false));
+          return;
+        }
+
+        // Get destination from current route (last point of last step)
+        final lastLeg = currentState.route.legs.last;
+        final lastStep = lastLeg.steps.last;
+        final destLat = lastStep.maneuver.location[1];
+        final destLng = lastStep.maneuver.location[0];
+
+        print('🔄 Rerouting from (${currentPos.latitude}, ${currentPos.longitude}) to ($destLat, $destLng)...');
+
+        // 2. Fetch new route
+        final response = await placesService.fetchMapboxDirections(
+          originLat: currentPos.latitude,
+          originLng: currentPos.longitude,
+          destinationLat: destLat,
+          destinationLng: destLng,
+          profile: 'driving-traffic', // Ensure consistent profile
+          alternatives: false, // We just want the best route
+        );
+
+        if (response.routes.isNotEmpty) {
+          final newRoute = response.routes.first;
+          print('✅ Reroute successful! New distance: ${newRoute.distance}m');
+
+          // 3. Update state with new route
+          // We treat this as starting a new navigation segment from current location
+          final firstStep = newRoute.legs.first.steps.first;
+          final nextStep = newRoute.legs.first.steps.length > 1 
+              ? newRoute.legs.first.steps[1] 
+              : null;
+
+          emit(NavigationInProgress(
+            route: newRoute,
+            currentStep: firstStep,
+            nextStep: nextStep,
+            currentStepIndex: 0,
+            currentLegIndex: 0,
+            remainingDistance: newRoute.distance,
+            remainingDuration: newRoute.duration,
+            isOverviewVisible: currentState.isOverviewVisible,
+            userPosition: currentPos,
+            currentBearing: currentState.currentBearing,
+            currentSpeed: currentState.currentSpeed,
+            isRerouting: false, // Reset flag
+          ));
+          
+          // Optionally speak "Rerouting" or new instruction
+          // _voiceService.speak("Rerouting"); 
+        } else {
+          print('⚠️ Reroute failed: No routes found');
+          emit(currentState.copyWith(isRerouting: false));
+        }
+      } catch (e) {
+        print('❌ Reroute error: $e');
+        emit(currentState.copyWith(isRerouting: false));
+      }
     }
   }
 
@@ -197,6 +269,18 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     // Enhanced off-route detection
     final isOffRoute = MapboxNavigationUtils.isOffRoute(position, currentStep) &&
         !state.isRerouting; // Don't trigger if already rerouting
+
+    if (isOffRoute) {
+      print('⚠️ User is off-route! Triggering reroute...');
+      // We can't emit directly here as this is a helper method.
+      // But we can return a state with isRerouting=true to trigger the UI/Bloc listener?
+      // Better: The Bloc's _onPositionUpdated calls this.
+      // We should handle the event dispatch there or return a flag.
+      // Since this returns state, we'll set isRerouting=true here, 
+      // AND we need to ensure the Bloc sees this and triggers the async reroute.
+      // Actually, _onPositionUpdated emits the state. 
+      // We should probably trigger the reroute event from _onPositionUpdated if this returns isRerouting=true.
+    }
 
     // Enhanced destination reached detection
     final isDestinationReached = _isDestinationReached(

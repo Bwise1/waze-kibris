@@ -61,32 +61,34 @@ class ReportEventModal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.all(styles.insets.md),
+      padding: EdgeInsets.all(styles.insets.sm),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            height: 6,
-            width: 68,
+            height: 4,
+            width: 40,
             decoration: BoxDecoration(
               color: styles.theme.grey.withValues(alpha: .3),
               borderRadius: BorderRadius.circular(8),
             ),
           ),
-          Gap(styles.insets.sm),
-          Text('What do you see', style: styles.typography.f.size(20).bold),
+          Gap(styles.insets.xs),
+          Text('What do you see', style: styles.typography.f.size(17).bold),
           Text(
             'Aid others by telling us what you see',
-            style: styles.typography.t3.textColor(styles.theme.caption),
+            style: styles.typography.caption.textColor(styles.theme.caption),
           ),
+          Gap(styles.insets.xs),
           GridView.builder(
             itemCount: reports.length,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
-              crossAxisSpacing: 19,
-              childAspectRatio: 0.8,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 8,
+              childAspectRatio: 0.85,
             ),
             itemBuilder: (context, index) {
               return GestureDetector(
@@ -110,23 +112,24 @@ class ReportEventModal extends StatelessWidget {
                     Container(
                       decoration: BoxDecoration(
                         color: styles.theme.white,
-                        borderRadius: BorderRadius.circular(styles.corners.md),
+                        borderRadius: BorderRadius.circular(styles.corners.sm),
                         boxShadow: styles.shadows.md,
                       ),
-                      padding: EdgeInsets.all(styles.insets.md),
+                      padding: EdgeInsets.all(styles.insets.sm),
                       child: reports[index]['icon'] as Widget,
                     ),
-                    Gap(styles.insets.xs),
+                    Gap(4),
                     Text(
                       reports[index]['name'] as String,
-                      style: styles.typography.overline.bold,
+                      style: styles.typography.caption.bold.size(10),
+                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),
               );
             },
           ),
-          Gap(styles.insets.sm),
+          Gap(styles.insets.xs),
         ],
       ),
     );
@@ -176,29 +179,30 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
       }
     ];
     return Padding(
-      padding: EdgeInsets.all(styles.insets.md),
+      padding: EdgeInsets.all(styles.insets.sm),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            height: 6,
-            width: 68,
+            height: 4,
+            width: 40,
             decoration: BoxDecoration(
               color: styles.theme.grey.withValues(alpha: .3),
               borderRadius: BorderRadius.circular(8),
             ),
           ),
-          Gap(styles.insets.sm),
-          Text('Report Police', style: styles.typography.f.size(20).bold),
-          Gap(styles.insets.sm),
+          Gap(styles.insets.xs),
+          Text('Report Police', style: styles.typography.f.size(17).bold),
+          Gap(styles.insets.xs),
           GridView.builder(
             itemCount: reports.length,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
-              crossAxisSpacing: 19,
-              childAspectRatio: 0.8,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 8,
+              childAspectRatio: 0.85,
             ),
             itemBuilder: (context, index) {
               return BlocConsumer<AuthBloc, AuthState>(
@@ -220,16 +224,17 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                                     ? styles.theme.secondary
                                     : styles.theme.white,
                                 borderRadius:
-                                    BorderRadius.circular(styles.corners.md),
+                                    BorderRadius.circular(styles.corners.sm),
                                 boxShadow: styles.shadows.md,
                               ),
-                              padding: EdgeInsets.all(styles.insets.md),
+                              padding: EdgeInsets.all(styles.insets.sm),
                               child: reports[index]['icon'] as Widget,
                             ),
-                            Gap(styles.insets.xs),
+                            Gap(4),
                             Text(
                               reports[index]['type'] as String,
-                              style: styles.typography.overline.bold,
+                              style: styles.typography.caption.bold.size(10),
+                              textAlign: TextAlign.center,
                             ),
                           ],
                         ),
@@ -254,7 +259,7 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
               );
             },
           ),
-          Gap(styles.insets.md),
+          Gap(styles.insets.sm),
           BlocBuilder<AuthBloc, AuthState>(
             // listener: (context, authState) {},
             builder: (authContext, authState) {
@@ -270,7 +275,7 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                       textColor: styles.theme.primary,
                     ),
                   ),
-                  Gap(styles.insets.sm),
+                  Gap(styles.insets.xs),
                   Expanded(
                     child: BlocConsumer<ReportsBloc, ReportState>(
                       listener: (reportContext, state) {

@@ -233,7 +233,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
     try {
       emit(const SaveLocationLoading());
       final response = await _reportRepository.saveLocation(
-          event.locationName, event.lat, event.lng, event.placeId);
+          event.locationName, event.address, event.lat, event.lng, event.placeId);
       if (response.statusCode == 404) {
         emit(const ReportError(message: 'Could not save location'));
         return;

@@ -26,6 +26,7 @@ abstract class ReportRepository {
   );
   Future<SaveLocationResponse> saveLocation(
     String locationName,
+    String? address,
     double lat,
     double lng,
     String placeId,
@@ -131,7 +132,7 @@ class ReportRepositoryImpl implements ReportRepository {
 
   @override
   Future<SaveLocationResponse> saveLocation(
-      String locationName, double lat, double lng, String placeId) async {
+      String locationName, String? address, double lat, double lng, String placeId) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         '/saved-locations',
@@ -143,6 +144,7 @@ class ReportRepositoryImpl implements ReportRepository {
         ),
         data: {
           'name': locationName,
+          'address': address,
           'latitude': lat,
           'longitude': lng,
           'place_id': placeId,

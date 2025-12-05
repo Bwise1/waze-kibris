@@ -7,10 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:vector_graphics/vector_graphics.dart' as vg;
-import 'package:vector_graphics/src/listener.dart' as internal; // For decodeVectorGraphics
-import 'package:vector_graphics_compiler/vector_graphics_compiler.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
@@ -20,12 +16,13 @@ import 'package:waze_kibris/core/controllers/camera_controller.dart';
 import 'package:waze_kibris/core/services/route_visualization_service.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
+import 'package:waze_kibris/app/dashboard/modals/report_details_modal.dart';
 
 mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   mp.MapboxMap? _mapboxMapController;
   StreamSubscription<Position>? _userPositionStream;
   mp.PointAnnotationManager? pointAnnotationManager;
-  // mp.PointAnnotationManager? reportAnnotationManager; // Removed in favor of clustering
+  mp.PointAnnotationManager? reportAnnotationManager;
   // Navigation puck layer constants
   static const String _puckSourceId = 'navigation-puck-source';
   static const String _puckLayerId = 'navigation-puck-layer';
@@ -43,6 +40,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   // Store current reports for zoom updates
   List<ReportData> _currentReports = [];
   List<PointLatLng>? _currentPolylinePoints;
+
+  // Map to track annotation ID to report ID mapping
+  final Map<String, int> _annotationToReportMap = {};
 
   // Snap to road service
   final SnapToRoadService _snapToRoadService = SnapToRoadService();
@@ -84,7 +84,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  void onMapCreated(mp.MapboxMap controller) {
+  void onMapCreated(mp.MapboxMap controller) async {
     setState(() {
       _mapboxMapController = controller;
     });
@@ -93,7 +93,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _cameraController.initialize(controller);
 
     // Initialize route visualization service with map (await it)
-    _initializeRouteVisualization(controller);
+    await _initializeRouteVisualization(controller);
+    
+    // Add report icons to style
+    await _addReportIconsToStyle();
 
     // Setup annotation managers
     _mapboxMapController?.annotations
@@ -104,14 +107,17 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       });
     });
 
-    // Setup report annotation manager - REMOVED for clustering
-    // _mapboxMapController?.annotations
-    //     .createPointAnnotationManager()
-    //     .then((manager) {
-    //   setState(() {
-    //     reportAnnotationManager = manager;
-    //   });
-    // });
+    // Setup report annotation manager
+    _mapboxMapController?.annotations
+        .createPointAnnotationManager()
+        .then((manager) {
+      setState(() {
+        reportAnnotationManager = manager;
+      });
+
+      // Add tap listener for report annotations
+      manager.tapEvents(onTap: _onReportAnnotationTap);
+    });
 
     // Setup navigation puck manager - REMOVED
     // _mapboxMapController?.annotations
@@ -121,9 +127,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     //     navigationPuckManager = manager;
     //   });
     // });
-
-    // Listen for map interactions to update polyline width
-    _setupMapListeners();
 
     // Setup location component with custom CurrentPosition.png
     _setupLocationPuck();
@@ -138,10 +141,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         .updateSettings(mp.ScaleBarSettings(enabled: false));
 
     // Add report icons to map style
-    _setupReportIcons().then((_) {
-      // Initialize clustering after icons are loaded
-      _setupReportClustering();
-    });
+    // Setup report icons - moved to onMapCreated via _addReportIconsToStyle
+
+    // Initialize clustering
+    _setupReportClustering();
   }
 
   /// Setup GeoJSON source and layers for report clustering (Type-Based)
@@ -222,7 +225,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       }
 
       debugPrint('✅ Type-based report clustering setup completed');
-      
+
       // If we have pending reports that were skipped during setup, display them now
       if (_currentReports.isNotEmpty) {
         displayReportsOnMap(_currentReports);
@@ -242,176 +245,177 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  /// Add report icons to map style for different report types (Waze-style)
-  Future<void> _setupReportIcons() async {
-    if (_mapboxMapController == null) return;
-
-    try {
-      // Create Waze-style circular report icons with chat bubbles
-      // Using softer colors as requested
-      await _createWazeStyleReportIcon(
-          'police-icon',
-          Assets.icons.reports.police,
-          const Color(0xFF5B96F5)); // Softer Blue
-      
-      await _createWazeStyleReportIcon(
-          'traffic-icon',
-          Assets.icons.reports.trafic,
-          const Color(0xFFFFB74D), // Softer Orange
-          manualOffset: const Offset(0, 5)); // Nudge traffic icon down slightly
-      
-      await _createWazeStyleReportIcon(
-          'accident-icon',
-          Assets.icons.reports.accident,
-          const Color(0xFFE57373)); // Softer Red
-
-      debugPrint('✅ Waze-style report icons created successfully');
-    } catch (e) {
-      debugPrint('❌ Error creating Waze-style report icons: $e');
-    }
-  }
-
-  /// Create a Waze-style circular report icon with chat bubble effect
-  Future<void> _createWazeStyleReportIcon(
-      String iconId, String assetPath, Color backgroundColor,
-      {Offset? manualOffset}) async {
-    try {
-      // Scale factor for high-resolution rendering (3x for crispness)
-      const double scaleFactor = 3.0;
-      
-      // Base dimensions (will be multiplied by scaleFactor)
-      const double baseBubbleSize = 64.0;
-      const double baseIconSize = 42.0;
-      const double baseBubbleRadius = 28.0;
-      
-      // Scaled dimensions
-      const double bubbleSize = baseBubbleSize * scaleFactor;
-      const double iconSize = baseIconSize * scaleFactor;
-      const double bubbleRadius = baseBubbleRadius * scaleFactor;
-
-      // Load the original icon (SVG or PNG)
-      ui.Image image;
-      
-      if (assetPath.endsWith('.svg')) {
-        // Load SVG
-        final String svgString = await rootBundle.loadString(assetPath);
-        final Uint8List compiledBytes = await encodeSvg(xml: svgString, debugName: assetPath);
-        final PictureInfo pictureInfo = await internal.decodeVectorGraphics(
-          compiledBytes.buffer.asByteData(), // Positional argument
-          loader: MemoryBytesLoader(compiledBytes.buffer.asByteData()),
-          textDirection: TextDirection.ltr,
-          locale: const Locale('en', 'US'),
-          clipViewbox: false,
-        );
-        
-        // Calculate scale to fit target size
-        final double scaleX = iconSize / pictureInfo.size.width;
-        final double scaleY = iconSize / pictureInfo.size.height;
-        final double scale = math.min(scaleX, scaleY);
-        
-        // Draw scaled picture to image
-        final ui.PictureRecorder recorder = ui.PictureRecorder();
-        final Canvas canvas = Canvas(recorder);
-        
-        // Scale the canvas to make the SVG larger
-        canvas.scale(scale);
-        canvas.drawPicture(pictureInfo.picture);
-        
-        final ui.Picture scaledPicture = recorder.endRecording();
-        image = await scaledPicture.toImage(iconSize.toInt(), iconSize.toInt());
-        
-        pictureInfo.picture.dispose();
-      } else {
-        final ByteData byteData = await rootBundle.load(assetPath);
-        final Uint8List imageBytes = byteData.buffer.asUint8List();
-
-        final codec = await ui.instantiateImageCodec(imageBytes);
-        final frameInfo = await codec.getNextFrame();
-        image = frameInfo.image;
-      }
-
-      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) return;
-      final Uint8List imageBytes = byteData.buffer.asUint8List();
-
-      final mbxImage = mp.MbxImage(
-        width: image.width,
-        height: image.height,
-        data: imageBytes,
-      );
-
-      await _mapboxMapController!.style.addStyleImage(
-        iconId,
-        1.0, // Scale factor
-        mbxImage,
-        false, // Not SDF
-        [], // No stretch
-        [], // No stretch
-        null, // No content
-      );
-    } catch (e) {
-      debugPrint('Error adding $iconId to style: $e');
-    }
-  }
-
-  /// Display reports using GeoJSON source for clustering (Type-Based)
+  /// Display reports using PointAnnotations with click handling and smart positioning
   Future<void> displayReportsOnMap(List<ReportData> reports) async {
-    if (_mapboxMapController == null) return;
+    if (reportAnnotationManager == null || !mounted) return;
 
     try {
       _currentReports = reports;
 
-      for (final type in _reportTypes) {
-        // Filter reports for this specific type
-        // Note: We need to handle case-insensitivity and potential mismatches
-        final typeReports = reports.where((r) => 
-          r.type.toLowerCase() == type.toLowerCase() || 
-          (type == 'police' && r.type.toLowerCase() == 'police') || // Explicit checks if needed
-          (type == 'traffic' && r.type.toLowerCase() == 'traffic')
-        ).toList();
+      // Clear existing report annotations and mapping
+      await reportAnnotationManager!.deleteAll();
+      _annotationToReportMap.clear();
 
-        // Convert to Features
-        final features = typeReports.map((report) {
-          return {
-            'type': 'Feature',
-            'geometry': {
-              'type': 'Point',
-              'coordinates': [report.longitude, report.latitude],
-            },
-            'properties': {
-              'id': report.id,
-              'type': report.type,
-            },
-          };
-        }).toList();
+      // Get current zoom level for smart clustering
+      final cameraState = await _mapboxMapController?.getCameraState();
+      final zoom = cameraState?.zoom ?? 14.0;
 
-        final geoJson = {
-          'type': 'FeatureCollection',
-          'features': features,
-        };
+      // Group reports by proximity (Waze-style clustering)
+      final clusters = _clusterReports(reports, zoom);
 
-        // Update the specific source for this type
-        final sourceId = _getReportSourceId(type);
-        
-        // Check if source exists before trying to update it (prevents race condition)
-        if (await _mapboxMapController!.style.styleSourceExists(sourceId)) {
-          await _mapboxMapController!.style.setStyleSourceProperty(
-            sourceId,
-            'data',
-            jsonEncode(geoJson),
-          );
-        } else {
-          debugPrint('⚠️ Source $sourceId not ready yet, skipping update');
-        }
+      // Create annotations for each cluster
+      for (final cluster in clusters) {
+        final iconId = _getReportIcon(cluster.reports.first.type);
+
+        // Calculate offset for overlapping reports
+        final offset = cluster.offset;
+
+        final annotation = await reportAnnotationManager!.create(
+          mp.PointAnnotationOptions(
+            geometry: mp.Point(
+              coordinates: mp.Position(
+                cluster.longitude,
+                cluster.latitude,
+              ),
+            ),
+            iconImage: iconId,
+            iconSize: 0.7,
+            iconAnchor: mp.IconAnchor.BOTTOM,
+            iconOffset: offset,
+          ),
+        );
+
+        // Map annotation ID to the first (or most important) report in cluster
+        _annotationToReportMap[annotation.id] = cluster.reports.first.id;
       }
 
-      debugPrint('✅ Updated report sources with ${reports.length} features across types');
+      debugPrint('✅ Displayed ${clusters.length} report annotations (${reports.length} reports total)');
     } catch (e) {
       debugPrint('❌ Error displaying reports on map: $e');
     }
   }
 
-  // Removed _addReportMarker as we now use GeoJSON source
+  /// Cluster nearby reports to prevent overlap (Waze-style)
+  List<_ReportCluster> _clusterReports(List<ReportData> reports, double zoom) {
+    final clusters = <_ReportCluster>[];
+    final processed = <int>{};
+
+    // Distance threshold based on zoom level (in degrees, ~meters)
+    // At zoom 14: ~50m, zoom 16: ~20m, zoom 18: ~5m
+    final threshold = 0.0005 / math.pow(2, zoom - 14);
+
+    for (var i = 0; i < reports.length; i++) {
+      if (processed.contains(i)) continue;
+
+      final report = reports[i];
+      final nearbyReports = <ReportData>[report];
+      processed.add(i);
+
+      // Find nearby reports
+      for (var j = i + 1; j < reports.length; j++) {
+        if (processed.contains(j)) continue;
+
+        final other = reports[j];
+        final distance = _calculateReportDistance(report, other);
+
+        if (distance < threshold) {
+          nearbyReports.add(other);
+          processed.add(j);
+        }
+      }
+
+      // Create cluster with offset for overlapping reports
+      if (nearbyReports.length == 1) {
+        // Single report - no offset
+        clusters.add(_ReportCluster(
+          reports: nearbyReports,
+          latitude: report.latitude,
+          longitude: report.longitude,
+          offset: [0, 0],
+        ));
+      } else {
+        // Multiple reports at same location - create fan pattern
+        for (var k = 0; k < nearbyReports.length; k++) {
+          final angle = (k * 360 / nearbyReports.length) * (math.pi / 180);
+          final radius = zoom > 15 ? 25.0 : 20.0; // Wider offset for better separation
+
+          clusters.add(_ReportCluster(
+            reports: [nearbyReports[k]],
+            latitude: nearbyReports[k].latitude,
+            longitude: nearbyReports[k].longitude,
+            offset: [
+              radius * math.cos(angle),
+              -radius * math.sin(angle),
+            ],
+          ));
+        }
+      }
+    }
+
+    return clusters;
+  }
+
+  /// Calculate distance between two reports in degrees
+  double _calculateReportDistance(ReportData a, ReportData b) {
+    final dx = a.longitude - b.longitude;
+    final dy = a.latitude - b.latitude;
+    return math.sqrt(dx * dx + dy * dy);
+  }
+
+  /// Handle tap on report annotation
+  void _onReportAnnotationTap(mp.PointAnnotation annotation) {
+    try {
+      // Get report ID from mapping
+      final reportId = _annotationToReportMap[annotation.id];
+      if (reportId == null) {
+        debugPrint('⚠️ No report found for annotation ${annotation.id}');
+        return;
+      }
+
+      debugPrint('👆 Tapped on report: $reportId');
+
+      // Find the full report data
+      final report = _currentReports.firstWhere(
+        (r) => r.id == reportId,
+        orElse: () {
+          debugPrint('⚠️ Report $reportId not found in current reports');
+          return _currentReports.first;
+        },
+      );
+
+      // Show details modal from TOP (Waze-style)
+      if (mounted) {
+        showGeneralDialog(
+          context: context,
+          barrierDismissible: true,
+          barrierLabel: 'Dismiss',
+          barrierColor: Colors.black.withOpacity(0.3),
+          transitionDuration: const Duration(milliseconds: 350),
+          pageBuilder: (context, animation, secondaryAnimation) {
+            return Align(
+              alignment: Alignment.topCenter,
+              child: ReportDetailsModal(report: report),
+            );
+          },
+          transitionBuilder: (context, animation, secondaryAnimation, child) {
+            return SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, -1), // Start from above the screen
+                end: Offset.zero, // Slide down to position
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+                reverseCurve: Curves.easeInCubic,
+              )),
+              child: child,
+            );
+          },
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error handling report tap: $e');
+    }
+  }
 
 
   /// Get appropriate icon ID for report type
@@ -1087,12 +1091,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   // Removed: _actuallyUpdateCamera - now handled by CameraController
 
-  /// Setup map event listeners for adaptive polyline and marker updates
-  void _setupMapListeners() {
-    // Note: Mapbox Flutter SDK might not have direct camera change listeners
-    // The polyline width and marker sizes will update automatically during our camera animations
-    // and can be manually triggered when needed via debounced functions
+  /// Handle map tap events - delegates to layer-specific tap interactions
+  void onMapTap(mp.MapContentGestureContext context) async {
+    // This is now handled by TapInteraction added in _setupReportClustering
+    // Keep this method for potential future use or non-report taps
   }
+
 
 
   /// Debounced report icon size update to prevent excessive recreations
@@ -1216,7 +1220,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   // }
 
   Future<void> _addDestinationImageToStyle() async {
-    if (_mapboxMapController == null) return;
+    if (_mapboxMapController == null || !mounted) return;
 
     // Get the device's pixel ratio
     final double devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
@@ -1240,6 +1244,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         height: image.height,
         data: imageBytes,
       );
+      
+      if (!mounted || _mapboxMapController == null) return;
 
       // 4. Add the correctly sized image to the map style
       await _mapboxMapController!.style.addStyleImage(
@@ -1256,8 +1262,133 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
+  /// Load and add report icons to map style
+  Future<void> _addReportIconsToStyle() async {
+    if (_mapboxMapController == null || !mounted) return;
+
+    try {
+      final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+      
+      // Map of icon IDs to IconData and Color
+      final icons = {
+        'police-icon': (Icons.local_police, Colors.blue),
+        'traffic-icon': (Icons.traffic, Colors.red),
+        'accident-icon': (Icons.car_crash, Colors.orange),
+      };
+
+      for (final entry in icons.entries) {
+        final iconId = entry.key;
+        final iconData = entry.value.$1;
+        final color = entry.value.$2;
+
+        try {
+          // Generate icon image
+          final image = await _generateReportIcon(iconData, color);
+          
+          if (image == null) continue;
+
+          final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+          if (byteData == null) continue;
+          
+          final imageBytes = byteData.buffer.asUint8List();
+
+          final mbxImage = mp.MbxImage(
+            width: image.width,
+            height: image.height,
+            data: imageBytes,
+          );
+
+          if (!mounted || _mapboxMapController == null) return;
+
+          await _mapboxMapController!.style.addStyleImage(
+            iconId,
+            devicePixelRatio,
+            mbxImage,
+            false,
+            [],
+            [],
+            null,
+          );
+          debugPrint('✅ Added $iconId to map style');
+        } catch (e) {
+          debugPrint('❌ Error adding $iconId: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Error adding report icons to style: $e');
+    }
+  }
+
+  /// Helper to generate report icon using Canvas
+  Future<ui.Image?> _generateReportIcon(IconData icon, Color color, {Size size = const Size(64, 64)}) async {
+    try {
+      final ui.PictureRecorder recorder = ui.PictureRecorder();
+      final Canvas canvas = Canvas(recorder);
+      final double devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+      
+      final int width = (size.width * devicePixelRatio).toInt();
+      final int height = (size.height * devicePixelRatio).toInt();
+      
+      // Scale canvas
+      canvas.scale(devicePixelRatio);
+      
+      final double centerX = size.width / 2;
+      final double centerY = size.height / 2;
+      final double radius = size.width / 2;
+
+      // Draw background circle
+      final ui.Paint paint = ui.Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      
+      // Draw shadow
+      canvas.drawCircle(
+        Offset(centerX, centerY + 2), 
+        radius - 2, 
+        ui.Paint()..color = Colors.black.withOpacity(0.2)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+      );
+
+      // Draw white circle
+      canvas.drawCircle(Offset(centerX, centerY), radius - 4, paint);
+      
+      // Draw colored circle
+      paint.color = color.withOpacity(0.1);
+      canvas.drawCircle(Offset(centerX, centerY), radius - 4, paint);
+
+      // Draw Icon
+      final TextPainter textPainter = TextPainter(
+        textDirection: TextDirection.ltr,
+      );
+
+      textPainter.text = TextSpan(
+        text: String.fromCharCode(icon.codePoint),
+        style: TextStyle(
+          fontSize: size.width * 0.6,
+          fontFamily: icon.fontFamily,
+          package: icon.fontPackage,
+          color: color,
+        ),
+      );
+
+      textPainter.layout();
+      textPainter.paint(
+        canvas,
+        Offset(centerX - textPainter.width / 2, centerY - textPainter.height / 2),
+      );
+
+      final ui.Picture picture = recorder.endRecording();
+      final ui.Image image = await picture.toImage(width, height);
+      
+      return image;
+    } catch (e) {
+      debugPrint('Error generating report icon: $e');
+      return null;
+    }
+  }
+
   /// Refresh location puck to ensure it stays on top of route layers
   void _refreshLocationPuckOnTop() {
+    if (_mapboxMapController == null || !mounted) return;
     try {
       // Re-enable the location component which brings it to the top layer
       _mapboxMapController?.location.updateSettings(
@@ -1279,8 +1410,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Setup location puck with custom image
   Future<void> _setupLocationPuck() async {
+    if (_mapboxMapController == null || !mounted) return;
     try {
       final locationPuckBytes = await _loadLocationPuckImage();
+      
+      if (!mounted || _mapboxMapController == null) return;
 
       await _mapboxMapController?.location.updateSettings(
         mp.LocationComponentSettings(
@@ -1309,13 +1443,15 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     } catch (e) {
       debugPrint('Error setting up location puck: $e');
       // Fallback to default location puck
-      await _mapboxMapController?.location.updateSettings(
-        mp.LocationComponentSettings(
-          enabled: true,
-          puckBearingEnabled: true,
-          puckBearing: mp.PuckBearing.COURSE,
-        ),
-      );
+      if (mounted && _mapboxMapController != null) {
+        await _mapboxMapController?.location.updateSettings(
+          mp.LocationComponentSettings(
+            enabled: true,
+            puckBearingEnabled: true,
+            puckBearing: mp.PuckBearing.COURSE,
+          ),
+        );
+      }
     }
   }
 
@@ -1324,25 +1460,27 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _puckAnimationController?.dispose();
     _userPositionStream?.cancel();
     _reportIconUpdateTimer?.cancel();
-    // reportAnnotationManager?.deleteAll(); // Removed
+    reportAnnotationManager?.deleteAll();
     _cameraController.dispose(); // Clean up camera controller
     _routeVisualizationService.dispose(); // Clean up route visualization service
-    _mapboxMapController?.dispose();
+    // _mapboxMapController?.dispose(); // REMOVED: Managed by MapWidget
     super.dispose();
   }
 }
 
-/// Custom BytesLoader for in-memory ByteData
-class MemoryBytesLoader extends vg.BytesLoader {
-  final ByteData _data;
-  const MemoryBytesLoader(this._data);
+/// Helper class for report clustering
+class _ReportCluster {
+  final List<ReportData> reports;
+  final double latitude;
+  final double longitude;
+  final List<double> offset;
 
-  @override
-  Future<ByteData> loadBytes(BuildContext? context) async => _data;
-
-  @override
-  int get hashCode => _data.hashCode;
-
-  @override
-  bool operator ==(Object other) => other is MemoryBytesLoader && other._data == _data;
+  _ReportCluster({
+    required this.reports,
+    required this.latitude,
+    required this.longitude,
+    required this.offset,
+  });
 }
+
+
