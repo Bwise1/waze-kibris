@@ -89,6 +89,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       _mapboxMapController = controller;
     });
 
+    // Set camera bounds to restrict zooming out too far
+    await controller.setBounds(
+      mp.CameraBoundsOptions(
+        minZoom: 4.0, // Restrict world view
+        maxZoom: 22.0,
+      ),
+    );
+
     // Initialize camera controller with map
     _cameraController.initialize(controller);
 
@@ -698,9 +706,18 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
       // If we have an animation controller, animate to the new position
       if (_puckAnimationController != null) {
-        final startLat = _lastPuckPosition?.lat.toDouble() ?? newLat;
-        final startLng = _lastPuckPosition?.lng.toDouble() ?? newLng;
-        final startBearing = _lastPuckBearing ?? newBearing;
+        // Use current animated value as start if animating, to prevent jumps
+        final startLat = _puckAnimationController!.isAnimating && _latAnimation != null
+            ? _latAnimation!.value
+            : (_lastPuckPosition?.lat.toDouble() ?? newLat);
+            
+        final startLng = _puckAnimationController!.isAnimating && _lngAnimation != null
+            ? _lngAnimation!.value
+            : (_lastPuckPosition?.lng.toDouble() ?? newLng);
+            
+        final startBearing = _puckAnimationController!.isAnimating && _bearingAnimation != null
+            ? _bearingAnimation!.value
+            : (_lastPuckBearing ?? newBearing);
 
         // Handle bearing wrap-around (e.g. 350 -> 10 degrees)
         double targetBearing = newBearing;

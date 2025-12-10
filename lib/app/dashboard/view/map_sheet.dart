@@ -323,16 +323,90 @@ class _MapSheetState extends State<MapSheet> {
           Navigator.of(contxt).pop();
         },
         onSeeAllRoutes: () async {
-          Navigator.of(contxt).pop();
-          // Trigger navigation
-          widget.onSuggestionSelected?.call(
-            SearchSuggestion(
-              placeId: location.placeId ?? '',
-              mainText: location.name,
-              secondaryText: location.address ?? '',
-              distanceMeters: (distanceKm * 1000),
-            ),
-          );
+          final position = await Geolocator.getCurrentPosition();
+
+          try {
+            final directions = await _placesService.fetchMapboxDirections(
+              originLat: position.latitude,
+              originLng: position.longitude,
+              destinationLat: location.latitude,
+              destinationLng: location.longitude,
+              profile: 'driving-traffic',
+              alternatives: true,
+            );
+
+            Navigator.of(contxt).pop();
+
+            // Collapse the main sheet
+            widget.controller.relativeAnimateTo(
+              0.0,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            );
+
+            debugPrint('Directions fetched: ${directions.routes.length} routes');
+
+            if (directions.routes.isNotEmpty) {
+              // Draw the first route
+              final firstRoute = directions.routes.first;
+              widget.onDrawMapboxPolyline?.call(firstRoute);
+
+              // Trigger navigation with SearchSuggestion
+              widget.onSuggestionSelected?.call(
+                SearchSuggestion(
+                  placeId: location.placeId ?? '',
+                  mainText: location.name,
+                  secondaryText: location.address ?? '',
+                  distanceMeters: (distanceKm * 1000),
+                ),
+              );
+
+              // Show route selection
+              await showModalBottomSheet(
+                context: widget.context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (modalContext) => RouteSelectionSheet(
+                  routes: directions.routes,
+                  placeDetails: GooglePlaceDetails(
+                    placeId: location.placeId ?? '',
+                    name: location.name,
+                    formattedAddress: location.address ?? '',
+                    lat: location.latitude,
+                    lng: location.longitude,
+                    website: '',
+                  ),
+                  onRouteSelected: (selectedRoute) {
+                    widget.onDrawMapboxPolyline?.call(selectedRoute);
+                  },
+                  onStartNavigation: (selectedRoute) {
+                    widget.onDrawMapboxPolyline?.call(selectedRoute);
+                    widget.onStartNavigation?.call(selectedRoute);
+                  },
+                ),
+              );
+            } else {
+              if (widget.context.mounted) {
+                ScaffoldMessenger.of(widget.context).showSnackBar(
+                  const SnackBar(
+                    content: Text('No routes found to this destination'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+          } catch (e) {
+            debugPrint('Error fetching directions: $e');
+            Navigator.of(contxt).pop();
+            if (widget.context.mounted) {
+              ScaffoldMessenger.of(widget.context).showSnackBar(
+                const SnackBar(
+                  content: Text('Unable to find routes. Please try again.'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
         },
       ),
     );
@@ -393,10 +467,10 @@ class _MapSheetState extends State<MapSheet> {
         },
         child: Sheet(
           backgroundColor: Colors.transparent,
-          initialExtent: 120,
+          initialExtent: 0.2,
           controller: widget.controller,
           physics: const SnapSheetPhysics(
-            stops: <double>[0.3, 0.75],
+            stops: <double>[0.2, 0.5, 1.0],
           ),
           child: AnimatedBuilder(
             animation: widget.controller.animation,
@@ -482,34 +556,30 @@ class _MapSheetState extends State<MapSheet> {
                                         controller: destinationController,
                                         onChanged: (v) {
                                           _onSearchChanged(v);
-                                          if (widget
-                                                  .controller.animation.value <=
-                                              0.3) {
-                                            widget.controller.relativeAnimateTo(
-                                              0.9,
-                                              duration: const Duration(
-                                                  milliseconds: 200),
-                                              curve: Curves.easeOut,
-                                            );
-                                          }
+                                          // Always expand to full screen when searching
+                                          widget.controller.relativeAnimateTo(
+                                            1.0,
+                                            duration: const Duration(
+                                                milliseconds: 200),
+                                            curve: Curves.easeOut,
+                                          );
                                         },
                                         onClear: () {
                                           destinationController.clear();
                                           setState(() {
                                             _suggestions = [];
                                           });
+                                          // Optional: Collapse back to default?
+                                          // widget.controller.relativeAnimateTo(0.3, ...);
                                         },
                                         onFocus: () {
-                                          if (widget
-                                                  .controller.animation.value <=
-                                              0.3) {
-                                            widget.controller.relativeAnimateTo(
-                                              0.9,
-                                              duration: const Duration(
-                                                  milliseconds: 200),
-                                              curve: Curves.easeOut,
-                                            );
-                                          }
+                                          // Always expand to full screen when focused
+                                          widget.controller.relativeAnimateTo(
+                                            1.0,
+                                            duration: const Duration(
+                                                milliseconds: 200),
+                                            curve: Curves.easeOut,
+                                          );
                                         },
                                       ),
                                       // If suggestions, show only suggestions

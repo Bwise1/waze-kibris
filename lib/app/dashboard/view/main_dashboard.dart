@@ -40,6 +40,46 @@ class _MainDashboardState extends State<MainDashboard>
   @override
   NavigationBloc get navigationBloc => _navigationBloc;
 
+  void _fetchNearbyReports(Position position) {
+    // Only fetch if we've moved significantly or haven't fetched before
+    if (_lastReportFetchPosition == null ||
+        Geolocator.distanceBetween(
+          _lastReportFetchPosition!.latitude,
+          _lastReportFetchPosition!.longitude,
+          position.latitude,
+          position.longitude,
+        ) > 1000) { // Fetch reports every 1km movement
+      
+      _lastReportFetchPosition = position;
+      
+      debugPrint('🚨 Fetching reports near: ${position.latitude}, ${position.longitude}');
+      
+      context.read<ReportsBloc>().add(
+        ReportsEvent.getNearByReports(
+          radius: 50, // 50km radius
+          lat: position.latitude.toString(),
+          long: position.longitude.toString(),
+        ),
+      );
+    }
+  }
+
+  void _fetchNearbyReportsAfterDelay() async {
+    // Wait for location to be available before fetching reports
+    await Future.delayed(const Duration(seconds: 3));
+    
+    try {
+      final currentPosition = await Geolocator.getCurrentPosition();
+      
+      // Check if widget is still mounted before using context
+      if (mounted) {
+        _fetchNearbyReports(currentPosition);
+      }
+    } catch (e) {
+      debugPrint('Error getting position for report fetching: $e');
+    }
+  }
+
   @override
   void onPositionUpdate(Position position) {
     // Fetch reports when user moves significantly
@@ -62,6 +102,21 @@ class _MainDashboardState extends State<MainDashboard>
     _navigationBloc = NavigationBloc();
     setupPositionTracking();
     controller = SheetController();
+    _preloadUserLocation();
+  }
+
+  Future<void> _preloadUserLocation() async {
+    try {
+      // Get last known position immediately for fast startup
+      final position = await Geolocator.getLastKnownPosition();
+      if (position != null && mounted) {
+        setState(() {
+          _lastReportFetchPosition = position;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error preloading location: $e');
+    }
   }
 
   @override
@@ -131,46 +186,6 @@ class _MainDashboardState extends State<MainDashboard>
     clearRoutePolyline();
     clearSnapToRoad();
     _clearRouteBar(); // Also dismiss the route bar when ending navigation
-  }
-
-  void _fetchNearbyReportsAfterDelay() async {
-    // Wait for location to be available before fetching reports
-    await Future.delayed(const Duration(seconds: 3));
-    
-    try {
-      final currentPosition = await Geolocator.getCurrentPosition();
-      
-      // Check if widget is still mounted before using context
-      if (mounted) {
-        _fetchNearbyReports(currentPosition);
-      }
-    } catch (e) {
-      debugPrint('Error getting position for report fetching: $e');
-    }
-  }
-
-  void _fetchNearbyReports(Position position) {
-    // Only fetch if we've moved significantly or haven't fetched before
-    if (_lastReportFetchPosition == null ||
-        Geolocator.distanceBetween(
-          _lastReportFetchPosition!.latitude,
-          _lastReportFetchPosition!.longitude,
-          position.latitude,
-          position.longitude,
-        ) > 1000) { // Fetch reports every 1km movement
-      
-      _lastReportFetchPosition = position;
-      
-      debugPrint('🚨 Fetching reports near: ${position.latitude}, ${position.longitude}');
-      
-      context.read<ReportsBloc>().add(
-        ReportsEvent.getNearByReports(
-          radius: 50, // 50km radius
-          lat: position.latitude.toString(),
-          long: position.longitude.toString(),
-        ),
-      );
-    }
   }
 
   void _onReportsReceived(List<ReportData> reports) {
@@ -248,6 +263,18 @@ class _MainDashboardState extends State<MainDashboard>
                     key: _mapWidgetKey,
                     onMapCreated: onMapCreated,
                     onTapListener: onMapTap,
+                    // Use initial camera options if we have a last known position
+                    cameraOptions: _lastReportFetchPosition != null
+                        ? mp.CameraOptions(
+                            center: mp.Point(
+                              coordinates: mp.Position(
+                                _lastReportFetchPosition!.longitude,
+                                _lastReportFetchPosition!.latitude,
+                              ),
+                            ),
+                            zoom: 15.0, // Start close up
+                          )
+                        : null,
                   ),
 
                   // Show route bar if there's an active suggestion and not navigating
@@ -305,23 +332,14 @@ class _MainDashboardState extends State<MainDashboard>
                             return AnimatedBuilder(
                               animation: controller.animation,
                               builder: (context, child) {
-                                // Calculate the visible height of the sheet
-                                // Use a minimum of 120 to ensure the handle is always touchable
-                                final visibleHeight = (screenHeight * controller.animation.value).clamp(120.0, screenHeight);
-                                
                                 return SizedBox(
-                                  height: visibleHeight,
-                                  child: OverflowBox(
-                                    minHeight: screenHeight,
-                                    maxHeight: screenHeight,
-                                    alignment: Alignment.bottomCenter,
-                                    child: MapSheet(
-                                      controller: controller,
-                                      onSuggestionSelected: _onSuggestionSelected,
-                                      onDrawMapboxPolyline: drawMapboxPolyline,
-                                      onStartNavigation: _startNavigation,
-                                      context: context,
-                                    ),
+                                  height: screenHeight,
+                                  child: MapSheet(
+                                    controller: controller,
+                                    onSuggestionSelected: _onSuggestionSelected,
+                                    onDrawMapboxPolyline: drawMapboxPolyline,
+                                    onStartNavigation: _startNavigation,
+                                    context: context,
                                   ),
                                 );
                               },
