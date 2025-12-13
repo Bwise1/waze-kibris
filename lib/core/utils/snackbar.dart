@@ -27,7 +27,7 @@ class SnackBarFactory {
       case SnackBarType.error:
         backgroundColor = styles.theme.red;
       case SnackBarType.success:
-        backgroundColor = styles.theme.secondary;
+        backgroundColor = styles.theme.green;
     }
     context.showToast<T>(
       Text(message!, style: styles.typography.t2.textColor(styles.theme.white)),

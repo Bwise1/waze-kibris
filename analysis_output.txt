@@ -1,0 +1,122 @@
+Analyzing map_controller_mixin.dart...                          
+
+   info • The import of 'dart:typed_data' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/services.dart' • lib/app/dashboard/view/map_controller_mixin.dart:3:8 • unnecessary_import
+   info • Sort directive sections alphabetically • lib/app/dashboard/view/map_controller_mixin.dart:5:1 • directives_ordering
+warning • Unused import: 'dart:math' • lib/app/dashboard/view/map_controller_mixin.dart:5:8 • unused_import
+warning • Unused import: 'package:waze_kibris/gen/assets.gen.dart' • lib/app/dashboard/view/map_controller_mixin.dart:12:8 • unused_import
+   info • Sort directive sections alphabetically • lib/app/dashboard/view/map_controller_mixin.dart:13:1 • directives_ordering
+   info • Sort directive sections alphabetically • lib/app/dashboard/view/map_controller_mixin.dart:17:1 • directives_ordering
+   info • Sort directive sections alphabetically • lib/app/dashboard/view/map_controller_mixin.dart:19:1 • directives_ordering
+warning • Unused import: 'package:waze_kibris/app/dashboard/modals/report_details_modal.dart' • lib/app/dashboard/view/map_controller_mixin.dart:19:8 • unused_import
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:52:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:53:81 • lines_longer_than_80_chars
+   info • 'bool' parameters should be named parameters • lib/app/dashboard/view/map_controller_mixin.dart:76:27 • avoid_positional_boolean_parameters
+   info • An 'async' function should have a 'Future' return type when it doesn't return a value • lib/app/dashboard/view/map_controller_mixin.dart:84:8 • avoid_void_async
+   info • Missing an 'await' for the 'Future' computed by this expression • lib/app/dashboard/view/map_controller_mixin.dart:99:5 • unawaited_futures
+   info • Missing an 'await' for the 'Future' computed by this expression • lib/app/dashboard/view/map_controller_mixin.dart:133:5 • unawaited_futures
+   info • Missing an 'await' for the 'Future' computed by this expression • lib/app/dashboard/view/map_controller_mixin.dart:136:5 • unawaited_futures
+   info • Missing an 'await' for the 'Future' computed by this expression • lib/app/dashboard/view/map_controller_mixin.dart:137:5 • unawaited_futures
+   info • Missing an 'await' for the 'Future' computed by this expression • lib/app/dashboard/view/map_controller_mixin.dart:139:5 • unawaited_futures
+   info • Missing an 'await' for the 'Future' computed by this expression • lib/app/dashboard/view/map_controller_mixin.dart:141:5 • unawaited_futures
+   info • Missing an 'await' for the 'Future' computed by this expression • lib/app/dashboard/view/map_controller_mixin.dart:148:5 • unawaited_futures
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:164:9 • omit_local_variable_types
+warning • The type argument(s) of 'List' can't be inferred • lib/app/dashboard/view/map_controller_mixin.dart:175:72 • inference_failure_on_collection_literal
+   info • Unnecessary use of a 'double' literal • lib/app/dashboard/view/map_controller_mixin.dart:204:23 • prefer_int_literals
+   info • Unnecessary use of a 'double' literal • lib/app/dashboard/view/map_controller_mixin.dart:207:28 • prefer_int_literals
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:209:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:218:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:230:81 • lines_longer_than_80_chars
+   info • Missing an 'await' for the 'Future' computed by this expression • lib/app/dashboard/view/map_controller_mixin.dart:232:9 • unawaited_futures
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:243:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:261:81 • lines_longer_than_80_chars
+   info • Missing a required trailing comma • lib/app/dashboard/view/map_controller_mixin.dart:263:9 • require_trailing_commas
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:288:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:300:81 • lines_longer_than_80_chars
+   info • An 'async' function should have a 'Future' return type when it doesn't return a value • lib/app/dashboard/view/map_controller_mixin.dart:323:8 • avoid_void_async
+   info • 'bool' parameters should be named parameters • lib/app/dashboard/view/map_controller_mixin.dart:323:35 • avoid_positional_boolean_parameters
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:336:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:361:81 • lines_longer_than_80_chars
+   info • Missing a required trailing comma • lib/app/dashboard/view/map_controller_mixin.dart:382:15 • require_trailing_commas
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:399:81 • lines_longer_than_80_chars
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:403:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:404:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:409:13 • omit_local_variable_types
+   info • Unnecessary use of a 'double' literal • lib/app/dashboard/view/map_controller_mixin.dart:419:9 • prefer_int_literals
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:462:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:468:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:509:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:510:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:524:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:570:81 • lines_longer_than_80_chars
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:594:9 • omit_local_variable_types
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:603:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:604:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:605:81 • lines_longer_than_80_chars
+   info • Unnecessary use of a 'double' literal • lib/app/dashboard/view/map_controller_mixin.dart:607:49 • prefer_int_literals
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:621:81 • lines_longer_than_80_chars
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:634:13 • omit_local_variable_types
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:670:81 • lines_longer_than_80_chars
+warning • The declaration '_calculateDistance' isn't referenced • lib/app/dashboard/view/map_controller_mixin.dart:687:10 • unused_element
+   info • Missing a required trailing comma • lib/app/dashboard/view/map_controller_mixin.dart:712:10 • require_trailing_commas
+   info • Missing a required trailing comma • lib/app/dashboard/view/map_controller_mixin.dart:724:10 • require_trailing_commas
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:733:81 • lines_longer_than_80_chars
+warning • The declaration '_getAdaptiveReportIconSize' isn't referenced • lib/app/dashboard/view/map_controller_mixin.dart:798:18 • unused_element
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:854:81 • lines_longer_than_80_chars
+   info • Missing a required trailing comma • lib/app/dashboard/view/map_controller_mixin.dart:854:88 • require_trailing_commas
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:857:11 • omit_local_variable_types
+   info • Missing an 'await' for the 'Future' computed by this expression • lib/app/dashboard/view/map_controller_mixin.dart:862:5 • unawaited_futures
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:864:81 • lines_longer_than_80_chars
+   info • Local variables should be final • lib/app/dashboard/view/map_controller_mixin.dart:871:7 • prefer_final_locals
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:871:7 • omit_local_variable_types
+   info • Missing an 'await' for the 'Future' computed by this expression • lib/app/dashboard/view/map_controller_mixin.dart:876:7 • unawaited_futures
+   info • Missing a required trailing comma • lib/app/dashboard/view/map_controller_mixin.dart:880:68 • require_trailing_commas
+   info • Unnecessary use of a 'double' literal • lib/app/dashboard/view/map_controller_mixin.dart:882:17 • prefer_int_literals
+   info • Unnecessary use of a 'double' literal • lib/app/dashboard/view/map_controller_mixin.dart:883:20 • prefer_int_literals
+   info • Unnecessary use of a 'double' literal • lib/app/dashboard/view/map_controller_mixin.dart:884:18 • prefer_int_literals
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:897:9 • omit_local_variable_types
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:920:81 • lines_longer_than_80_chars
+   info • Missing a required trailing comma • lib/app/dashboard/view/map_controller_mixin.dart:920:102 • require_trailing_commas
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:924:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:928:81 • lines_longer_than_80_chars
+   info • Missing a required trailing comma • lib/app/dashboard/view/map_controller_mixin.dart:928:96 • require_trailing_commas
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:931:81 • lines_longer_than_80_chars
+   info • Missing a required trailing comma • lib/app/dashboard/view/map_controller_mixin.dart:931:97 • require_trailing_commas
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:967:81 • lines_longer_than_80_chars
+   info • An 'async' function should have a 'Future' return type when it doesn't return a value • lib/app/dashboard/view/map_controller_mixin.dart:988:8 • avoid_void_async
+warning • The declaration '_updateMarkersForZoom' isn't referenced • lib/app/dashboard/view/map_controller_mixin.dart:1013:16 • unused_element
+   info • Statements in an if should be enclosed in a block • lib/app/dashboard/view/map_controller_mixin.dart:1016:42 • curly_braces_in_flow_control_structures
+warning • The value of the local variable 'markerSize' isn't used • lib/app/dashboard/view/map_controller_mixin.dart:1019:13 • unused_local_variable
+   info • An 'async' function should have a 'Future' return type when it doesn't return a value • lib/app/dashboard/view/map_controller_mixin.dart:1034:8 • avoid_void_async
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:1044:81 • lines_longer_than_80_chars
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1071:11 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1118:11 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1124:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1126:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1131:13 • omit_local_variable_types
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:1182:81 • lines_longer_than_80_chars
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:1215:81 • lines_longer_than_80_chars
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1217:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1218:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1219:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1221:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1222:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1227:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1228:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1229:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1232:13 • omit_local_variable_types
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/app/dashboard/view/map_controller_mixin.dart:1240:42 • deprecated_member_use
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:1240:81 • lines_longer_than_80_chars
+   info • Unnecessary duplication of receiver • lib/app/dashboard/view/map_controller_mixin.dart:1244:7 • cascade_invocations
+   info • 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss • lib/app/dashboard/view/map_controller_mixin.dart:1247:27 • deprecated_member_use
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1251:13 • omit_local_variable_types
+   info • Unnecessary duplication of receiver • lib/app/dashboard/view/map_controller_mixin.dart:1255:7 • cascade_invocations
+   info • Unnecessary duplication of receiver • lib/app/dashboard/view/map_controller_mixin.dart:1265:7 • cascade_invocations
+   info • Unnecessary duplication of receiver • lib/app/dashboard/view/map_controller_mixin.dart:1266:7 • cascade_invocations
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:1268:81 • lines_longer_than_80_chars
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1271:13 • omit_local_variable_types
+   info • Unnecessary type annotation on a local variable • lib/app/dashboard/view/map_controller_mixin.dart:1272:13 • omit_local_variable_types
+warning • The declaration '_refreshLocationPuckOnTop' isn't referenced • lib/app/dashboard/view/map_controller_mixin.dart:1282:8 • unused_element
+   info • Missing a required trailing comma • lib/app/dashboard/view/map_controller_mixin.dart:1327:15 • require_trailing_commas
+   info • The line length exceeds the 80-character limit • lib/app/dashboard/view/map_controller_mixin.dart:1357:81 • lines_longer_than_80_chars
+   info • Missing a newline at the end of the file • lib/app/dashboard/view/map_controller_mixin.dart:1361:2 • eol_at_end_of_file
+

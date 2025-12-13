@@ -17,7 +17,13 @@ class AppIcon extends StatelessWidget {
           icon,
           width: size,
           height: size,
-          color: color ?? styles.theme.ash,
+          theme: SvgTheme(
+            currentColor: color ?? styles.theme.ash,
+          ),
+          colorFilter: ColorFilter.mode(
+            color ?? styles.theme.ash,
+            BlendMode.srcIn,
+          ),
         ),
       ),
     );

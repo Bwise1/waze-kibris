@@ -1,0 +1,2 @@
+/Users/tim/Documents/GitHub/waze-kibris/android/app/.cxx/Debug/u4d3q1o1/x86_64/CMakeFiles/edit_cache.dir
+/Users/tim/Documents/GitHub/waze-kibris/android/app/.cxx/Debug/u4d3q1o1/x86_64/CMakeFiles/rebuild_cache.dir

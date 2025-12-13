@@ -3,7 +3,8 @@ import 'package:waze_kibris/common.dart';
 
 class CustomClickableText extends StatelessWidget {
   const CustomClickableText({
-    required this.text, super.key,
+    required this.text,
+    super.key,
     this.onTap,
     this.padding,
     this.color,
@@ -15,7 +16,8 @@ class CustomClickableText extends StatelessWidget {
         widget = null;
 
   const CustomClickableText.widget({
-    required this.widget, super.key,
+    required this.widget,
+    super.key,
     this.onTap,
     this.padding,
     this.color,
@@ -54,14 +56,15 @@ class CustomClickableText extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: radius ?? BorderRadius.circular(styles.corners.sm),
         ),
-        overlayColor: (overlay ?? color)?.withOpacity(.1),
+        overlayColor: (overlay ?? color)?.withValues(alpha: .1),
       ),
       child: _isText
           ? Text(
               text,
               style: style ??
                   styles.typography.caption
-                      .textColor(textColor ?? styles.theme.grey),
+                      .textColor(textColor ?? styles.theme.text)
+                      .style(FontStyle.normal),
             )
           : widget!,
     );

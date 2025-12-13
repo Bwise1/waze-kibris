@@ -12,6 +12,7 @@ class AppHeader extends StatelessWidget {
     this.trailing,
     this.backIcon,
     this.backBtnSemantics,
+    this.bordered = false,
   });
   final String? title;
   final String? subtitle;
@@ -21,23 +22,26 @@ class AppHeader extends StatelessWidget {
   final bool isTransparent;
   final VoidCallback? onBack;
   final Widget Function(BuildContext context)? trailing;
+  final bool bordered;
 
   @override
   Widget build(BuildContext context) {
-    final icon = backIcon ?? 'Assets.icons.regular.chevronLeft';
+    final icon = backIcon ?? Assets.icons.chevronLeft;
 
     return ColoredBox(
-      color: isTransparent ? Colors.transparent : styles.theme.white,
+      color: isTransparent ? Colors.transparent : styles.theme.background,
       child: SafeArea(
         bottom: false,
         child: Container(
           height: 64 * styles.scale,
           decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: styles.theme.grey.withOpacity(0.1),
-              ),
-            ),
+            border: bordered
+                ? Border(
+                    bottom: BorderSide(
+                      color: styles.theme.grey.withValues(alpha: 0.1),
+                    ),
+                  )
+                : null,
           ),
           child: Stack(
             children: [
@@ -46,12 +50,15 @@ class AppHeader extends StatelessWidget {
                   child: Row(
                     children: [
                       if (showBackBtn) ...[
+                        Gap(styles.insets.sm),
                         BackBtn(
                           onPressed: onBack,
                           icon: icon,
+                          iconSize: 14,
                           semanticLabel: backBtnSemantics,
                           bgColor: Colors.transparent,
                           iconColor: styles.theme.grey,
+                          borderSide: BorderSide(color: styles.theme.border),
                         ),
                       ],
                       const Spacer(),

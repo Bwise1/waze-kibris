@@ -6,15 +6,18 @@ class RouteWrapper extends GoRoute {
   RouteWrapper(
     String path,
     Widget Function(GoRouterState s) builder, {
+    String name = '',
     List<GoRoute> routes = const [],
     this.useFade = true,
   }) : super(
           path: path,
           routes: routes,
+          name: name,
           pageBuilder: (context, state) {
             final pageContent = Scaffold(
               body: builder(state),
-              resizeToAvoidBottomInset: true,
+              resizeToAvoidBottomInset: false,
+              extendBody: true,
             );
             if (useFade) {
               return CustomTransitionPage(

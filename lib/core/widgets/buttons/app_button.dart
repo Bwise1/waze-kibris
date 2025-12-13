@@ -33,6 +33,7 @@ class AppBtn extends StatelessWidget {
     this.minimumSize,
     this.bgColor,
     this.border,
+    this.corner,
   }) : _builder = null;
 
   AppBtn.from({
@@ -51,6 +52,7 @@ class AppBtn extends StatelessWidget {
     String? icon,
     double? iconSize,
     Color? iconColor,
+    this.corner,
   })  : child = null,
         circular = false {
     if (semanticLabel == null && text == null) {
@@ -63,7 +65,9 @@ class AppBtn extends StatelessWidget {
           ? null
           : Text(
               text,
-              style: styles.typography.btn,
+              style: styles.typography.btn.textColor(
+                iconColor ?? styles.theme.text,
+              ),
               textHeightBehavior:
                   const TextHeightBehavior(applyHeightToFirstAscent: false),
             );
@@ -100,6 +104,7 @@ class AppBtn extends StatelessWidget {
     this.isSecondary = false,
     this.circular = false,
     this.minimumSize,
+    this.corner,
   })  : expand = false,
         bgColor = Colors.transparent,
         border = null,
@@ -119,6 +124,7 @@ class AppBtn extends StatelessWidget {
   final bool expand;
   final bool circular;
   final Size? minimumSize;
+  final double? corner;
 
   // style:
   final bool isSecondary;
@@ -140,7 +146,7 @@ class AppBtn extends StatelessWidget {
         ? CircleBorder(side: side)
         : RoundedRectangleBorder(
             side: side,
-            borderRadius: BorderRadius.circular(styles.corners.md),
+            borderRadius: BorderRadius.circular(corner ?? styles.corners.md),
           );
 
     final style = ButtonStyle(
@@ -258,9 +264,10 @@ class _CustomFocusBuilderState extends State<_CustomFocusBuilder> {
 
 /// //////////////////////////////////////////////////
 /// CircleBtn
+/// RectangleBtn
 /// CircleIconBtn
 /// BackBtn
-/// set of buttons with circular shape & or transparent background
+/// set of buttons with circular,Rectangle shape & or transparent background
 /// //////////////////////////////////////////////////
 
 class CircleBtn extends StatelessWidget {
@@ -312,7 +319,7 @@ class CircleIconBtn extends StatelessWidget {
     this.iconSize,
   });
 
-  static double defaultSize = 28;
+  static double defaultSize = 24;
 
   final String icon;
   final VoidCallback onPressed;
@@ -340,43 +347,94 @@ class CircleIconBtn extends StatelessWidget {
   Widget safe() => _SafeAreaWithPadding(child: this);
 }
 
+class IconBtn extends StatelessWidget {
+  const IconBtn({
+    required this.icon,
+    required this.onPressed,
+    required this.semanticLabel,
+    super.key,
+    this.border,
+    this.bgColor,
+    this.size,
+    this.color,
+    this.iconSize = 18,
+  });
+
+  static double defaultSize = 44;
+
+  final VoidCallback onPressed;
+  final Color? bgColor;
+  final BorderSide? border;
+  final String icon;
+  final double? size;
+  final String semanticLabel;
+  final double iconSize;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final sz = size ?? defaultSize;
+    return AppBtn(
+      onPressed: onPressed,
+      semanticLabel: semanticLabel,
+      minimumSize: Size(sz, sz),
+      padding: EdgeInsets.zero,
+      bgColor: bgColor,
+      border: border,
+      corner: styles.corners.sm,
+      child: AppIcon(icon, size: iconSize, color: color),
+    );
+  }
+}
+
 class BackBtn extends StatelessWidget {
   const BackBtn({
     super.key,
-    this.icon = '',
+    this.icon,
     this.onPressed,
     this.semanticLabel,
     this.bgColor,
     this.iconColor,
+    this.iconSize,
+    this.borderSide,
   });
 
-  const BackBtn.close({
+  BackBtn.close({
     Key? key,
     VoidCallback? onPressed,
     Color? bgColor,
     Color? iconColor,
   }) : this(
           key: key,
-          icon: 'Assets.icons.regular.remove',
+          icon: Assets.icons.close,
           onPressed: onPressed,
           semanticLabel: '',
           bgColor: bgColor ?? Colors.transparent,
-          iconColor: iconColor,
+          iconColor: iconColor ?? styles.theme.grey,
+          borderSide: BorderSide(
+            color: styles.theme.nu1,
+          ),
         );
 
   final Color? bgColor;
   final Color? iconColor;
-  final String icon;
+  final String? icon;
   final VoidCallback? onPressed;
   final String? semanticLabel;
+  final double? iconSize;
+  final BorderSide? borderSide;
   @override
   Widget build(BuildContext context) {
-    return CircleIconBtn(
-      icon: icon,
+    final defaultIcon = icon ?? Assets.icons.chevronLeft;
+
+    return IconBtn(
+      icon: defaultIcon,
       bgColor: bgColor,
       color: iconColor,
-      onPressed: onPressed ?? () => Navigator.pop(context),
+      iconSize: iconSize ?? 24,
+      onPressed: onPressed ?? () => context.pop(),
       semanticLabel: semanticLabel ?? '',
+      border: borderSide,
     );
   }
 

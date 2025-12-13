@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:url_launcher/url_launcher.dart';
 
 class UrlLauncher {
@@ -6,7 +8,7 @@ class UrlLauncher {
   static Future<void> launch(
     String url, {
     bool forceWebView = false,
-    Function? callback,
+    VoidCallback? callback,
   }) async {
     if (url.isNotEmpty == true) {
       if (await canLaunchUrl(Uri.parse(url))) {
@@ -17,7 +19,7 @@ class UrlLauncher {
               : LaunchMode.externalApplication,
         );
         if (callback != null) {
-          callback.call();
+          callback();
         }
       } else {
         throw Exception('Could not launch $url');

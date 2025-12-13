@@ -7,25 +7,31 @@ class PrimaryButton extends StatelessWidget {
     this.text,
     this.onPressed,
     this.isLoading = false,
+    this.bgColor,
+    this.textColor,
   });
   final String? text;
   final VoidCallback? onPressed;
   final bool isLoading;
-
+  final Color? bgColor;
+  final Color? textColor;
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 50,
+      height: 56,
       child: AppBtn(
         padding: EdgeInsets.all(styles.insets.sm),
         onPressed: onPressed,
         minimumSize: const Size(900, 50),
+        bgColor: bgColor,
         semanticLabel: 'primary-button-text',
+        corner: styles.corners.x24,
         child: isLoading
             ? const SizedBox(height: 18, width: 18, child: CustomLoader())
             : Text(
                 text ?? '',
-                style: styles.typography.btn.textColor(styles.theme.grey),
+                style: styles.typography.btn
+                    .textColor(textColor ?? styles.theme.primary),
               ),
       ),
     );

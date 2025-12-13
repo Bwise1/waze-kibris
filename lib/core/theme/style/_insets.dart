@@ -5,6 +5,7 @@ class Insets {
   Insets(this._scale);
   final double _scale;
 
+  late final double zero = 1;
   late final double none = 2;
   late final double xxs = 4 * _scale;
   late final double xs = 8 * _scale;
@@ -14,5 +15,6 @@ class Insets {
   late final double xl = 48 * _scale;
   late final double xxl = 56 * _scale;
   late final double xl2 = 64 * _scale;
+  late final double xl3 = 156 * _scale;
   late final double offset = 80 * _scale;
 }

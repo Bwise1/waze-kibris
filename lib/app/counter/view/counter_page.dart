@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:waze_kibris/app/counter/counter.dart';
+import 'package:waze_kibris/app/counter/cubit/counter_cubit.dart';
+import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/l10n/l10n.dart';
 
 class CounterPage extends StatelessWidget {
@@ -30,12 +30,12 @@ class CounterView extends StatelessWidget {
         children: [
           FloatingActionButton(
             onPressed: () => context.read<CounterCubit>().increment(),
-            child: const Icon(Icons.add),
+            child: AppIcon(Assets.icons.close),
           ),
           const SizedBox(height: 8),
           FloatingActionButton(
             onPressed: () => context.read<CounterCubit>().decrement(),
-            child: const Icon(Icons.remove),
+            child: AppIcon(Assets.icons.bin),
           ),
         ],
       ),

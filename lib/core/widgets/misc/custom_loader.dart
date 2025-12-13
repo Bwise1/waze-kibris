@@ -26,7 +26,7 @@ class CustomLoader extends StatelessWidget {
       case LoaderType.spinner:
         return Center(
           child: SizedBox.fromSize(
-            size: isAndroid ? const Size.square(24) : Size.zero,
+            size: const Size.square(24),
             child: CircularProgressIndicator.adaptive(
               value: value,
               strokeCap: StrokeCap.round,

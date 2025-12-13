@@ -1,8 +1,10 @@
 export 'app_scaffold.dart';
+export 'auth_bg.dart';
 export 'auth_header.dart';
 export 'buttons/app_button.dart';
 export 'buttons/clickable_text.dart';
 export 'buttons/primary_button.dart';
+export 'containers/container.dart';
 export 'containers/lazy_indexed_stack.dart';
 export 'containers/measurable_widget.dart';
 export 'icons/app_icons.dart';
@@ -19,5 +21,6 @@ export 'misc/flex.dart';
 export 'misc/logo.dart';
 export 'misc/modal_header.dart';
 export 'misc/page_indicator.dart';
+export 'misc/segmented_tab.dart';
 export 'misc/step_bar.dart';
 export 'scrollable/custom_horizontal_scroll.dart';

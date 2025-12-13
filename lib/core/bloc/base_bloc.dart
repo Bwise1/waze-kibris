@@ -28,8 +28,10 @@ abstract class BaBloc<S extends BlocState> extends Bloc<BlocEvent, S> {
           await handler(event, emit);
         } catch (e, stackTrace) {
           safePrint(
-            'Unhandled error caught in the $runtimeType! \n Error => $e \n StackTrace => $stackTrace \n',
-          );
+ 
+            'Unhandled error caught in the $runtimeType! \n Error => $e'
+            ' \n StackTrace => $stackTrace \n',
+           );
           emit(state.copyWithErrorPageStateType() as S);
         }
       },

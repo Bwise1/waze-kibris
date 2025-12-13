@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:waze_kibris/common.dart';
 
 class CustomTextField extends StatefulWidget {
-
   const CustomTextField({
     required this.hintText,
     super.key,
@@ -30,6 +29,7 @@ class CustomTextField extends StatefulWidget {
     this.onTap,
     this.maxLength,
     this.minLength,
+    this.fillColor,
   });
   final TextEditingController? controller;
   final String hintText;
@@ -43,6 +43,7 @@ class CustomTextField extends StatefulWidget {
   final List<TextInputFormatter>? inputFormatters;
   final Widget? suffix;
   final Widget? prefix;
+  final Color? fillColor;
 
   final bool? password;
   final bool shouldHideError;
@@ -79,7 +80,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
         enabled: widget.enabled,
         hintText: widget.hintText,
         hintStyle: styles.typography.t2
-            .textColor(styles.theme.nu1)
+            .textColor(styles.theme.grey)
             .textHeight(0)
             .regular,
         suffixIcon: widget.password ?? false
@@ -94,15 +95,16 @@ class _CustomTextFieldState extends State<CustomTextField> {
             : widget.suffix,
         prefixIcon: widget.prefix,
         errorStyle: styles.typography.t2.regular.textColor(styles.theme.red),
+        filled: true,
+        fillColor: widget.fillColor ?? const Color(0xffF5F5F5),
       ),
       maxLines: widget.maxLines,
       onFieldSubmitted: widget.onFieldSubmitted,
-      style: styles.typography.t2.regular.textColor(styles.theme.textPrimary),
+      style: styles.typography.t2.regular.textColor(styles.theme.grey),
       keyboardType: widget.keyboardType,
       textInputAction: widget.textInputAction,
       inputFormatters: widget.inputFormatters,
       onChanged: widget.onChanged,
-      cursorOpacityAnimates: true,
       validator: widget.validator,
       maxLength: widget.maxLength,
       minLines: widget.minLength,
@@ -111,7 +113,6 @@ class _CustomTextFieldState extends State<CustomTextField> {
 }
 
 class CustomTextFieldWithTitle extends StatefulWidget {
-
   const CustomTextFieldWithTitle({
     required this.title,
     required this.hintText,
@@ -200,7 +201,11 @@ class _CustomTextFieldWithTitleState extends State<CustomTextFieldWithTitle> {
                     .medium,
               ),
               Text(
-                ' ${widget.isRequired ? '\u2055' : widget.showOptionalText ? "(Optional)" : ''}',
+                widget.isRequired
+                    ? '\u2055'
+                    : widget.showOptionalText
+                        ? '(Optional)'
+                        : '',
                 style: styles.typography.t1
                     .textColor(
                       widget.showOptionalText
@@ -243,9 +248,9 @@ class _CustomTextFieldWithTitleState extends State<CustomTextFieldWithTitle> {
 }
 
 class CustomTextFieldWithIcon extends StatelessWidget {
-
   const CustomTextFieldWithIcon({
-    required this.labelText, this.hintText,
+    required this.labelText,
+    this.hintText,
     super.key,
     this.controller,
     this.obscureText = false,
