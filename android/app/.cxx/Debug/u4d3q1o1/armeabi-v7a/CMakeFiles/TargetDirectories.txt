@@ -1,2 +1,0 @@
-/Users/tim/Documents/GitHub/waze-kibris/android/app/.cxx/Debug/u4d3q1o1/armeabi-v7a/CMakeFiles/edit_cache.dir
-/Users/tim/Documents/GitHub/waze-kibris/android/app/.cxx/Debug/u4d3q1o1/armeabi-v7a/CMakeFiles/rebuild_cache.dir

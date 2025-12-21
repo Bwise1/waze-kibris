@@ -1,2 +1,0 @@
-/Users/benjys/PROJECTS/sandbox/waze-kibris/android/app/.cxx/RelWithDebInfo/641r4611/armeabi-v7a/CMakeFiles/edit_cache.dir
-/Users/benjys/PROJECTS/sandbox/waze-kibris/android/app/.cxx/RelWithDebInfo/641r4611/armeabi-v7a/CMakeFiles/rebuild_cache.dir
