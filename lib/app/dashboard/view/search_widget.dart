@@ -120,8 +120,8 @@ class SearchSuggestionList extends StatelessWidget {
       return const SizedBox.shrink();
     }
     return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      physics: const BouncingScrollPhysics(),
       itemCount: suggestions.length,
       separatorBuilder: (_, __) => Divider(height: 1, color: Colors.red[100]),
       itemBuilder: (context, index) {

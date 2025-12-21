@@ -213,6 +213,7 @@ class _MainDashboardState extends State<MainDashboard>
       value: _navigationBloc,
       child: Scaffold(
         extendBodyBehindAppBar: true,
+        resizeToAvoidBottomInset: false, // Prevent keyboard from pushing sheet up
         backgroundColor: Colors.grey[200],
         // Fixed AppBar issue - wrap BlocBuilder in PreferredSize
         appBar: PreferredSize(
