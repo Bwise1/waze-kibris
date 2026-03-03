@@ -84,10 +84,28 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
+  /// Get TickerProvider from implementing class if available
+  /// This allows the mixin to use animation controllers even though mixins can't extend TickerProviderStateMixin directly
+  TickerProvider? _getTickerProvider() {
+    // Check if the implementing class is a TickerProvider
+    if (this is TickerProvider) {
+      return this as TickerProvider;
+    }
+    return null;
+  }
+
   void onMapCreated(mp.MapboxMap controller) async {
     setState(() {
       _mapboxMapController = controller;
     });
+
+    // Set camera bounds to restrict zooming out too far
+    await controller.setBounds(
+      mp.CameraBoundsOptions(
+        minZoom: 4.0, // Restrict world view
+        maxZoom: 22.0,
+      ),
+    );
 
     // Initialize camera controller with map
     _cameraController.initialize(controller);
@@ -564,22 +582,27 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       _lastPuckBearing = position.heading;
       
       // Initialize animation controller if needed
-      if (_puckAnimationController == null && this is TickerProvider) {
-        _puckAnimationController = AnimationController(
-          vsync: this as TickerProvider,
-          duration: const Duration(milliseconds: 1000), // Smooth 1s transition
-        );
-        
-        _puckAnimationController!.addListener(() {
-          if (_latAnimation != null && _lngAnimation != null && _bearingAnimation != null) {
-            final currentLat = _latAnimation!.value;
-            final currentLng = _lngAnimation!.value;
-            final currentBearing = _bearingAnimation!.value;
-            
-            // Update the GeoJSON source with interpolated position
-            _updatePuckSource(mp.Position(currentLng, currentLat), currentBearing);
-          }
-        });
+      // Check if implementing class provides TickerProvider (e.g., MainDashboard with TickerProviderStateMixin)
+      if (_puckAnimationController == null) {
+        // Try to get TickerProvider from the implementing class
+        final tickerProvider = _getTickerProvider();
+        if (tickerProvider != null) {
+          _puckAnimationController = AnimationController(
+            vsync: tickerProvider,
+            duration: const Duration(milliseconds: 1000), // Smooth 1s transition
+          );
+          
+          _puckAnimationController!.addListener(() {
+            if (_latAnimation != null && _lngAnimation != null && _bearingAnimation != null) {
+              final currentLat = _latAnimation!.value;
+              final currentLng = _lngAnimation!.value;
+              final currentBearing = _bearingAnimation!.value;
+              
+              // Update the GeoJSON source with interpolated position
+              _updatePuckSource(mp.Position(currentLng, currentLat), currentBearing);
+            }
+          });
+        }
       }
 
       // 1. Add GeoJSON Source
@@ -698,9 +721,18 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
       // If we have an animation controller, animate to the new position
       if (_puckAnimationController != null) {
-        final startLat = _lastPuckPosition?.lat.toDouble() ?? newLat;
-        final startLng = _lastPuckPosition?.lng.toDouble() ?? newLng;
-        final startBearing = _lastPuckBearing ?? newBearing;
+        // Use current animated value as start if animating, to prevent jumps
+        final startLat = _puckAnimationController!.isAnimating && _latAnimation != null
+            ? _latAnimation!.value
+            : (_lastPuckPosition?.lat.toDouble() ?? newLat);
+            
+        final startLng = _puckAnimationController!.isAnimating && _lngAnimation != null
+            ? _lngAnimation!.value
+            : (_lastPuckPosition?.lng.toDouble() ?? newLng);
+            
+        final startBearing = _puckAnimationController!.isAnimating && _bearingAnimation != null
+            ? _bearingAnimation!.value
+            : (_lastPuckBearing ?? newBearing);
 
         // Handle bearing wrap-around (e.g. 350 -> 10 degrees)
         double targetBearing = newBearing;

@@ -2,11 +2,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
+import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
 import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
 import 'package:waze_kibris/app/dashboard/view/maneuver_banner.dart';
 import 'package:waze_kibris/app/dashboard/view/speedometer_widget.dart';
-import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 
 class NavigationOverlay extends StatefulWidget {
   final NavigationInProgress navigationState;
@@ -95,7 +99,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
           left: 16,
           child: SpeedometerWidget(
             currentSpeed: navigationState.currentSpeed ?? 0,
-            speedLimit: 90, // Mock speed limit for now
+            speedLimit: navigationState.speedLimit ?? 90, // Use route annotations or fallback to 90
           ),
         ),
 
@@ -104,12 +108,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
           bottom: 230, // Lifted up to avoid bottom panel overlap
           right: 16,
           child: FloatingActionButton(
-            onPressed: () {
-              // TODO: Show report dialog
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Report feature coming soon!')),
-              );
-            },
+            onPressed: () => _showReportModal(context),
             backgroundColor: Colors.orange,
             child: const Icon(Icons.report_problem, color: Colors.white),
           ),
@@ -185,12 +184,43 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                             color: Colors.black,
                           ),
                         ),
-                        Text(
-                          'ETA ${MapboxNavigationUtils.formatETA(navigationState.remainingDuration)}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'ETA ${MapboxNavigationUtils.formatETA(navigationState.remainingDuration)}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            // Show indicator if congestion data is available (real-time traffic)
+                            if (navigationState.congestionNumericData != null &&
+                                navigationState.congestionNumericData!.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 4),
+                                child: Icon(
+                                  Icons.traffic,
+                                  size: 12,
+                                  color: Colors.orange[700],
+                                ),
+                              ),
+                            // Show indicator if route is being refreshed
+                            if (navigationState.isRerouting)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 4),
+                                child: SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.blue[700]!,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                     ),
@@ -298,7 +328,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
   }
 
   void _showEndNavigationDialog(BuildContext context) {
-    showDialog(
+    showDialog<void>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
@@ -321,5 +351,44 @@ class _NavigationOverlayState extends State<NavigationOverlay>
         );
       },
     );
+  }
+
+  void _showReportModal(BuildContext context) async {
+    // Get current position from navigation state or fetch it
+    Position? currentPosition = widget.navigationState.userPosition;
+    
+    // If position not available, fetch it
+    if (currentPosition == null) {
+      try {
+        currentPosition = await Geolocator.getCurrentPosition();
+      } catch (e) {
+        debugPrint('Error getting position for report: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to get current location')),
+        );
+        return;
+      }
+    }
+
+    // Set user coordinate in AuthBloc so ReportEventModal can use it
+    if (context.mounted) {
+      context.read<AuthBloc>().add(
+            AuthEvent.getUserCoordinateRequested(
+              context: context,
+            ),
+          );
+      
+      // Wait a moment for AuthBloc to update, then show modal
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      
+      if (context.mounted) {
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (context) => const ReportEventModal(),
+        );
+      }
+    }
   }
 }

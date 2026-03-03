@@ -16,7 +16,7 @@ class MapAppBar extends StatefulWidget implements PreferredSizeWidget {
 class _MapAppBarState extends State<MapAppBar> {
   bool scrolled = false;
   late VoidCallback _animationListener;
-  
+
   @override
   void initState() {
     super.initState();
@@ -33,12 +33,12 @@ class _MapAppBarState extends State<MapAppBar> {
         });
       }
     };
-    
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.controller.animation.addListener(_animationListener);
     });
   }
-  
+
   @override
   void dispose() {
     widget.controller.animation.removeListener(_animationListener);
@@ -81,36 +81,36 @@ class _MapAppBarState extends State<MapAppBar> {
               ).padding(left: 16, top: 4),
             )
           : AnimatedBuilder(
-              key: const ValueKey('nonScrolled'),
-              animation: widget.controller.animation,
-              builder: (BuildContext context, Widget? child) {
-                final sheetBar = widget.controller.animation.value > 0.98;
-                return TweenAnimationBuilder<double>(
-                  tween: Tween<double>(begin: 0, end: sheetBar ? 1 : 0),
-                  duration: const Duration(milliseconds: 200),
-                  builder: (BuildContext context, double t, Widget? child) {
-                    return AnimatedOpacity(
-                      duration: const Duration(milliseconds: 200),
-                      opacity: 1,
-                      child: Container(
-                        margin: EdgeInsets.only(
-                          top: context.mq.padding.top,
-                        ),
-                        height: kToolbarHeight,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const SizedBox(),
-                            const SizedBox(),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+        key: const ValueKey('nonScrolled'),
+        animation: widget.controller.animation,
+        builder: (BuildContext context, Widget? child) {
+          final sheetBar = widget.controller.animation.value > 0.98;
+          return TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: sheetBar ? 1 : 0),
+            duration: const Duration(milliseconds: 200),
+            builder: (BuildContext context, double t, Widget? child) {
+              return AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: 1,
+                child: Container(
+                  margin: EdgeInsets.only(
+                    top: context.mq.padding.top,
+                  ),
+                  height: kToolbarHeight,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const SizedBox(),
+                      const SizedBox(),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }

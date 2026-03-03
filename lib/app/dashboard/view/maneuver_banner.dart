@@ -29,12 +29,15 @@ class ManeuverBanner extends StatelessWidget {
         return banner;
       }
     }
-    return step.bannerInstructions.isNotEmpty ? step.bannerInstructions.first : null;
+    return step.bannerInstructions.isNotEmpty
+        ? step.bannerInstructions.first
+        : null;
   }
 
   bool get _isVoiceEnabled {
     if (navigationBloc != null) return navigationBloc!.isVoiceEnabled;
-    if (navigationController != null) return navigationController!.isVoiceEnabled;
+    if (navigationController != null)
+      return navigationController!.isVoiceEnabled;
     return false;
   }
 
@@ -50,13 +53,13 @@ class ManeuverBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final maneuver = step.maneuver;
     final currentBanner = _currentBanner;
-    
+
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      elevation: 8,
-      margin: const EdgeInsets.fromLTRB(16, 44, 16, 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 6,
+      margin: const EdgeInsets.fromLTRB(12, 44, 12, 8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Column(
           children: [
             // Main instruction row
@@ -64,8 +67,8 @@ class ManeuverBanner extends StatelessWidget {
               children: [
                 // Enhanced maneuver icon
                 _buildManeuverIcon(maneuver),
-                const SizedBox(width: 16),
-                
+                const SizedBox(width: 12),
+
                 // Instruction details
                 Expanded(
                   child: Column(
@@ -74,75 +77,79 @@ class ManeuverBanner extends StatelessWidget {
                       // Distance
                       Text(
                         MapboxNavigationUtils.formatDistance(distanceRemaining),
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+                        style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black),
                       ),
-                      
-                      // Primary instruction (use banner if available, fallback to maneuver)
+
+                      // Primary instruction
                       Text(
                         currentBanner?.primary.text ?? maneuver.instruction,
-                        style: const TextStyle(fontSize: 16, color: Colors.black),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      
-                      // Secondary instruction
-                      if (currentBanner?.secondary != null)
-                        Text(
-                          currentBanner!.secondary!.text,
-                          style: const TextStyle(fontSize: 14, color: Colors.grey),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      
-                      // Road name/reference
-                      Text(
-                        step.name.isNotEmpty ? step.name : 'Continue',
-                        style: const TextStyle(fontSize: 14, color: Colors.grey),
+                        style:
+                            const TextStyle(fontSize: 14, color: Colors.black),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
+
+                      // Secondary instruction OR road name (whichever exists, one line only)
+                      if (currentBanner?.secondary != null)
+                        Text(
+                          currentBanner!.secondary!.text,
+                          style:
+                              const TextStyle(fontSize: 12, color: Colors.grey),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      else if (step.name.isNotEmpty)
+                        Text(
+                          step.name,
+                          style:
+                              const TextStyle(fontSize: 12, color: Colors.grey),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                     ],
                   ),
                 ),
-                
-                // Voice button
+
+                // Voice button (compact)
                 IconButton(
                   icon: Icon(
-                    _isVoiceEnabled
-                        ? Icons.volume_up
-                        : Icons.volume_off,
-                    color: _isVoiceEnabled
-                        ? Colors.black
-                        : Colors.grey,
+                    _isVoiceEnabled ? Icons.volume_up : Icons.volume_off,
+                    color: _isVoiceEnabled ? Colors.black : Colors.grey,
+                    size: 20,
                   ),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 36, minHeight: 36),
                   onPressed: () async {
-                    // Toggle voice and speak current instruction
                     await _speakCurrentInstruction();
                   },
                 ),
               ],
             ),
-            
+
             // Enhanced information row
             if (_hasEnhancedInfo())
               Padding(
-                padding: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.only(top: 8),
                 child: _buildEnhancedInfo(),
               ),
-            
+
             // Lane guidance
             if (_hasLaneGuidance())
               Padding(
-                padding: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.only(top: 8),
                 child: LaneGuidanceWidget(
                   lanes: step.intersections.first.lanes,
                 ),
               ),
 
-            // Next-next instruction preview (Waze-style)
+            // Next-next instruction preview (compact)
             if (nextStep != null)
               Padding(
-                padding: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.only(top: 8),
                 child: _buildNextStepPreview(),
               ),
           ],
@@ -152,14 +159,16 @@ class ManeuverBanner extends StatelessWidget {
   }
 
   Widget _buildManeuverIcon(MapboxManeuver maneuver) {
-    final iconText = MapboxNavigationUtils.getManeuverIcon(maneuver.type, maneuver.modifier);
-    
+    final iconText =
+        MapboxNavigationUtils.getManeuverIcon(maneuver.type, maneuver.modifier);
+
     // Handle roundabout with exit numbers
     if (maneuver.type == 'roundabout' && maneuver.exit != null) {
       return Stack(
         alignment: Alignment.center,
         children: [
-          Text(iconText, style: const TextStyle(fontSize: 32, color: Colors.black)),
+          Text(iconText,
+              style: const TextStyle(fontSize: 26, color: Colors.black)),
           Positioned(
             bottom: 2,
             child: Container(
@@ -171,7 +180,7 @@ class ManeuverBanner extends StatelessWidget {
               child: Text(
                 '${maneuver.exit}',
                 style: const TextStyle(
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
@@ -181,8 +190,9 @@ class ManeuverBanner extends StatelessWidget {
         ],
       );
     }
-    
-    return Text(iconText, style: const TextStyle(fontSize: 32, color: Colors.black));
+
+    return Text(iconText,
+        style: const TextStyle(fontSize: 26, color: Colors.black));
   }
 
   bool _hasEnhancedInfo() {
@@ -211,7 +221,7 @@ class ManeuverBanner extends StatelessWidget {
               ),
             ),
           ),
-        
+
         // Exit numbers (Exit 42A)
         if (step.exits != null)
           Container(
@@ -229,7 +239,7 @@ class ManeuverBanner extends StatelessWidget {
               ),
             ),
           ),
-        
+
         // Destinations (Airport, City Center)
         if (step.destinations != null)
           Flexible(
@@ -249,39 +259,40 @@ class ManeuverBanner extends StatelessWidget {
   }
 
   bool _hasLaneGuidance() {
-    return step.intersections.isNotEmpty && step.intersections.first.lanes.isNotEmpty;
+    return step.intersections.isNotEmpty &&
+        step.intersections.first.lanes.isNotEmpty;
   }
 
   Widget _buildNextStepPreview() {
     if (nextStep == null) return const SizedBox.shrink();
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[300]!),
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey[200]!),
       ),
       child: Row(
         children: [
           // "Then" label
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
               color: Colors.blue,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(6),
             ),
             child: const Text(
               'THEN',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 9,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
-                letterSpacing: 1.2,
+                letterSpacing: 1.0,
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
 
           // Next maneuver icon (smaller)
           Text(
@@ -289,55 +300,33 @@ class ManeuverBanner extends StatelessWidget {
               nextStep!.maneuver.type,
               nextStep!.maneuver.modifier,
             ),
-            style: const TextStyle(fontSize: 20, color: Colors.black),
+            style: const TextStyle(fontSize: 16, color: Colors.black),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
 
-          // Next instruction text
+          // Next instruction text (single line)
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  nextStep!.maneuver.instruction,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (nextStep!.name.isNotEmpty)
-                  Text(
-                    nextStep!.name,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[600],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            ),
-          ),
-
-          // Distance to next step
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(6),
-            ),
             child: Text(
-              MapboxNavigationUtils.formatDistance(
-                step.distance, // Distance of current step
-              ),
+              nextStep!.maneuver.instruction,
               style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
                 color: Colors.black87,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+
+          const SizedBox(width: 6),
+
+          // Distance to next step
+          Text(
+            MapboxNavigationUtils.formatDistance(step.distance),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Colors.black54,
             ),
           ),
         ],

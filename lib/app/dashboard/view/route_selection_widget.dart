@@ -1,13 +1,12 @@
 // Updated route_selection_widget.dart - Mapbox Navigation
 import 'package:flutter/material.dart';
-import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
+import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/common.dart';
-import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
-import 'package:waze_kibris/core/models/places/places_response.dart';
-import 'package:waze_kibris/core/models/location/recent_location.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
+import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/core/models/location/recent_location.dart';
 
 class RouteSelectionSheet extends StatefulWidget {
   final List<MapboxRoute> routes;
@@ -28,18 +27,26 @@ class RouteSelectionSheet extends StatefulWidget {
 }
 
 class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
-  late MapboxRoute _selectedRoute;
+  MapboxRoute? _selectedRoute;
   bool _isStartingNavigation = false;
-  late List<RouteOption> _routeOptions;
+  List<RouteOption> _routeOptions = [];
 
   @override
   void initState() {
     super.initState();
-    // Initially, the first route is selected (Mapbox's recommended route)
-    if (widget.routes.isNotEmpty) {
-      _selectedRoute = widget.routes.first;
-      _routeOptions = _createRouteOptions();
+    // Defensive check: ensure routes are not empty or null
+    if (widget.routes.isEmpty) {
+      print(
+          '⚠️ [ROUTE_SHEET] RouteSelectionSheet initialized with empty routes list!');
+      return;
     }
+
+    // Initially, the first route is selected (Mapbox's recommended route)
+    _selectedRoute = widget.routes.first;
+    _routeOptions = _createRouteOptions();
+
+    print(
+        '✅ [ROUTE_SHEET] RouteSelectionSheet initialized with ${widget.routes.length} routes');
   }
 
   List<RouteOption> _createRouteOptions() {
@@ -60,6 +67,45 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Defensive check: if routes are empty, show error message
+    if (widget.routes.isEmpty ||
+        _routeOptions.isEmpty ||
+        _selectedRoute == null) {
+      print(
+          '⚠️ [ROUTE_SHEET] RouteSelectionSheet build called with empty routes!');
+      return Material(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              const Text(
+                'No routes available',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Unable to load route options. Please try again.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.black54,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Material(
         color: Colors.white,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -203,7 +249,8 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                                         ),
                                         decoration: BoxDecoration(
                                           color: Colors.green[100],
-                                          borderRadius: BorderRadius.circular(8),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
                                         ),
                                         child: Text(
                                           'RECOMMENDED',
@@ -369,13 +416,19 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
       debugPrint('❌ No place details available for recent location');
     }
 
-    // Removed delay for immediate navigation start
-    if (widget.onStartNavigation != null) {
-      widget.onStartNavigation!(_selectedRoute);
+    // IMPORTANT: Pop BEFORE calling onStartNavigation.
+    // onStartNavigation calls setState in MainDashboard which rebuilds the widget tree
+    // and removes this sheet — making Navigator.of(context) invalid in release builds.
+    // Popping first while the context is still live avoids the stale-context crash.
+    if (mounted) {
+      Navigator.of(context).pop('navigation_started');
     }
 
-    if (mounted) {
-      Navigator.of(context).pop();
+    if (widget.onStartNavigation != null && _selectedRoute != null) {
+      widget.onStartNavigation!(_selectedRoute!);
+    } else {
+      print(
+          '⚠️ [ROUTE_SHEET] Cannot start navigation: _selectedRoute is null or onStartNavigation is null');
     }
   }
 }

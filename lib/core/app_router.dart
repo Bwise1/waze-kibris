@@ -25,13 +25,51 @@ class ScreenPaths {
 }
 
 final navigatorKey = GlobalKey<NavigatorState>();
-//
-final appRouter = GoRouter(
-  initialLocation:
-      isEmptyOrNull(getIt<ILocalStorage>().get<String>(StoreKeys.wazeToken))
-          ? ScreenPaths.home
-          : ScreenPaths.dashBoard,
-  navigatorKey: navigatorKey,
+
+// Router factory function - creates router after DI initialization
+GoRouter createAppRouter() {
+  // Safely get initial location, defaulting to home if GetIt isn't ready
+  String getInitialLocation() {
+    try {
+      if (getIt.isRegistered<ILocalStorage>()) {
+        final token = getIt<ILocalStorage>().get<String>(StoreKeys.wazeToken);
+        return isEmptyOrNull(token) ? ScreenPaths.home : ScreenPaths.dashBoard;
+      }
+    } catch (e) {
+      // If GetIt isn't initialized yet, default to home
+    }
+    return ScreenPaths.home;
+  }
+
+  return GoRouter(
+    initialLocation: getInitialLocation(),
+    redirect: (context, state) {
+      // Re-evaluate initial location on redirect if needed
+      // This ensures we check auth state after DI is initialized
+      try {
+        if (getIt.isRegistered<ILocalStorage>()) {
+          final token = getIt<ILocalStorage>().get<String>(StoreKeys.wazeToken);
+          final isAuthenticated = !isEmptyOrNull(token);
+          final isOnAuthRoute = state.matchedLocation == ScreenPaths.home ||
+              state.matchedLocation == ScreenPaths.getStarted ||
+              state.matchedLocation == ScreenPaths.signIn ||
+              state.matchedLocation == ScreenPaths.verifyEmail;
+          
+          // Redirect to dashboard if authenticated and on auth route
+          if (isAuthenticated && isOnAuthRoute) {
+            return ScreenPaths.dashBoard;
+          }
+          // Redirect to home if not authenticated and on protected route
+          if (!isAuthenticated && !isOnAuthRoute && state.matchedLocation != ScreenPaths.home) {
+            return ScreenPaths.home;
+          }
+        }
+      } catch (e) {
+        // If GetIt isn't ready, allow navigation to continue
+      }
+      return null; // No redirect needed
+    },
+    navigatorKey: navigatorKey,
   routes: <RouteBase>[
     ShellRoute(
       builder: (context, state, child) {
@@ -111,4 +149,8 @@ final appRouter = GoRouter(
       ],
     ),
   ],
-);
+  );
+}
+
+// Lazy router instance - created after DI initialization
+late final GoRouter appRouter = createAppRouter();
