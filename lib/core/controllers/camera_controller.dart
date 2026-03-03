@@ -58,7 +58,7 @@ class CameraController {
 
     // Debounce camera updates to prevent excessive calls
     _cameraUpdateTimer?.cancel();
-    _cameraUpdateTimer = Timer(const Duration(milliseconds: 300), () {
+    _cameraUpdateTimer = Timer(const Duration(milliseconds: 100), () {
       _actuallyUpdateCamera(userPosition, userBearing, animate, isOverviewMode);
     });
   }
@@ -120,12 +120,39 @@ class CameraController {
   }) async {
     if (!_isValidPosition(userPosition)) return;
 
+    // Calculate speed in km/h (speed is in m/s)
+    final speedKmh = userPosition.speed * 3.6;
+
+    // 1. Calculate Target Zoom based on Speed
+    // Slow (< 30km/h) -> Zoom 17.5 (Close detail)
+    // Fast (> 100km/h) -> Zoom 14.0 (Highway view)
+    double targetZoom;
+    if (speedKmh < 30) {
+      targetZoom = 17.5;
+    } else if (speedKmh > 100) {
+      targetZoom = 14.0;
+    } else {
+      // Linear interpolation between 30km/h and 100km/h
+      final t = (speedKmh - 30) / (100 - 30);
+      targetZoom = 17.5 - (t * (17.5 - 14.0));
+    }
+
+    // 2. Calculate Bearing Smoothing based on Speed
+    // Stopped/Crawl (< 3km/h) -> Ignore bearing updates (prevent spin)
+    // Walking/Driving -> Use smart smoothing
     final targetBearing = userBearing ?? 0;
-    final smoothedBearing = _smoothBearing(_currentBearing, targetBearing);
+    
+    double smoothedBearing = _currentBearing;
+    if (speedKmh > 3.0) { // Lowered to 3 km/h to support walking
+       smoothedBearing = _smoothBearing(_currentBearing, targetBearing);
+    }
 
     _currentBearing = smoothedBearing;
     _currentPitch = _navigationPitch;
-    _currentZoom = _navigationZoom;
+    
+    // Smoothly interpolate zoom
+    // We don't want the zoom to jump if speed changes rapidly
+    _currentZoom = _currentZoom + (targetZoom - _currentZoom) * 0.05;
 
     final cameraOptions = mp.CameraOptions(
       center: mp.Point(
@@ -142,7 +169,7 @@ class CameraController {
     try {
       await _mapboxMap!.easeTo(
         cameraOptions,
-        mp.MapAnimationOptions(duration: animate ? 1500 : 0),
+        mp.MapAnimationOptions(duration: animate ? 1000 : 0),
       );
     } catch (e) {
       try {

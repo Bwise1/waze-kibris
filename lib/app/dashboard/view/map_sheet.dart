@@ -1,243 +1,608 @@
 import 'dart:async';
 
 import 'package:collection/collection.dart';
-
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:sheet/sheet.dart';
 import 'package:waze_kibris/app/dashboard/view/place_details_screen.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
+import 'package:waze_kibris/app/dashboard/view/route_loading_overlay.dart';
 import 'package:waze_kibris/app/dashboard/view/route_selection_widget.dart';
+import 'package:waze_kibris/app/dashboard/view/search_page.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
-import 'package:waze_kibris/core/models/places/places_response.dart';
 import 'package:waze_kibris/core/models/location/recent_location.dart';
-
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/di.dart';
 
+/// Compact "Where to?" pill that sits at the bottom of the map.
+///
+/// Tapping it pushes [SearchPage] — a plain [Scaffold] with
+/// [resizeToAvoidBottomInset: true] that handles keyboard insets natively.
+///
+/// All post-selection flows (PlaceDetailsSheet, RouteSelectionSheet) are
+/// handled here using the map's [BuildContext], so modals appear correctly
+/// on top of the map.
 class MapSheet extends StatefulWidget {
   const MapSheet({
-    required this.controller,
-    required this.context,
     this.onSearchedDestination,
     this.onSuggestionSelected,
     this.onDrawMapboxPolyline,
     this.onStartNavigation,
+    this.onLocationSelected,
+    this.onRouteSelectionDismissed,
     super.key,
   });
 
-  final SheetController controller;
   final ValueChanged<LatLng>? onSearchedDestination;
   final ValueChanged<SearchSuggestion>? onSuggestionSelected;
-  final BuildContext context;
   final void Function(MapboxRoute route)? onDrawMapboxPolyline;
   final void Function(MapboxRoute route)? onStartNavigation;
+  final VoidCallback?
+      onLocationSelected; // Callback to hide MapSheet when location is selected
+  final VoidCallback?
+      onRouteSelectionDismissed; // Callback to restore MapSheet when route selection is dismissed
 
   @override
   State<MapSheet> createState() => _MapSheetState();
 }
 
 class _MapSheetState extends State<MapSheet> {
-  final TextEditingController destinationController = TextEditingController();
-
-  LatLng? foundLocation;
-  String foundLocationName = '';
-  List<Map<String, dynamic>> suggestions = [];
-  bool isSearching = false;
-  Timer? _debounceTimer;
-  List<AutocompleteSuggestion> stadiaSuggestions = [];
   final PlacesService _placesService = getIt<PlacesService>();
 
-  List<SearchSuggestion> _suggestions = [];
-  bool getLocationLoading = false;
+  // ── Saved / recent state (mirrors SearchPage) ────────────────────────────
+  List<SavedLocations> _savedLocations = [];
   List<RecentLocation> _recentLocations = [];
   bool _recentLocationsLoading = false;
-  List<SavedLocations> _savedLocations = [];
-  bool _savedLocationsLoading = false;
-  int _buildCounter = 0;
   int _recentBuildCounter = 0;
+
   @override
   void initState() {
     super.initState();
-    getSavedLocation(context);
-    getRecentLocations(context);
-  }
-
-  void _onSearchChanged(String query) {
-    _debounceTimer?.cancel();
-
-    if (query.isEmpty) {
-      setState(() {
-        _suggestions = [];
-        isSearching = false;
-      });
-      return;
-    }
-
-    setState(() => isSearching = true);
-
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
-      try {
-        final position = await Geolocator.getCurrentPosition();
-        final results = await _placesService.fetchGoogleAutocomplete(
-          query,
-          lat: position.latitude,
-          lon: position.longitude,
-          radius: 5000,
-        );
-
-        setState(() {
-          _suggestions = results ?? [];
-          isSearching = false;
-        });
-      } catch (e) {
-        debugPrint('Error fetching suggestions: $e');
-        setState(() {
-          _suggestions = [];
-          isSearching = false;
-        });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<ReportsBloc>().add(ReportsEvent.getSavedLocations());
+        context.read<ReportsBloc>().add(ReportsEvent.getRecentLocations());
       }
     });
   }
 
+  // ── Saved-location helpers ────────────────────────────────────────────────
+  List<SavedLocations> _filterAddedLocation(List<SavedLocations> locations) {
+    final result = <SavedLocations>[];
+    final seen = <String>[];
+    for (final e in locations) {
+      if (e.name.toLowerCase() == 'home' || e.name.toLowerCase() == 'work') {
+        continue;
+      }
+      if (!seen.contains(e.name) && e.placeId != null) {
+        result.add(e);
+        seen.add(e.name);
+      }
+    }
+    return result;
+  }
+
+  String _getIconType(String type) {
+    if (type == 'Home') return Assets.icons.homeBg.path;
+    if (type == 'Hospital') return Assets.icons.hospital.path;
+    if (type == 'Park') return Assets.icons.park.path;
+    if (type == 'Gas') return Assets.icons.gas.path;
+    if (type == 'Food') return Assets.icons.food.path;
+    if (type == 'Work') return Assets.icons.briefcasePng.path;
+    return Assets.icons.globePng.path;
+  }
+
+  // ── Post-selection flow: suggestion tapped in SearchPage ────────────────
+
   Future<void> _onSuggestionTap(SearchSuggestion suggestion) async {
-    widget.onSuggestionSelected?.call(suggestion);
+    debugPrint(
+        '🟢 [MAP_SHEET] _onSuggestionTap called for: ${suggestion.mainText}');
+    debugPrint('🟢 [MAP_SHEET] Place ID: ${suggestion.placeId}');
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.controller.relativeAnimateTo(
-        0.0,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
-    });
+    // Store root navigator context early - this won't be disposed even if MapSheet is
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    debugPrint('🟢 [MAP_SHEET] Root navigator context stored');
 
-    final details = await _placesService.fetchGooglePlace(suggestion.placeId);
-    // final detail = await _placesService.fetchGooglePlace(suggestion.placeId);
+    // Don't call onSuggestionSelected yet - delay until after PlaceDetailsSheet is shown
+    // This prevents setState() from triggering rebuilds that dispose the widget
+    debugPrint(
+        '🟢 [MAP_SHEET] Keeping MapSheet visible during async operations');
 
-    if (!widget.context.mounted) return;
-
-    // Add to recent locations when user selects a place
-    final recentLocation = RecentLocation(
-      placeId: suggestion.placeId,
-      name: details.name,
-      address: details.formattedAddress,
-      latitude: details.lat,
-      longitude: details.lng,
-      lastVisited: DateTime.now(),
-      category: _inferCategory(details.name),
-    );
-
-    if (widget.context.mounted) {
-      widget.context.read<ReportsBloc>().add(
-            ReportsEvent.addRecentLocation(location: recentLocation),
-          );
+    if (!mounted) {
+      debugPrint('🟢 [MAP_SHEET] ⚠️ Widget not mounted, returning');
+      return;
     }
 
-    await showModalBottomSheet(
-      context: widget.context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (contxt) => PlaceDetailsSheet(
-        key: UniqueKey(),
-        title: details.name,
+    debugPrint('🟢 [MAP_SHEET] Showing loading overlay for place details');
+    // Show loading overlay using root navigator context
+    final dismissLoading = RouteLoadingOverlay.show(rootNavigator.context,
+        message: 'Loading place details...');
+
+    try {
+      debugPrint('🟢 [MAP_SHEET] Fetching Google Place details...');
+      // Fetch place details only (no routes yet)
+      final details = await _placesService.fetchGooglePlace(suggestion.placeId);
+      debugPrint('🟢 [MAP_SHEET] ✅ Place details fetched: ${details.name}');
+      debugPrint(
+          '🟢 [MAP_SHEET] Place details - lat: ${details.lat}, lng: ${details.lng}');
+      debugPrint(
+          '🟢 [MAP_SHEET] Place details - address: ${details.formattedAddress}');
+
+      debugPrint('🟢 [MAP_SHEET] Checking mounted state after fetch...');
+      debugPrint('🟢 [MAP_SHEET] Mounted: $mounted');
+
+      if (!mounted) {
+        debugPrint(
+            '🟢 [MAP_SHEET] ⚠️ Widget not mounted, dismissing loading and returning');
+        dismissLoading();
+        return;
+      }
+
+      debugPrint(
+          '🟢 [MAP_SHEET] ✅ Widget is mounted, proceeding with distance calculation');
+
+      // Calculate distance
+      debugPrint('🟢 [MAP_SHEET] Starting distance calculation...');
+      debugPrint(
+          '🟢 [MAP_SHEET] Initial distance from suggestion: ${suggestion.distanceMeters / 1000}km');
+      double distanceKm = suggestion.distanceMeters / 1000;
+
+      try {
+        debugPrint(
+            '🟢 [MAP_SHEET] Getting current position for accurate distance...');
+        final position = await Geolocator.getCurrentPosition();
+        debugPrint(
+            '🟢 [MAP_SHEET] Current position: ${position.latitude}, ${position.longitude}');
+
+        distanceKm = Geolocator.distanceBetween(
+              position.latitude,
+              position.longitude,
+              details.lat,
+              details.lng,
+            ) /
+            1000;
+        debugPrint('🟢 [MAP_SHEET] ✅ Distance calculated: ${distanceKm}km');
+      } catch (e, stackTrace) {
+        debugPrint('🟢 [MAP_SHEET] ⚠️ Error calculating distance: $e');
+        debugPrint('🟢 [MAP_SHEET] Stack trace: $stackTrace');
+        debugPrint('🟢 [MAP_SHEET] Using fallback distance: ${distanceKm}km');
+      }
+
+      debugPrint(
+          '🟢 [MAP_SHEET] Creating RecentLocation object (will save after PlaceDetailsSheet is shown)...');
+      // Create RecentLocation object but don't dispatch yet - delay until after PlaceDetailsSheet is shown
+      // This prevents BLoC state changes from causing widget disposal during async operations
+      final recentLocation = RecentLocation(
+        placeId: suggestion.placeId,
+        name: details.name,
         address: details.formattedAddress,
-        distanceKm: suggestion.distanceMeters / 1000,
-        onSave: () async {
-          await showModalBottomSheet(
-            context: widget.context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (modalContext) => SelectAndSaveLocation(
-              placeId: suggestion.placeId,
-              position: LatLng(details.lat, details.lng),
-            ),
-          );
-        }, //
-        onShare: () {
-          Navigator.of(contxt).pop();
-        },
-        onMore: () {
-          Navigator.of(contxt).pop();
-        },
-        onSeeAllRoutes: () async {
-          final position = await Geolocator.getCurrentPosition();
+        latitude: details.lat,
+        longitude: details.lng,
+        lastVisited: DateTime.now(),
+        category: _inferCategory(details.name),
+      );
+      debugPrint(
+          '🟢 [MAP_SHEET] ✅ RecentLocation created: ${recentLocation.name} (will save later)');
 
-          try {
-            final directions = await _placesService.fetchMapboxDirections(
-              originLat: position.latitude,
-              originLng: position.longitude,
-              destinationLat: details.lat,
-              destinationLng: details.lng,
-              profile: 'driving-traffic', // Use traffic-aware routing
-              alternatives: true, // Get route alternatives
-            );
+      // Hide loading overlay
+      debugPrint('🟢 [MAP_SHEET] Hiding place details loading overlay...');
+      debugPrint('🟢 [MAP_SHEET] Mounted before dismissLoading: $mounted');
 
-            Navigator.of(contxt).pop();
-            debugPrint(
-                'Directions fetched: ${directions.routes.length} routes');
+      try {
+        dismissLoading();
+        debugPrint('🟢 [MAP_SHEET] ✅ Loading overlay dismissed successfully');
+      } catch (e, stackTrace) {
+        debugPrint('🟢 [MAP_SHEET] ❌ Error dismissing loading overlay: $e');
+        debugPrint('🟢 [MAP_SHEET] Stack trace: $stackTrace');
+      }
 
-            if (directions.routes.isNotEmpty) {
-              // Draw the first route (recommended) by default using Mapbox geometry
-              final firstRoute = directions.routes.first;
-              // Convert Mapbox coordinates to encoded polyline if needed, or pass geometry directly
-              final coordinates = firstRoute.geometry.coordinates;
-              // Draw the first route polyline
-              widget.onDrawMapboxPolyline?.call(firstRoute);
+      debugPrint(
+          '🟢 [MAP_SHEET] Checking mounted state after dismissing loading overlay...');
+      debugPrint('🟢 [MAP_SHEET] Mounted: $mounted');
 
-              // Show route selection with consistent distance display
-              await showModalBottomSheet(
-                context: widget.context,
-                isScrollControlled: true,
-                backgroundColor: Colors.transparent,
-                builder: (modalContext) => RouteSelectionSheet(
-                  routes: directions.routes,
-                  placeDetails: details, // Pass place details
-                  onRouteSelected: (selectedRoute) {
-                    // Always redraw polyline when route is selected
-                    widget.onDrawMapboxPolyline?.call(selectedRoute);
-                  },
-                  onStartNavigation: (selectedRoute) {
-                    // Ensure polyline is drawn before starting navigation
-                    widget.onDrawMapboxPolyline?.call(selectedRoute);
+      if (!mounted) {
+        debugPrint(
+            '🟢 [MAP_SHEET] ⚠️ Widget not mounted after dismissing loading, returning');
+        return;
+      }
 
-                    // Recent location saving is now handled in RouteSelectionSheet
-                    widget.onStartNavigation?.call(selectedRoute);
-                  },
-                ),
-              );
-            } else {
-              // Show error if no routes found
-              if (widget.context.mounted) {
-                ScaffoldMessenger.of(widget.context).showSnackBar(
-                  const SnackBar(
-                    content: Text('No routes found to this destination'),
-                    backgroundColor: Colors.red,
+      debugPrint('🟢 [MAP_SHEET] ✅ Widget still mounted, proceeding to delay');
+
+      // Small delay to ensure Navigator stack is ready after dismissing loading overlay
+      debugPrint(
+          '🟢 [MAP_SHEET] Waiting 100ms for Navigator stack to be ready...');
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      debugPrint('🟢 [MAP_SHEET] ✅ Delay completed');
+
+      debugPrint('🟢 [MAP_SHEET] Checking mounted state after delay...');
+      debugPrint('🟢 [MAP_SHEET] Mounted: $mounted');
+
+      if (!mounted) {
+        debugPrint(
+            '🟢 [MAP_SHEET] ⚠️ Widget not mounted after delay, returning');
+        return;
+      }
+
+      debugPrint(
+          '🟢 [MAP_SHEET] ✅ Widget still mounted, preparing to show PlaceDetailsSheet');
+      debugPrint('🟢 [MAP_SHEET] Showing PlaceDetailsSheet');
+      debugPrint('🟢 [MAP_SHEET] Context mounted: ${context.mounted}');
+      debugPrint('🟢 [MAP_SHEET] Context: $context');
+      debugPrint(
+          '🟢 [MAP_SHEET] Details to show - name: ${details.name}, distance: ${distanceKm}km');
+
+      // Show PlaceDetailsScreen first using root navigator context
+      debugPrint(
+          '🟢 [MAP_SHEET] Calling showModalBottomSheet for PlaceDetailsSheet...');
+      debugPrint(
+          '🟢 [MAP_SHEET] Using root navigator context (independent of MapSheet lifecycle)');
+
+      try {
+        final placeDetailsResult = await showModalBottomSheet<String>(
+          context: rootNavigator.context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          useRootNavigator: true,
+          builder: (modalContext) {
+            debugPrint('🟢 [MAP_SHEET] ✅ PlaceDetailsSheet builder called');
+            debugPrint('🟢 [MAP_SHEET] ModalContext: $modalContext');
+            return PlaceDetailsSheet(
+              key: UniqueKey(),
+              title: details.name,
+              address: details.formattedAddress,
+              distanceKm: distanceKm,
+              showOnlySaveShareAction: false,
+              onSave: () async {
+                Navigator.of(modalContext).pop();
+                await showModalBottomSheet<void>(
+                  context: rootNavigator.context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  useRootNavigator: true,
+                  builder: (saveContext) => SelectAndSaveLocation(
+                    placeId: suggestion.placeId,
+                    position: LatLng(details.lat, details.lng),
                   ),
                 );
-              }
-            }
-          } catch (e) {
-            debugPrint('Error fetching directions: $e');
-            if (widget.context.mounted) {
-              ScaffoldMessenger.of(widget.context).showSnackBar(
-                const SnackBar(
-                  content: Text('Unable to find routes. Please try again.'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
+              },
+              onShare: () {
+                Navigator.of(modalContext).pop();
+              },
+              onMore: () {
+                Navigator.of(modalContext).pop();
+              },
+              onSeeAllRoutes: () async {
+                debugPrint('🟡 [ROUTE_SHEET] onSeeAllRoutes clicked');
+                debugPrint('🟡 [ROUTE_SHEET] Closing PlaceDetailsSheet');
+
+                // Close PlaceDetailsSheet first
+                Navigator.of(modalContext).pop();
+                debugPrint('🟡 [ROUTE_SHEET] PlaceDetailsSheet closed');
+
+                debugPrint(
+                    '🟡 [ROUTE_SHEET] Showing loading overlay for routes');
+                // Show loading overlay for route fetching using root navigator context
+                final routeDismissLoading = RouteLoadingOverlay.show(
+                    rootNavigator.context,
+                    message: 'Finding routes...');
+                debugPrint(
+                    '🟡 [ROUTE_SHEET] Loading overlay shown, dismiss function stored');
+
+                try {
+                  debugPrint('🟡 [ROUTE_SHEET] Getting current position...');
+                  final position = await Geolocator.getCurrentPosition();
+                  debugPrint(
+                      '🟡 [ROUTE_SHEET] Current position: ${position.latitude}, ${position.longitude}');
+
+                  debugPrint(
+                      '🟡 [ROUTE_SHEET] Fetching routes from backend...');
+                  debugPrint(
+                      '🟡 [ROUTE_SHEET] Origin: ${position.latitude}, ${position.longitude}');
+                  debugPrint(
+                      '🟡 [ROUTE_SHEET] Destination: ${details.lat}, ${details.lng}');
+
+                  // Fetch routes from backend
+                  final directions = await _placesService.fetchMapboxDirections(
+                    originLat: position.latitude,
+                    originLng: position.longitude,
+                    destinationLat: details.lat,
+                    destinationLng: details.lng,
+                    profile: 'driving-traffic',
+                    alternatives: true,
+                  );
+
+                  debugPrint('🟡 [ROUTE_SHEET] ✅ Routes fetched successfully');
+                  debugPrint(
+                      '🟡 [ROUTE_SHEET] Routes count: ${directions.routes.length}');
+
+                  if (directions.routes.isNotEmpty) {
+                    debugPrint(
+                        '🟡 [ROUTE_SHEET] First route: distance=${directions.routes.first.distance}m, duration=${directions.routes.first.duration}s');
+                  } else {
+                    debugPrint(
+                        '🟡 [ROUTE_SHEET] ⚠️ WARNING: Routes list is EMPTY!');
+                  }
+
+                  // Hide loading overlay
+                  debugPrint('🟡 [ROUTE_SHEET] Hiding loading overlay');
+                  routeDismissLoading();
+
+                  // Small delay to ensure Navigator stack is ready
+                  debugPrint(
+                      '🟡 [ROUTE_SHEET] Waiting 100ms for Navigator stack to be ready');
+                  await Future<void>.delayed(const Duration(milliseconds: 100));
+
+                  debugPrint(
+                      '🟡 [ROUTE_SHEET] Directions fetched: ${directions.routes.length} routes');
+
+                  // Validate routes before proceeding
+                  if (directions.routes.isEmpty) {
+                    debugPrint(
+                        '🟡 [ROUTE_SHEET] ⚠️ No routes found to destination');
+                    // Restore MapSheet visibility since we can't show RouteSelectionSheet
+                    widget.onRouteSelectionDismissed?.call();
+                    // Use root navigator context to show error even if widget is unmounted
+                    ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                            'No routes found to this destination. Please check your connection and try again.'),
+                        backgroundColor: Colors.red,
+                        duration: Duration(seconds: 4),
+                      ),
+                    );
+                    return;
+                  }
+
+                  // Validate root navigator context before using it
+                  if (!rootNavigator.context.mounted) {
+                    debugPrint(
+                        '🟡 [ROUTE_SHEET] ⚠️ Root navigator context not mounted');
+                    // Restore MapSheet visibility
+                    widget.onRouteSelectionDismissed?.call();
+                    ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                            'Unable to show route options. Please try again.'),
+                        backgroundColor: Colors.red,
+                        duration: Duration(seconds: 4),
+                      ),
+                    );
+                    return;
+                  }
+
+                  // Try to draw first route polyline if widget is still mounted
+                  if (mounted) {
+                    final firstRoute = directions.routes.first;
+                    debugPrint('🟡 [ROUTE_SHEET] Drawing first route polyline');
+                    widget.onDrawMapboxPolyline?.call(firstRoute);
+                  } else {
+                    debugPrint(
+                        '🟡 [ROUTE_SHEET] Widget not mounted, skipping polyline drawing (will show RouteSelectionSheet anyway)');
+                  }
+
+                  debugPrint(
+                      '🟡 [ROUTE_SHEET] Attempting to show RouteSelectionSheet');
+                  debugPrint(
+                      '🟡 [ROUTE_SHEET] Routes to show: ${directions.routes.length}');
+                  debugPrint('🟡 [ROUTE_SHEET] Place details: ${details.name}');
+                  debugPrint(
+                      '🟡 [ROUTE_SHEET] Using root navigator context (independent of MapSheet lifecycle)');
+
+                  try {
+                    // Show RouteSelectionSheet with fetched routes using root navigator context
+                    // This works even if MapSheet widget is unmounted
+                    debugPrint(
+                        '🟡 [ROUTE_SHEET] Calling showModalBottomSheet...');
+                    final result = await showModalBottomSheet<String>(
+                      context: rootNavigator.context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      useRootNavigator: true,
+                      builder: (routeContext) {
+                        debugPrint(
+                            '🟡 [ROUTE_SHEET] RouteSelectionSheet builder called');
+                        debugPrint(
+                            '🟡 [ROUTE_SHEET] RouteContext: $routeContext');
+                        // Defensive check: ensure routes are not empty
+                        if (directions.routes.isEmpty) {
+                          debugPrint(
+                              '🟡 [ROUTE_SHEET] ⚠️ Routes list is empty in builder!');
+                          return const SizedBox.shrink();
+                        }
+                        return RouteSelectionSheet(
+                          routes: directions.routes,
+                          placeDetails: details,
+                          onRouteSelected: (selectedRoute) {
+                            debugPrint(
+                                '🟡 [ROUTE_SHEET] Route selected: ${selectedRoute.distance}m');
+                            if (mounted) {
+                              widget.onDrawMapboxPolyline?.call(selectedRoute);
+                            }
+                          },
+                          onStartNavigation: (selectedRoute) {
+                            debugPrint(
+                                '🟡 [ROUTE_SHEET] Navigation started with route: ${selectedRoute.distance}m');
+                            if (mounted) {
+                              widget.onDrawMapboxPolyline?.call(selectedRoute);
+                              widget.onStartNavigation?.call(selectedRoute);
+                            }
+                          },
+                        );
+                      },
+                    );
+
+                    debugPrint(
+                        '🟡 [ROUTE_SHEET] ✅ RouteSelectionSheet dismissed with result: $result');
+
+                    // Restore MapSheet visibility when RouteSelectionSheet is dismissed (if navigation didn't start)
+                    if (result != 'navigation_started') {
+                      debugPrint(
+                          '🟡 [ROUTE_SHEET] Restoring MapSheet visibility');
+                      widget.onRouteSelectionDismissed?.call();
+                    }
+                  } catch (e, stackTrace) {
+                    // Critical error - use print for release mode visibility
+                    print(
+                        '🟡 [ROUTE_SHEET] ❌ ERROR showing RouteSelectionSheet');
+                    print('🟡 [ROUTE_SHEET] Error: $e');
+                    debugPrint('🟡 [ROUTE_SHEET] Stack trace: $stackTrace');
+
+                    // CRITICAL: Restore MapSheet visibility on error to prevent unusable state
+                    print(
+                        '🟡 [ROUTE_SHEET] Restoring MapSheet visibility due to error');
+                    widget.onRouteSelectionDismissed?.call();
+
+                    // Use root navigator context to show error even if widget is unmounted
+                    try {
+                      ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                              'Error showing route options: ${e.toString()}'),
+                          backgroundColor: Colors.red,
+                          duration: const Duration(seconds: 4),
+                        ),
+                      );
+                    } catch (snackError) {
+                      // If even showing snackbar fails, at least log it
+                      print(
+                          '🟡 [ROUTE_SHEET] Failed to show error snackbar: $snackError');
+                    }
+                  }
+                } catch (e, stackTrace) {
+                  // Critical error - use print for release mode visibility
+                  print('🟡 [ROUTE_SHEET] ❌ ERROR fetching routes');
+                  print('🟡 [ROUTE_SHEET] Error: $e');
+                  debugPrint('🟡 [ROUTE_SHEET] Stack trace: $stackTrace');
+
+                  // Hide loading overlay on error
+                  routeDismissLoading();
+
+                  // CRITICAL: Restore MapSheet visibility on error to prevent unusable state
+                  print(
+                      '🟡 [ROUTE_SHEET] Restoring MapSheet visibility due to route fetching error');
+                  widget.onRouteSelectionDismissed?.call();
+
+                  // Use root navigator context to show error even if widget is unmounted
+                  final errorMessage =
+                      e.toString().replaceFirst('Exception: ', '');
+                  try {
+                    ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                      SnackBar(
+                        content: Text(errorMessage.isNotEmpty
+                            ? errorMessage
+                            : 'Unable to find routes. Please check your connection and try again.'),
+                        backgroundColor: Colors.red,
+                        duration: const Duration(seconds: 4),
+                      ),
+                    );
+                  } catch (snackError) {
+                    print(
+                        '🟡 [ROUTE_SHEET] Failed to show error snackbar: $snackError');
+                  }
+                }
+              },
+              info: details.website,
+            );
+          },
+        );
+
+        debugPrint('🟢 [MAP_SHEET] ✅ showModalBottomSheet call completed');
+        debugPrint('🟢 [MAP_SHEET] PlaceDetailsSheet should now be visible');
+
+        // Now add to recent locations since PlaceDetailsSheet is successfully shown
+        // This is safe to do now because the widget operations are complete
+        debugPrint(
+            '🟢 [MAP_SHEET] Adding to recent locations now that PlaceDetailsSheet is shown...');
+        if (mounted) {
+          try {
+            context.read<ReportsBloc>().add(
+                  ReportsEvent.addRecentLocation(location: recentLocation),
+                );
+            debugPrint('🟢 [MAP_SHEET] ✅ Recent location event dispatched');
+          } catch (e, stackTrace) {
+            debugPrint('🟢 [MAP_SHEET] ❌ Error adding to recent locations: $e');
+            debugPrint('🟢 [MAP_SHEET] Stack trace: $stackTrace');
           }
-        },
-        info: details.website,
-      ),
-    );
+        } else {
+          debugPrint(
+              '🟢 [MAP_SHEET] ⚠️ Widget not mounted, skipping recent location addition');
+        }
+
+        // Don't call onSuggestionSelected here - it triggers setState() which rebuilds MainDashboard
+        // and disposes MapSheet. We don't need it since PlaceDetailsSheet handles the flow.
+        // onSuggestionSelected is only used for RouteBar, which we don't show with PlaceDetailsSheet.
+
+        // Now hide MapSheet since PlaceDetailsSheet is successfully shown
+        debugPrint(
+            '🟢 [MAP_SHEET] Hiding MapSheet now that PlaceDetailsSheet is shown');
+        widget.onLocationSelected?.call();
+
+        // Restore MapSheet visibility when PlaceDetailsSheet is dismissed (unless navigation started)
+        debugPrint(
+            '🟢 [MAP_SHEET] PlaceDetailsSheet dismissed with result: $placeDetailsResult');
+        if (placeDetailsResult != 'navigation_started') {
+          debugPrint(
+              '🟢 [MAP_SHEET] Restoring MapSheet visibility after PlaceDetailsSheet dismissal');
+          widget.onRouteSelectionDismissed?.call();
+        } else {
+          debugPrint(
+              '🟢 [MAP_SHEET] Navigation started, keeping MapSheet hidden');
+        }
+      } catch (e, stackTrace) {
+        debugPrint('🟢 [MAP_SHEET] ❌ EXCEPTION in showModalBottomSheet call');
+        debugPrint('🟢 [MAP_SHEET] Error type: ${e.runtimeType}');
+        debugPrint('🟢 [MAP_SHEET] Error: $e');
+        debugPrint('🟢 [MAP_SHEET] Stack trace: $stackTrace');
+
+        // Still add to recent locations even if PlaceDetailsSheet failed to show
+        debugPrint(
+            '🟢 [MAP_SHEET] Adding to recent locations despite error...');
+        if (mounted) {
+          try {
+            context.read<ReportsBloc>().add(
+                  ReportsEvent.addRecentLocation(location: recentLocation),
+                );
+            debugPrint(
+                '🟢 [MAP_SHEET] ✅ Recent location event dispatched (error case)');
+          } catch (blocError) {
+            debugPrint(
+                '🟢 [MAP_SHEET] ❌ Error adding to recent locations: $blocError');
+          }
+        }
+
+        // PlaceDetailsSheet failed to show: do NOT hide the MapSheet.
+        // Instead, restore it immediately so users can try again.
+        debugPrint(
+            '🟢 [MAP_SHEET] Restoring MapSheet due to error showing PlaceDetailsSheet');
+        widget.onRouteSelectionDismissed?.call();
+      }
+    } catch (e, stackTrace) {
+      debugPrint('🟢 [MAP_SHEET] ❌ ERROR fetching place details');
+      debugPrint('🟢 [MAP_SHEET] Error: $e');
+      debugPrint('🟢 [MAP_SHEET] Stack trace: $stackTrace');
+
+      // Hide loading overlay on error
+      debugPrint('🟢 [MAP_SHEET] Hiding loading overlay due to error');
+      dismissLoading();
+
+      // Place details fetch failed: MapSheet was never hidden, so just show the error.
+      // Do NOT call onLocationSelected — that would hide the sheet with no way to restore.
+      debugPrint(
+          '🟢 [MAP_SHEET] Showing error to user (MapSheet stays visible)');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to load place details. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _onSaveASpecificLocation(
@@ -246,10 +611,10 @@ class _MapSheetState extends State<MapSheet> {
   }) async {
     final details = await _placesService.fetchGooglePlace(suggestion.placeId);
 
-    if (!widget.context.mounted) return;
+    if (!context.mounted) return;
 
-    await showModalBottomSheet(
-      context: widget.context,
+    await showModalBottomSheet<void>(
+      context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (contxt) => PlaceDetailsSheet(
@@ -268,7 +633,7 @@ class _MapSheetState extends State<MapSheet> {
                   placeId: details.placeId,
                 ),
               );
-        }, //
+        },
         onShare: () {
           Navigator.of(contxt).pop();
         },
@@ -282,55 +647,878 @@ class _MapSheetState extends State<MapSheet> {
   }
 
   Future<void> _onSavedLocationTap(SavedLocations location) async {
-    if (!widget.context.mounted) return;
+    debugPrint(
+        '🔵 [MAP_SHEET] _onSavedLocationTap called for: ${location.name}');
+    debugPrint('🔵 [MAP_SHEET] Place ID: ${location.placeId}');
+    debugPrint(
+        '🔵 [MAP_SHEET] Location: ${location.latitude}, ${location.longitude}');
 
-    // Calculate distance if possible, or default to 0
-    double distanceKm = 0;
-    try {
-      // Use getLastKnownPosition for speed, fallback to getCurrentPosition with timeout if needed
-      // But for UI responsiveness, we prioritize speed here.
-      final position = await Geolocator.getLastKnownPosition(); 
-      if (position != null) {
-        distanceKm = Geolocator.distanceBetween(
-              position.latitude,
-              position.longitude,
-              location.latitude,
-              location.longitude,
-            ) /
-            1000;
-      }
-    } catch (e) {
-      debugPrint('Error calculating distance: $e');
+    // Store root navigator context early - this won't be disposed even if MapSheet is
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    debugPrint('🔵 [MAP_SHEET] Root navigator context stored');
+
+    // Don't call onSuggestionSelected yet - delay until after PlaceDetailsSheet is shown
+    // This prevents setState() from triggering rebuilds that dispose the widget
+    debugPrint(
+        '🔵 [MAP_SHEET] Keeping MapSheet visible during async operations');
+
+    if (!mounted) {
+      debugPrint('🔵 [MAP_SHEET] ⚠️ Widget not mounted, returning');
+      return;
     }
 
-    if (!widget.context.mounted) return;
+    // Calculate distance
+    debugPrint('🔵 [MAP_SHEET] Calculating distance...');
+    double distanceKm = 0;
+    try {
+      final position = await Geolocator.getCurrentPosition();
+      distanceKm = Geolocator.distanceBetween(
+            position.latitude,
+            position.longitude,
+            location.latitude,
+            location.longitude,
+          ) /
+          1000;
+      debugPrint('🔵 [MAP_SHEET] Distance calculated: ${distanceKm}km');
+    } catch (e) {
+      debugPrint('🔵 [MAP_SHEET] Error calculating distance: $e');
+    }
 
-    await showModalBottomSheet(
-      context: widget.context,
+    if (!mounted) {
+      debugPrint(
+          '🔵 [MAP_SHEET] ⚠️ Widget not mounted after calculating distance, returning');
+      return;
+    }
+
+    debugPrint('🔵 [MAP_SHEET] Showing PlaceDetailsSheet');
+    debugPrint(
+        '🔵 [MAP_SHEET] Using root navigator context (independent of MapSheet lifecycle)');
+
+    // Show PlaceDetailsScreen first using root navigator context
+    final savedPlaceDetailsResult = await showModalBottomSheet<String>(
+      context: rootNavigator.context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (contxt) => PlaceDetailsSheet(
-        key: UniqueKey(),
-        title: location.name,
-        address: location.address ?? '',
-        distanceKm: distanceKm,
-        showOnlySaveShareAction: false,
-        onSave: () {}, // Already saved
-        onShare: () {
-          Navigator.of(contxt).pop();
+      useRootNavigator: true,
+      builder: (modalContext) {
+        debugPrint('🔵 [MAP_SHEET] PlaceDetailsSheet builder called');
+        return PlaceDetailsSheet(
+          key: UniqueKey(),
+          title: location.name,
+          address: location.address ?? '',
+          distanceKm: distanceKm,
+          showOnlySaveShareAction: false,
+          onSave: () {},
+          onShare: () {
+            Navigator.of(modalContext).pop();
+          },
+          onMore: () {
+            Navigator.of(modalContext).pop();
+          },
+          onSeeAllRoutes: () async {
+            debugPrint(
+                '🔵 [ROUTE_SHEET] onSeeAllRoutes clicked (saved location)');
+            debugPrint('🔵 [ROUTE_SHEET] Closing PlaceDetailsSheet');
+
+            // Close PlaceDetailsSheet first
+            Navigator.of(modalContext).pop();
+            debugPrint('🔵 [ROUTE_SHEET] PlaceDetailsSheet closed');
+
+            debugPrint('🔵 [ROUTE_SHEET] Showing loading overlay for routes');
+            // Show loading overlay for route fetching using root navigator context
+            final routeDismissLoading = RouteLoadingOverlay.show(
+                rootNavigator.context,
+                message: 'Finding routes...');
+            debugPrint(
+                '🔵 [ROUTE_SHEET] Loading overlay shown, dismiss function stored');
+
+            try {
+              debugPrint('🔵 [ROUTE_SHEET] Getting current position...');
+              final position = await Geolocator.getCurrentPosition();
+              debugPrint(
+                  '🔵 [ROUTE_SHEET] Current position: ${position.latitude}, ${position.longitude}');
+
+              debugPrint('🔵 [ROUTE_SHEET] Fetching routes from backend...');
+              debugPrint(
+                  '🔵 [ROUTE_SHEET] Origin: ${position.latitude}, ${position.longitude}');
+              debugPrint(
+                  '🔵 [ROUTE_SHEET] Destination: ${location.latitude}, ${location.longitude}');
+
+              // Fetch routes from backend
+              final directions = await _placesService.fetchMapboxDirections(
+                originLat: position.latitude,
+                originLng: position.longitude,
+                destinationLat: location.latitude,
+                destinationLng: location.longitude,
+                profile: 'driving-traffic',
+                alternatives: true,
+              );
+
+              debugPrint('🔵 [ROUTE_SHEET] ✅ Routes fetched successfully');
+              debugPrint(
+                  '🔵 [ROUTE_SHEET] Routes count: ${directions.routes.length}');
+
+              if (directions.routes.isNotEmpty) {
+                debugPrint(
+                    '🔵 [ROUTE_SHEET] First route: distance=${directions.routes.first.distance}m, duration=${directions.routes.first.duration}s');
+              } else {
+                debugPrint(
+                    '🔵 [ROUTE_SHEET] ⚠️ WARNING: Routes list is EMPTY!');
+              }
+
+              // Hide loading overlay
+              debugPrint('🔵 [ROUTE_SHEET] Hiding loading overlay');
+              routeDismissLoading();
+
+              // Small delay to ensure Navigator stack is ready
+              debugPrint(
+                  '🔵 [ROUTE_SHEET] Waiting 100ms for Navigator stack to be ready');
+              await Future<void>.delayed(const Duration(milliseconds: 100));
+
+              debugPrint(
+                  '🔵 [ROUTE_SHEET] Directions fetched: ${directions.routes.length} routes');
+
+              // Validate routes before proceeding
+              if (directions.routes.isEmpty) {
+                debugPrint(
+                    '🔵 [ROUTE_SHEET] ⚠️ No routes found to destination');
+                // Restore MapSheet visibility since we can't show RouteSelectionSheet
+                widget.onRouteSelectionDismissed?.call();
+                // Use root navigator context to show error even if widget is unmounted
+                ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                        'No routes found to this destination. Please check your connection and try again.'),
+                    backgroundColor: Colors.red,
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+                return;
+              }
+
+              // Validate root navigator context before using it
+              if (!rootNavigator.context.mounted) {
+                debugPrint(
+                    '🔵 [ROUTE_SHEET] ⚠️ Root navigator context not mounted');
+                // Restore MapSheet visibility
+                widget.onRouteSelectionDismissed?.call();
+                ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                  const SnackBar(
+                    content:
+                        Text('Unable to show route options. Please try again.'),
+                    backgroundColor: Colors.red,
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+                return;
+              }
+
+              // Try to draw first route polyline if widget is still mounted
+              if (mounted) {
+                final firstRoute = directions.routes.first;
+                debugPrint('🔵 [ROUTE_SHEET] Drawing first route polyline');
+                widget.onDrawMapboxPolyline?.call(firstRoute);
+              } else {
+                debugPrint(
+                    '🔵 [ROUTE_SHEET] Widget not mounted, skipping polyline drawing (will show RouteSelectionSheet anyway)');
+              }
+
+              debugPrint(
+                  '🔵 [ROUTE_SHEET] Attempting to show RouteSelectionSheet');
+              debugPrint(
+                  '🔵 [ROUTE_SHEET] Routes to show: ${directions.routes.length}');
+              debugPrint('🔵 [ROUTE_SHEET] Place details: ${location.name}');
+              debugPrint(
+                  '🔵 [ROUTE_SHEET] Using root navigator context (independent of MapSheet lifecycle)');
+
+              try {
+                // Show RouteSelectionSheet with fetched routes using root navigator context
+                // This works even if MapSheet widget is unmounted
+                debugPrint('🔵 [ROUTE_SHEET] Calling showModalBottomSheet...');
+                final result = await showModalBottomSheet<String>(
+                  context: rootNavigator.context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  useRootNavigator: true,
+                  builder: (routeContext) {
+                    debugPrint(
+                        '🔵 [ROUTE_SHEET] RouteSelectionSheet builder called');
+                    debugPrint('🔵 [ROUTE_SHEET] RouteContext: $routeContext');
+                    // Defensive check: ensure routes are not empty
+                    if (directions.routes.isEmpty) {
+                      debugPrint(
+                          '🔵 [ROUTE_SHEET] ⚠️ Routes list is empty in builder!');
+                      return const SizedBox.shrink();
+                    }
+                    return RouteSelectionSheet(
+                      routes: directions.routes,
+                      placeDetails: GooglePlaceDetails(
+                        placeId: location.placeId ?? '',
+                        name: location.name,
+                        formattedAddress: location.address ?? '',
+                        lat: location.latitude,
+                        lng: location.longitude,
+                        website: '',
+                      ),
+                      onRouteSelected: (selectedRoute) {
+                        debugPrint(
+                            '🔵 [ROUTE_SHEET] Route selected: ${selectedRoute.distance}m');
+                        if (mounted) {
+                          widget.onDrawMapboxPolyline?.call(selectedRoute);
+                        }
+                      },
+                      onStartNavigation: (selectedRoute) {
+                        debugPrint(
+                            '🔵 [ROUTE_SHEET] Navigation started with route: ${selectedRoute.distance}m');
+                        if (mounted) {
+                          widget.onDrawMapboxPolyline?.call(selectedRoute);
+                          widget.onStartNavigation?.call(selectedRoute);
+                        }
+                      },
+                    );
+                  },
+                );
+
+                debugPrint(
+                    '🔵 [ROUTE_SHEET] ✅ RouteSelectionSheet dismissed with result: $result');
+
+                // Restore MapSheet visibility when RouteSelectionSheet is dismissed (if navigation didn't start)
+                if (result != 'navigation_started') {
+                  debugPrint('🔵 [ROUTE_SHEET] Restoring MapSheet visibility');
+                  widget.onRouteSelectionDismissed?.call();
+                }
+              } catch (e, stackTrace) {
+                // Critical error - use print for release mode visibility
+                print('🔵 [ROUTE_SHEET] ❌ ERROR showing RouteSelectionSheet');
+                print('🔵 [ROUTE_SHEET] Error: $e');
+                debugPrint('🔵 [ROUTE_SHEET] Stack trace: $stackTrace');
+
+                // CRITICAL: Restore MapSheet visibility on error to prevent unusable state
+                print(
+                    '🔵 [ROUTE_SHEET] Restoring MapSheet visibility due to error');
+                widget.onRouteSelectionDismissed?.call();
+
+                // Use root navigator context to show error even if widget is unmounted
+                try {
+                  ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                    SnackBar(
+                      content:
+                          Text('Error showing route options: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 4),
+                    ),
+                  );
+                } catch (snackError) {
+                  // If even showing snackbar fails, at least log it
+                  print(
+                      '🔵 [ROUTE_SHEET] Failed to show error snackbar: $snackError');
+                }
+              }
+            } catch (e, stackTrace) {
+              // Critical error - use print for release mode visibility
+              print('🔵 [ROUTE_SHEET] ❌ ERROR fetching routes');
+              print('🔵 [ROUTE_SHEET] Error: $e');
+              debugPrint('🔵 [ROUTE_SHEET] Stack trace: $stackTrace');
+
+              // Hide loading overlay on error
+              debugPrint(
+                  '🔵 [ROUTE_SHEET] Hiding loading overlay due to error');
+              routeDismissLoading();
+
+              // CRITICAL: Restore MapSheet visibility on error to prevent unusable state
+              print(
+                  '🔵 [ROUTE_SHEET] Restoring MapSheet visibility due to route fetching error');
+              widget.onRouteSelectionDismissed?.call();
+
+              // Use root navigator context to show error even if widget is unmounted
+              final errorMessage = e.toString().replaceFirst('Exception: ', '');
+              try {
+                ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                  SnackBar(
+                    content: Text(errorMessage.isNotEmpty
+                        ? errorMessage
+                        : 'Unable to find routes. Please check your connection and try again.'),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              } catch (snackError) {
+                print(
+                    '🔵 [ROUTE_SHEET] Failed to show error snackbar: $snackError');
+              }
+            }
+          },
+          info: '',
+        );
+      },
+    );
+
+    // Don't call onSuggestionSelected here - it triggers setState() which rebuilds MainDashboard
+    // and disposes MapSheet. We don't need it since PlaceDetailsSheet handles the flow.
+    // onSuggestionSelected is only used for RouteBar, which we don't show with PlaceDetailsSheet.
+
+    // Now hide MapSheet since PlaceDetailsSheet is successfully shown
+    debugPrint('🔵 [MAP_SHEET] PlaceDetailsSheet shown, hiding MapSheet');
+    widget.onLocationSelected?.call();
+
+    // Restore MapSheet visibility when PlaceDetailsSheet is dismissed (unless navigation started)
+    debugPrint(
+        '🔵 [MAP_SHEET] PlaceDetailsSheet dismissed with result: $savedPlaceDetailsResult');
+    if (savedPlaceDetailsResult != 'navigation_started') {
+      debugPrint(
+          '🔵 [MAP_SHEET] Restoring MapSheet visibility after PlaceDetailsSheet dismissal');
+      widget.onRouteSelectionDismissed?.call();
+    } else {
+      debugPrint('🔵 [MAP_SHEET] Navigation started, keeping MapSheet hidden');
+    }
+  }
+
+  Future<void> _onRecentLocationTap(RecentLocation location) async {
+    debugPrint(
+        '🟣 [MAP_SHEET] _onRecentLocationTap called for: ${location.name}');
+    debugPrint('🟣 [MAP_SHEET] Place ID: ${location.placeId}');
+    debugPrint(
+        '🟣 [MAP_SHEET] Location: ${location.latitude}, ${location.longitude}');
+
+    // Store root navigator context early - this won't be disposed even if MapSheet is
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    debugPrint('🟣 [MAP_SHEET] Root navigator context stored');
+
+    if (!mounted) {
+      debugPrint('🟣 [MAP_SHEET] ⚠️ Widget not mounted, returning');
+      return;
+    }
+
+    // Calculate distance
+    debugPrint('🟣 [MAP_SHEET] Calculating distance...');
+    double distanceKm = 0;
+    try {
+      final position = await Geolocator.getCurrentPosition();
+      distanceKm = Geolocator.distanceBetween(
+            position.latitude,
+            position.longitude,
+            location.latitude,
+            location.longitude,
+          ) /
+          1000;
+      debugPrint('🟣 [MAP_SHEET] Distance calculated: ${distanceKm}km');
+    } catch (e) {
+      debugPrint('🟣 [MAP_SHEET] Error calculating distance: $e');
+    }
+
+    if (!mounted) {
+      debugPrint(
+          '🟣 [MAP_SHEET] ⚠️ Widget not mounted after calculating distance, returning');
+      return;
+    }
+
+    debugPrint('🟣 [MAP_SHEET] Showing PlaceDetailsSheet');
+    debugPrint(
+        '🟣 [MAP_SHEET] Using root navigator context (independent of MapSheet lifecycle)');
+
+    // Show PlaceDetailsScreen first using root navigator context
+    final recentPlaceDetailsResult = await showModalBottomSheet<String>(
+      context: rootNavigator.context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useRootNavigator: true,
+      builder: (modalContext) {
+        debugPrint('🟣 [MAP_SHEET] PlaceDetailsSheet builder called');
+        return PlaceDetailsSheet(
+          key: UniqueKey(),
+          title: location.name,
+          address: location.address,
+          distanceKm: distanceKm,
+          showOnlySaveShareAction: false,
+          onSave: () {},
+          onShare: () {
+            Navigator.of(modalContext).pop();
+          },
+          onMore: () {
+            Navigator.of(modalContext).pop();
+          },
+          onSeeAllRoutes: () async {
+            debugPrint(
+                '🟣 [ROUTE_SHEET] onSeeAllRoutes clicked (recent location)');
+            debugPrint('🟣 [ROUTE_SHEET] Closing PlaceDetailsSheet');
+
+            // Close PlaceDetailsSheet first
+            Navigator.of(modalContext).pop();
+            debugPrint('🟣 [ROUTE_SHEET] PlaceDetailsSheet closed');
+
+            debugPrint('🟣 [ROUTE_SHEET] Showing loading overlay for routes');
+            // Show loading overlay for route fetching using root navigator context
+            final routeDismissLoading = RouteLoadingOverlay.show(
+                rootNavigator.context,
+                message: 'Finding routes...');
+            debugPrint(
+                '🟣 [ROUTE_SHEET] Loading overlay shown, dismiss function stored');
+
+            try {
+              debugPrint('🟣 [ROUTE_SHEET] Getting current position...');
+              final position = await Geolocator.getCurrentPosition();
+              debugPrint(
+                  '🟣 [ROUTE_SHEET] Current position: ${position.latitude}, ${position.longitude}');
+
+              debugPrint('🟣 [ROUTE_SHEET] Fetching routes from backend...');
+              debugPrint(
+                  '🟣 [ROUTE_SHEET] Origin: ${position.latitude}, ${position.longitude}');
+              debugPrint(
+                  '🟣 [ROUTE_SHEET] Destination: ${location.latitude}, ${location.longitude}');
+
+              // Fetch routes from backend
+              final directions = await _placesService.fetchMapboxDirections(
+                originLat: position.latitude,
+                originLng: position.longitude,
+                destinationLat: location.latitude,
+                destinationLng: location.longitude,
+                profile: 'driving-traffic',
+                alternatives: true,
+              );
+
+              debugPrint('🟣 [ROUTE_SHEET] ✅ Routes fetched successfully');
+              debugPrint(
+                  '🟣 [ROUTE_SHEET] Routes count: ${directions.routes.length}');
+
+              if (directions.routes.isNotEmpty) {
+                debugPrint(
+                    '🟣 [ROUTE_SHEET] First route: distance=${directions.routes.first.distance}m, duration=${directions.routes.first.duration}s');
+              } else {
+                debugPrint(
+                    '🟣 [ROUTE_SHEET] ⚠️ WARNING: Routes list is EMPTY!');
+              }
+
+              // Hide loading overlay
+              debugPrint('🟣 [ROUTE_SHEET] Hiding loading overlay');
+              routeDismissLoading();
+
+              // Small delay to ensure Navigator stack is ready
+              debugPrint(
+                  '🟣 [ROUTE_SHEET] Waiting 100ms for Navigator stack to be ready');
+              await Future<void>.delayed(const Duration(milliseconds: 100));
+
+              debugPrint(
+                  '🟣 [ROUTE_SHEET] Directions fetched: ${directions.routes.length} routes');
+
+              // Validate routes before proceeding
+              if (directions.routes.isEmpty) {
+                debugPrint(
+                    '🟣 [ROUTE_SHEET] ⚠️ No routes found to destination');
+                // Restore MapSheet visibility since we can't show RouteSelectionSheet
+                widget.onRouteSelectionDismissed?.call();
+                // Use root navigator context to show error even if widget is unmounted
+                ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                        'No routes found to this destination. Please check your connection and try again.'),
+                    backgroundColor: Colors.red,
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+                return;
+              }
+
+              // Validate root navigator context before using it
+              if (!rootNavigator.context.mounted) {
+                debugPrint(
+                    '🟣 [ROUTE_SHEET] ⚠️ Root navigator context not mounted');
+                // Restore MapSheet visibility
+                widget.onRouteSelectionDismissed?.call();
+                ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                  const SnackBar(
+                    content:
+                        Text('Unable to show route options. Please try again.'),
+                    backgroundColor: Colors.red,
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+                return;
+              }
+
+              // Try to draw first route polyline if widget is still mounted
+              if (mounted) {
+                final firstRoute = directions.routes.first;
+                debugPrint('🟣 [ROUTE_SHEET] Drawing first route polyline');
+                widget.onDrawMapboxPolyline?.call(firstRoute);
+              } else {
+                debugPrint(
+                    '🟣 [ROUTE_SHEET] Widget not mounted, skipping polyline drawing (will show RouteSelectionSheet anyway)');
+              }
+
+              debugPrint(
+                  '🟣 [ROUTE_SHEET] Attempting to show RouteSelectionSheet');
+              debugPrint(
+                  '🟣 [ROUTE_SHEET] Routes to show: ${directions.routes.length}');
+              debugPrint('🟣 [ROUTE_SHEET] Place details: ${location.name}');
+              debugPrint(
+                  '🟣 [ROUTE_SHEET] Using root navigator context (independent of MapSheet lifecycle)');
+
+              try {
+                // Show RouteSelectionSheet with fetched routes using root navigator context
+                // This works even if MapSheet widget is unmounted
+                debugPrint('🟣 [ROUTE_SHEET] Calling showModalBottomSheet...');
+                final result = await showModalBottomSheet<String>(
+                  context: rootNavigator.context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  useRootNavigator: true,
+                  builder: (routeContext) {
+                    debugPrint(
+                        '🟣 [ROUTE_SHEET] RouteSelectionSheet builder called');
+                    debugPrint('🟣 [ROUTE_SHEET] RouteContext: $routeContext');
+                    // Defensive check: ensure routes are not empty
+                    if (directions.routes.isEmpty) {
+                      debugPrint(
+                          '🟣 [ROUTE_SHEET] ⚠️ Routes list is empty in builder!');
+                      return const SizedBox.shrink();
+                    }
+                    return RouteSelectionSheet(
+                      routes: directions.routes,
+                      placeDetails: GooglePlaceDetails(
+                        placeId: location.placeId,
+                        name: location.name,
+                        formattedAddress: location.address,
+                        lat: location.latitude,
+                        lng: location.longitude,
+                        website: '',
+                      ),
+                      onRouteSelected: (selectedRoute) {
+                        debugPrint(
+                            '🟣 [ROUTE_SHEET] Route selected: ${selectedRoute.distance}m');
+                        if (mounted) {
+                          widget.onDrawMapboxPolyline?.call(selectedRoute);
+                        }
+                      },
+                      onStartNavigation: (selectedRoute) {
+                        debugPrint(
+                            '🟣 [ROUTE_SHEET] Navigation started with route: ${selectedRoute.distance}m');
+                        if (mounted) {
+                          widget.onDrawMapboxPolyline?.call(selectedRoute);
+                          widget.onStartNavigation?.call(selectedRoute);
+                        }
+                      },
+                    );
+                  },
+                );
+
+                debugPrint(
+                    '🟣 [ROUTE_SHEET] ✅ RouteSelectionSheet dismissed with result: $result');
+
+                // Restore MapSheet visibility when RouteSelectionSheet is dismissed (if navigation didn't start)
+                if (result != 'navigation_started') {
+                  debugPrint('🟣 [ROUTE_SHEET] Restoring MapSheet visibility');
+                  widget.onRouteSelectionDismissed?.call();
+                }
+              } catch (e, stackTrace) {
+                // Critical error - use print for release mode visibility
+                print('🟣 [ROUTE_SHEET] ❌ ERROR showing RouteSelectionSheet');
+                print('🟣 [ROUTE_SHEET] Error: $e');
+                debugPrint('🟣 [ROUTE_SHEET] Stack trace: $stackTrace');
+
+                // CRITICAL: Restore MapSheet visibility on error to prevent unusable state
+                print(
+                    '🟣 [ROUTE_SHEET] Restoring MapSheet visibility due to error');
+                widget.onRouteSelectionDismissed?.call();
+
+                // Use root navigator context to show error even if widget is unmounted
+                try {
+                  ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                    SnackBar(
+                      content:
+                          Text('Error showing route options: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 4),
+                    ),
+                  );
+                } catch (snackError) {
+                  // If even showing snackbar fails, at least log it
+                  print(
+                      '🟣 [ROUTE_SHEET] Failed to show error snackbar: $snackError');
+                }
+              }
+            } catch (e, stackTrace) {
+              // Critical error - use print for release mode visibility
+              print('🟣 [ROUTE_SHEET] ❌ ERROR fetching routes');
+              print('🟣 [ROUTE_SHEET] Error: $e');
+              debugPrint('🟣 [ROUTE_SHEET] Stack trace: $stackTrace');
+
+              // Hide loading overlay on error
+              debugPrint(
+                  '🟣 [ROUTE_SHEET] Hiding loading overlay due to error');
+              routeDismissLoading();
+
+              // CRITICAL: Restore MapSheet visibility on error to prevent unusable state
+              print(
+                  '🟣 [ROUTE_SHEET] Restoring MapSheet visibility due to route fetching error');
+              widget.onRouteSelectionDismissed?.call();
+
+              // Use root navigator context to show error even if widget is unmounted
+              final errorMessage = e.toString().replaceFirst('Exception: ', '');
+              try {
+                ScaffoldMessenger.of(rootNavigator.context).showSnackBar(
+                  SnackBar(
+                    content: Text(errorMessage.isNotEmpty
+                        ? errorMessage
+                        : 'Unable to find routes. Please check your connection and try again.'),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              } catch (snackError) {
+                print(
+                    '🟣 [ROUTE_SHEET] Failed to show error snackbar: $snackError');
+              }
+            }
+          },
+          info: '',
+        );
+      },
+    );
+
+    // Now hide MapSheet since PlaceDetailsSheet is successfully shown
+    debugPrint('🟣 [MAP_SHEET] PlaceDetailsSheet shown, hiding MapSheet');
+    widget.onLocationSelected?.call();
+
+    // Restore MapSheet visibility when PlaceDetailsSheet is dismissed (unless navigation started)
+    debugPrint(
+        '🟣 [MAP_SHEET] PlaceDetailsSheet dismissed with result: $recentPlaceDetailsResult');
+    if (recentPlaceDetailsResult != 'navigation_started') {
+      debugPrint(
+          '🟣 [MAP_SHEET] Restoring MapSheet visibility after PlaceDetailsSheet dismissal');
+      widget.onRouteSelectionDismissed?.call();
+    } else {
+      debugPrint('🟣 [MAP_SHEET] Navigation started, keeping MapSheet hidden');
+    }
+  }
+
+  Future<void> _onAddLocationTapped(String? specificType) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalContext) => AddALocationBySuggestionSearch(
+        onSuggestionTap: (suggestion) async {
+          Navigator.of(modalContext).pop();
+          if (specificType != null) {
+            _onSaveASpecificLocation(
+              suggestion,
+              locationName: specificType,
+            );
+          } else {
+            final details =
+                await _placesService.fetchGooglePlace(suggestion.placeId);
+            await showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (modalContext) => SelectAndSaveLocation(
+                position: LatLng(details.lat, details.lng),
+                placeId: suggestion.placeId,
+              ),
+            );
+          }
         },
-        onMore: () {
-          Navigator.of(contxt).pop();
-        },
-        onSeeAllRoutes: () async {
-          Navigator.of(contxt).pop();
-          // Trigger navigation
-          widget.onSuggestionSelected?.call(
-            SearchSuggestion(
-              placeId: location.placeId ?? '',
-              mainText: location.name,
-              secondaryText: location.address ?? '',
-              distanceMeters: (distanceKm * 1000),
+      ),
+    );
+  }
+
+  // ── Expandable sheet UI ───────────────────────────────────────────────────
+
+  void _openSearchPage() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SearchPage(
+          onSuggestionTap: _onSuggestionTap,
+          onSavedLocationTap: _onSavedLocationTap,
+          onAddLocationTapped: _onAddLocationTapped,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocListener<ReportsBloc, ReportState>(
+      listener: (context, state) {
+        if (state is GetRecentLocationsSuccess) {
+          setState(() {
+            _recentLocations = state.data;
+            _recentLocationsLoading = false;
+            _recentBuildCounter++;
+          });
+        } else if (state is RecentLocationsLoading) {
+          setState(() {
+            _recentLocationsLoading = true;
+            _recentBuildCounter++;
+          });
+        } else if (state is GetSavedLocationsSuccess) {
+          setState(() {
+            _savedLocations = state.data;
+          });
+        }
+      },
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.28,
+        minChildSize: 0.13,
+        maxChildSize: 0.85,
+        snap: true,
+        snapSizes: const [0.13, 0.28, 0.85],
+        builder: (BuildContext ctx, ScrollController scrollController) {
+          final homeLocation = _savedLocations.firstWhereOrNull(
+            (e) => e.name.toLowerCase() == 'home',
+          );
+          final workLocation = _savedLocations.firstWhereOrNull(
+            (e) => e.name.toLowerCase() == 'work',
+          );
+          final otherLocations = _filterAddedLocation(_savedLocations);
+
+          return DecoratedBox(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 12,
+                  offset: Offset(0, -2),
+                ),
+              ],
+            ),
+            child: ListView(
+              controller: scrollController,
+              padding: EdgeInsets.zero,
+              children: [
+                // ── Drag handle ──────────────────────────────────────────
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 10),
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+
+                // ── "Where to?" search bar (tap → opens SearchPage) ──────
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: styles.insets.md,
+                    vertical: styles.insets.xs,
+                  ),
+                  child: GestureDetector(
+                    onTap: _openSearchPage,
+                    child: AbsorbPointer(
+                      child: CustomSearchBar(
+                        controller: TextEditingController(),
+                        onChanged: (_) {},
+                        onClear: () {},
+                        onFocus: () {},
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                // ── Saved locations horizontal row ────────────────────────
+                SizedBox(
+                  height: 80,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: EdgeInsets.symmetric(horizontal: styles.insets.md),
+                    clipBehavior: Clip.none,
+                    children: [
+                      SavedLocationCard(
+                        title: 'Home',
+                        icon: Assets.icons.homeSmile,
+                        subtitle: (homeLocation != null)
+                            ? (homeLocation.address != null &&
+                                    homeLocation.address!.isNotEmpty)
+                                ? homeLocation.address!
+                                : 'Tap to navigate'
+                            : 'Add Home',
+                        isSaved: homeLocation != null,
+                        placeId: homeLocation?.placeId,
+                        onTap: () {
+                          if (homeLocation != null) {
+                            _onSavedLocationTap(homeLocation);
+                          } else {
+                            _onAddLocationTapped('Home');
+                          }
+                        },
+                      ),
+                      const SizedBox(width: 12),
+                      SavedLocationCard(
+                        title: 'Work',
+                        icon: Assets.icons.briefcaseSvg,
+                        subtitle: (workLocation != null)
+                            ? (workLocation.address != null &&
+                                    workLocation.address!.isNotEmpty)
+                                ? workLocation.address!
+                                : 'Tap to navigate'
+                            : 'Add Work',
+                        isSaved: workLocation != null,
+                        placeId: workLocation?.placeId,
+                        onTap: () {
+                          if (workLocation != null) {
+                            _onSavedLocationTap(workLocation);
+                          } else {
+                            _onAddLocationTapped('Work');
+                          }
+                        },
+                      ),
+                      ...otherLocations.map(
+                        (location) => Padding(
+                          padding: const EdgeInsets.only(left: 12),
+                          child: SavedLocationCard(
+                            title: location.name,
+                            icon: _getIconType(location.name),
+                            subtitle: location.address ?? '',
+                            isSaved: true,
+                            isImageFile: true,
+                            placeId: location.placeId,
+                            onTap: () => _onSavedLocationTap(location),
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 12),
+                        child: SavedLocationCard(
+                          title: 'Add',
+                          icon: Assets.icons.plusSvg,
+                          subtitle: 'New',
+                          isSaved: false,
+                          onTap: () => _onAddLocationTapped(null),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // ── Recent locations ──────────────────────────────────────
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: styles.insets.md),
+                  child: Text(
+                    'Recent',
+                    style: styles.typography.h4.textColor(styles.theme.text),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _SheetRecentLocationsWidget(
+                  locations: _recentLocations,
+                  isLoading: _recentLocationsLoading,
+                  buildCounter: _recentBuildCounter,
+                  onLocationTap: _onRecentLocationTap,
+                ),
+                const SizedBox(height: 24),
+              ],
             ),
           );
         },
@@ -338,530 +1526,7 @@ class _MapSheetState extends State<MapSheet> {
     );
   }
 
-  Future<void> getSavedLocation(BuildContext context) async {
-    if (context.mounted) {
-      context.read<ReportsBloc>().add(
-            ReportsEvent.getSavedLocations(),
-          );
-    }
-  }
-
-  Future<void> getRecentLocations(BuildContext context) async {
-    if (context.mounted) {
-      debugPrint('🔥 UI: Requesting recent locations from BLoC');
-      context.read<ReportsBloc>().add(
-            ReportsEvent.getRecentLocations(),
-          );
-    }
-  }
-
-  @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    destinationController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    _buildCounter++;
-    debugPrint('🔥 MapSheet build() called - Count: $_buildCounter');
-
-    return BlocListener<ReportsBloc, ReportState>(
-        listener: (context, state) {
-          if (state is GetRecentLocationsSuccess) {
-            debugPrint(
-                '🔥 UI: BlocListener - Recent locations updated: ${state.data.length} items');
-            setState(() {
-              _recentLocations = state.data;
-              _recentLocationsLoading = false;
-              _recentBuildCounter++;
-            });
-          } else if (state is RecentLocationsLoading) {
-            setState(() {
-              _recentLocationsLoading = true;
-              _recentBuildCounter++;
-            });
-          } else if (state is GetSavedLocationsSuccess) {
-            debugPrint(
-                '🏠 UI: BlocListener - Saved locations updated: ${state.data.length} items');
-            setState(() {
-              _savedLocations = state.data;
-              _savedLocationsLoading = false;
-            });
-          }
-        },
-        child: Sheet(
-          backgroundColor: Colors.transparent,
-          initialExtent: 120,
-          controller: widget.controller,
-          physics: const SnapSheetPhysics(
-            stops: <double>[0.3, 0.75],
-          ),
-          child: AnimatedBuilder(
-            animation: widget.controller.animation,
-            builder: (BuildContext context, Widget? child) {
-              final sheetBar = widget.controller.animation.value > 0.95;
-              return TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 0, end: sheetBar ? 1 : 0),
-                duration: const Duration(milliseconds: 200),
-                builder: (BuildContext context, double t, Widget? child) {
-                  final radius = Tween<double>(begin: 16, end: 0).transform(t);
-                  final shadow = ColorTween(
-                    begin: Colors.black26,
-                    end: Colors.black26.withValues(alpha: 0),
-                  ).transform(t);
-                  final barColor = ColorTween(
-                    begin: Colors.grey[200],
-                    end: Colors.grey[200]?.withValues(alpha: 0),
-                  ).transform(t);
-
-                  return MediaQuery.removePadding(
-                    context: context,
-                    removeTop: true,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.only(
-                          topLeft: Radius.circular(radius),
-                          topRight: Radius.circular(radius),
-                        ),
-                        color: Colors.white,
-                        boxShadow: <BoxShadow>[
-                          BoxShadow(color: shadow!, blurRadius: 12),
-                        ],
-                      ),
-                      child: Column(
-                        children: <Widget>[
-                          Container(
-                            margin: const EdgeInsets.all(8),
-                            width: 36,
-                            height: 4,
-                            color: barColor,
-                            alignment: Alignment.center,
-                          ),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Padding(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: styles.insets.md,
-                                    vertical: styles.insets.sm,
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      // Current location pill
-                                      Container(
-                                        margin: const EdgeInsets.symmetric(
-                                            vertical: 8),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 16, vertical: 12),
-                                        decoration: BoxDecoration(
-                                          color: styles.theme.background,
-                                          borderRadius:
-                                              BorderRadius.circular(32),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            AppIcon(
-                                              Assets.icons.location,
-                                              color: styles.theme.red,
-                                              size: 18,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              'Current location',
-                                              style: styles.typography.t2
-                                                  .textColor(styles.theme.text),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      // Search bar
-
-                                      CustomSearchBar(
-                                        controller: destinationController,
-                                        onChanged: (v) {
-                                          _onSearchChanged(v);
-                                          if (widget
-                                                  .controller.animation.value <=
-                                              0.3) {
-                                            widget.controller.relativeAnimateTo(
-                                              0.9,
-                                              duration: const Duration(
-                                                  milliseconds: 200),
-                                              curve: Curves.easeOut,
-                                            );
-                                          }
-                                        },
-                                        onClear: () {
-                                          destinationController.clear();
-                                          setState(() {
-                                            _suggestions = [];
-                                          });
-                                        },
-                                        onFocus: () {
-                                          if (widget
-                                                  .controller.animation.value <=
-                                              0.3) {
-                                            widget.controller.relativeAnimateTo(
-                                              0.9,
-                                              duration: const Duration(
-                                                  milliseconds: 200),
-                                              curve: Curves.easeOut,
-                                            );
-                                          }
-                                        },
-                                      ),
-                                      // If suggestions, show only suggestions
-                                      if (_suggestions.isNotEmpty)
-                                        Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 16),
-                                          child: SearchSuggestionList(
-                                            suggestions: _suggestions,
-                                            onTap: (suggestion) {
-                                              _onSuggestionTap(suggestion);
-                                              debugPrint(
-                                                  'Suggestion tapped: ${suggestion.placeId}');
-                                            },
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                // Only show the rest if there are NO suggestions
-                                if (_suggestions.isEmpty) ...[
-                                  Gap(styles.insets.sm),
-                                  CustomHorizontalScroll(
-                                    child: Row(
-                                      children: [
-                                        Gap(styles.insets.md),
-
-                                        ///
-                                        //         const Gap(4),
-                                        //         Text(
-                                        //           'Home',
-                                        //           style: styles.typography.t3
-                                        //               .textColor(
-                                        //                   styles.theme.primary)
-                                        //               .medium,
-                                        //         ),
-                                        //       ],
-                                        //     ),
-                                        //   ),
-                                        // ),
-                                      ],
-                                    ),
-                                  ),
-
-                                  // Recent locations section
-                                  Expanded(
-                                    child: Container(
-                                      width: context.widthPx,
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: styles.insets.lg,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: styles.theme.background,
-                                        borderRadius: BorderRadius.only(
-                                          topLeft: Radius.circular(
-                                              styles.corners.lg),
-                                          topRight: Radius.circular(
-                                              styles.corners.lg),
-                                        ),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Gap(styles.insets.md),
-                                          Text(
-                                            'Saved Locations',
-                                            style: styles.typography.h4
-                                                .textColor(styles.theme.text),
-                                          ),
-                                          Gap(styles.insets.md),
-                                          BlocConsumer<ReportsBloc,
-                                              ReportState>(
-                                            listener: (context, state) {
-                                              if (state
-                                                  is SaveLocationSuccess) {
-                                                RSnackBar.success(
-                                                  'Location has been successfully saved.',
-                                                ).show(context);
-                                                context.read<ReportsBloc>().add(
-                                                      ReportsEvent
-                                                          .getSavedLocations(),
-                                                    );
-                                              }
-                                            },
-                                            builder: (context, state) {
-                                              if (state is ReportLoading) {
-                                                return const Center(
-                                                  child: Padding(
-                                                    padding:
-                                                        EdgeInsets.all(20.0),
-                                                    child:
-                                                        CircularProgressIndicator(),
-                                                  ),
-                                                );
-                                              }
-
-                                              // Use persisted _savedLocations to prevent clearing when state changes (e.g. to RecentLocations)
-                                              final savedLocations = _savedLocations;
-
-                                              debugPrint('📍 Saved Locations in Builder: ${savedLocations.length}');
-                                              for (var l in savedLocations) {
-                                                debugPrint('  - ${l.name} (${l.name.toLowerCase()})');
-                                              }
-
-                                              final homeLocation =
-                                                  savedLocations
-                                                      .firstWhereOrNull((e) =>
-                                                          e.name
-                                                              .toLowerCase() ==
-                                                          'home');
-                                              debugPrint('🏠 Home Location found: ${homeLocation != null}');
-
-                                              final workLocation =
-                                                  savedLocations
-                                                      .firstWhereOrNull((e) =>
-                                                          e.name
-                                                              .toLowerCase() ==
-                                                          'work');
-
-                                              final otherLocations =
-                                                  filterAddedLocation(
-                                                      savedLocations);
-
-                                              return SizedBox(
-                                                height: 80,
-                                                width: context.widthPx,
-                                                child: ListView(
-                                                  scrollDirection:
-                                                      Axis.horizontal,
-                                                  clipBehavior: Clip.none,
-                                                  children: [
-                                                    // Home Button
-                                                    SavedLocationCard(
-                                                      title: 'Home',
-                                                      icon: Assets
-                                                          .icons.homeSmile,
-                                                      subtitle: (homeLocation !=
-                                                              null)
-                                                          ? (homeLocation.address !=
-                                                                      null &&
-                                                                  homeLocation
-                                                                      .address!
-                                                                      .isNotEmpty)
-                                                              ? homeLocation
-                                                                  .address!
-                                                              : 'Tap to navigate'
-                                                          : 'Add Home',
-                                                      isSaved:
-                                                          homeLocation != null,
-                                                      placeId:
-                                                          homeLocation?.placeId,
-                                                      onTap: () {
-                                                        if (homeLocation !=
-                                                            null) {
-                                                          _onSavedLocationTap(
-                                                              homeLocation);
-                                                        } else {
-                                                          _onAddLocationTapped(
-                                                              'Home');
-                                                        }
-                                                      },
-                                                    ),
-                                                    const Gap(12),
-
-                                                    // Work Button
-                                                    SavedLocationCard(
-                                                      title: 'Work',
-                                                      icon: Assets
-                                                          .icons.briefcaseSvg,
-                                                      subtitle: (workLocation !=
-                                                              null)
-                                                          ? (workLocation.address !=
-                                                                      null &&
-                                                                  workLocation
-                                                                      .address!
-                                                                      .isNotEmpty)
-                                                              ? workLocation
-                                                                  .address!
-                                                              : 'Tap to navigate'
-                                                          : 'Add Work',
-                                                      isSaved:
-                                                          workLocation != null,
-                                                      placeId:
-                                                          workLocation?.placeId,
-                                                      onTap: () {
-                                                        if (workLocation !=
-                                                            null) {
-                                                          _onSavedLocationTap(
-                                                              workLocation);
-                                                        } else {
-                                                          _onAddLocationTapped(
-                                                              'Work');
-                                                        }
-                                                      },
-                                                    ),
-                                                    const Gap(12),
-
-                                                    // Other Saved Locations
-                                                    ...otherLocations.map(
-                                                      (location) => Padding(
-                                                        padding:
-                                                            const EdgeInsets
-                                                                .only(
-                                                                right: 12),
-                                                        child:
-                                                            SavedLocationCard(
-                                                          title: location.name,
-                                                          icon: getIconType(
-                                                              location.name),
-                                                          subtitle: location
-                                                                  .address ??
-                                                              '',
-                                                          isSaved: true,
-                                                          isImageFile: true,
-                                                          placeId:
-                                                              location.placeId,
-                                                          onTap: () =>
-                                                              _onSavedLocationTap(
-                                                                  location),
-                                                        ),
-                                                      ),
-                                                    ),
-
-                                                    // Add New Location Button
-                                                    SavedLocationCard(
-                                                      title: 'Add',
-                                                      icon:
-                                                          Assets.icons.plusSvg,
-                                                      subtitle: 'New',
-                                                      isSaved: false,
-                                                      onTap: () =>
-                                                          _onAddLocationTapped(
-                                                              null),
-                                                    ),
-                                                  ],
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                          Gap(styles.insets.md),
-                                          Text(
-                                            'Recent Locations',
-                                            style: styles.typography.h4
-                                                .textColor(styles.theme.text),
-                                          ),
-                                          Gap(styles.insets.md),
-                                          // Use the actual recent locations widget instead of hardcoded data
-                                          Expanded(
-                                            child: _RecentLocationsWidget(
-                                              locations: _recentLocations,
-                                              isLoading:
-                                                  _recentLocationsLoading,
-                                              buildCounter: _recentBuildCounter,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ));
-  }
-
-  String pickedLocationDetail = '';
-
-//   Future<GooglePlaceDetails> pickALocation(List<SavedLocations> locations,
-//       {required String locationType, ValueChanged<String>?  onFindAddressCallBack})   async {
-//     var savedHome = <SavedLocations>[];
-//
-//     for (final e in locations) {
-//       if (e.name == locationType && e.placeId!=null && savedHome.isEmpty) {
-//         savedHome.add(e);
-//
-//       }
-//      }
-//     debugPrint(savedHome.toString());
-//     debugPrint(savedHome.first.placeId.toString());
-//
-//
-//
-//
-//
-//       var details = await _placesService.fetchGooglePlace(
-//         savedHome.first.placeId  ??'',
-//       );
-//
-// // debugPrint('${details.formattedAddress}'''''''''''''';;;;;;;;;;');
-//     pickedLocationDetail=details.formattedAddress;
-//     if (onFindAddressCallBack!=null){
-//       onFindAddressCallBack(details.formattedAddress);
-//
-//     }
-//     // setState(() {
-//       return details;
-//     // });
-//
-//   }
-
-  List<SavedLocations> filterAddedLocation(
-    List<SavedLocations> locations,
-  ) {
-    final savedLocations = <SavedLocations>[];
-    final nameTypeChecker = <String>[];
-
-    for (final e in locations) {
-      if (e.name.toLowerCase() == 'home' || e.name.toLowerCase() == 'work') {
-        continue;
-      }
-      if (nameTypeChecker.contains(e.name) == false && e.placeId != null) {
-        savedLocations.add(e);
-        nameTypeChecker.add(e.name);
-      }
-      // return savedLocations;
-    }
-
-    return savedLocations;
-  }
-
-  String getIconType(String type) {
-    if (type == 'Home') {
-      return Assets.icons.homeBg.path;
-    }
-    if (type == 'Hospital') {
-      return Assets.icons.hospital.path;
-    }
-    if (type == 'Park') {
-      return Assets.icons.park.path;
-    }
-    if (type == 'Gas') {
-      return Assets.icons.gas.path;
-    }
-    if (type == 'Food') {
-      return Assets.icons.food.path;
-    }
-    if (type == 'Work') {
-      return Assets.icons.briefcasePng.path;
-    } else {
-      return Assets.icons.globePng.path;
-    }
-  }
+  // ── Helpers ──────────────────────────────────────────────────────────────
 
   String _inferCategory(String name) {
     final lowerName = name.toLowerCase();
@@ -879,120 +1544,172 @@ class _MapSheetState extends State<MapSheet> {
     if (lowerName.contains('park')) return 'park';
     return 'location';
   }
+}
 
-  Widget _buildSavedLocationCard(
-    BuildContext context, {
-    required String title,
-    required String icon,
-    required String subtitle,
-    required bool isSaved,
-    required VoidCallback onTap,
-    double? width, // Added width parameter
-    bool isImageFile = false,
-  }) {
-    return GestureDetector(
-      onTap: onTap, // Kept original onTap as it's a function parameter
-      child: Container(
-        width: width ?? 160, // Used the new width parameter
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: Colors.grey.withOpacity(0.2),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
+// ── Private: recent locations list inside the draggable sheet ────────────────
+
+class _SheetRecentLocationsWidget extends StatelessWidget {
+  const _SheetRecentLocationsWidget({
+    required this.locations,
+    required this.isLoading,
+    required this.buildCounter,
+    required this.onLocationTap,
+  });
+
+  final List<RecentLocation> locations;
+  final bool isLoading;
+  final int buildCounter;
+  final void Function(RecentLocation) onLocationTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const SizedBox(
+        height: 80,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (locations.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+        child: Text(
+          'No recent locations yet',
+          style: styles.typography.t3
+              .textColor(styles.theme.text.withOpacity(0.6)),
         ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.grey.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: isImageFile
-                    ? Image.asset(icon, width: 24, height: 24)
-                    : AppIcon(icon, size: 24, color: styles.theme.primary),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int i = 0; i < locations.length; i++)
+          _SheetRecentLocationItem(
+            key: ValueKey('${locations[i].placeId}_$buildCounter'),
+            location: locations[i],
+            showDivider: i < locations.length - 1,
+            onTap: () => onLocationTap(locations[i]),
+          ),
+      ],
+    );
+  }
+}
+
+class _SheetRecentLocationItem extends StatelessWidget {
+  const _SheetRecentLocationItem({
+    required this.location,
+    required this.showDivider,
+    required this.onTap,
+    super.key,
+  });
+
+  final RecentLocation location;
+  final bool showDivider;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
                 children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
+                  _buildIcon(),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          location.name,
+                          style: styles.typography.t2.medium,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                        if (location.address.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            location.address,
+                            style: styles.typography.t3.textColor(
+                              styles.theme.text.withOpacity(0.6),
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ],
+                      ],
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 12,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+          if (showDivider) Divider(color: styles.theme.secondary, height: 1),
+        ],
       ),
     );
   }
 
-  Future<void> _onAddLocationTapped(String? specificType) async {
-    await showModalBottomSheet(
-      context: widget.context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (modalContext) => AddALocationBySuggestionSearch(
-        onSuggestionTap: (suggestion) async {
-          Navigator.of(modalContext).pop();
-          if (specificType != null) {
-            _onSaveASpecificLocation(
-              suggestion,
-              locationName: specificType,
-            );
-          } else {
-            final details =
-                await _placesService.fetchGooglePlace(suggestion.placeId);
-            await showModalBottomSheet(
-              context: widget.context,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (modalContext) => SelectAndSaveLocation(
-                position: LatLng(
-                  details.lat,
-                  details.lng,
-                ),
-                placeId: suggestion.placeId,
-              ),
-            );
-          }
-        },
-      ),
+  Widget _buildIcon() {
+    final iconType = location.iconType;
+    if (iconType != null && iconType.endsWith('.svg')) {
+      return AppIcon(iconType, size: 20);
+    }
+    if (iconType != null && iconType.endsWith('.png')) {
+      return Image.asset(
+        iconType,
+        width: 20,
+        height: 20,
+        errorBuilder: (_, __, ___) =>
+            AppIcon(Assets.icons.recentPlaces, size: 20),
+      );
+    }
+    return _categoryIcon(location.category ?? 'location');
+  }
+
+  Widget _categoryIcon(String type) {
+    final path = _iconPath(type);
+    if (path.endsWith('.svg')) return AppIcon(path, size: 20);
+    return Image.asset(
+      path,
+      width: 20,
+      height: 20,
+      errorBuilder: (_, __, ___) =>
+          AppIcon(Assets.icons.recentPlaces, size: 20),
     );
   }
+
+  String _iconPath(String type) {
+    switch (type.toLowerCase()) {
+      case 'home':
+        return Assets.icons.homeBg.path;
+      case 'hospital':
+      case 'medical':
+        return Assets.icons.hospital.path;
+      case 'park':
+        return Assets.icons.park.path;
+      case 'gas':
+      case 'fuel':
+        return Assets.icons.gas.path;
+      case 'food':
+      case 'restaurant':
+        return Assets.icons.food.path;
+      case 'location':
+      default:
+        return Assets.icons.recentPlaces;
+    }
+  }
 }
+
+// ── Supporting widgets (public — also used by SearchPage) ────────────────────
 
 class AddALocationBySuggestionSearch extends StatefulWidget {
   const AddALocationBySuggestionSearch({
@@ -1079,9 +1796,6 @@ class _AddALocationBySuggestionSearchState
                 },
                 onFocus: () {},
               ),
-
-              ///
-              // // If suggestions, show only suggestions
               if (_suggestions.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 16),
@@ -1089,7 +1803,6 @@ class _AddALocationBySuggestionSearchState
                     suggestions: _suggestions,
                     onTap: (suggestion) {
                       widget.onSuggestionTap(suggestion);
-                      // _onSuggestionTap(suggestion);
                       debugPrint('Suggestion tapped: ${suggestion.placeId}');
                     },
                   ),
@@ -1102,7 +1815,6 @@ class _AddALocationBySuggestionSearchState
   }
 }
 
-//
 class SelectAndSaveLocation extends StatefulWidget {
   const SelectAndSaveLocation(
       {super.key, required this.position, required this.placeId});
@@ -1157,8 +1869,6 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         children: [
                           const Gap(30),
-
-                          ///for home  since there must be just one home saved
                           if (state is GetSavedLocationsSuccess &&
                               state.data.isNotEmpty &&
                               confirmAddedLocation(state.data,
@@ -1178,8 +1888,6 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                               isSelected: locationName == 'Home' ? true : false,
                             )
                           ],
-
-                          ///for work als  since there must be just one work saved
                           if (state is GetSavedLocationsSuccess &&
                               state.data.isNotEmpty &&
                               confirmAddedLocation(state.data,
@@ -1199,7 +1907,6 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                               isSelected: locationName == 'Work' ? true : false,
                             ),
                           ],
-
                           LocationItem(
                               key: UniqueKey(),
                               onSelect: () {
@@ -1251,7 +1958,6 @@ class _SelectAndSaveLocationState extends State<SelectAndSaveLocation> {
                               locationName: 'Park',
                               isSelected:
                                   locationName == 'Park' ? true : false),
-
                           LocationItem(
                             key: UniqueKey(),
                             onSelect: () {
@@ -1378,14 +2084,9 @@ class LocationItem extends StatelessWidget {
             ),
           ],
           image: DecorationImage(
-              image: AssetImage(
-                bgImagePath,
-              ),
-              fit: BoxFit.cover),
+              image: AssetImage(bgImagePath), fit: BoxFit.cover),
         ),
-        duration: Duration(
-          seconds: 8,
-        ),
+        duration: Duration(seconds: 8),
         child: Stack(
           alignment: Alignment.center,
           children: [
@@ -1406,11 +2107,8 @@ class LocationItem extends StatelessWidget {
                   child: image,
                 ),
                 const Gap(4),
-                Text(
-                  locationName,
-                  style: styles.typography.t3.medium,
-                ),
-              ], //
+                Text(locationName, style: styles.typography.t3.medium),
+              ],
             ),
           ],
         ),
@@ -1419,190 +2117,8 @@ class LocationItem extends StatelessWidget {
   }
 }
 
-class _RecentLocationsWidget extends StatelessWidget {
-  const _RecentLocationsWidget({
-    required this.locations,
-    required this.isLoading,
-    required this.buildCounter,
-  });
+// ── Universal helpers ─────────────────────────────────────────────────────────
 
-  final List<RecentLocation> locations;
-  final bool isLoading;
-  final int buildCounter;
-
-  @override
-  Widget build(BuildContext context) {
-    debugPrint(
-        '🔥 _RecentLocationsWidget build() called - Counter: $buildCounter - ${locations.length} items');
-
-    if (isLoading) {
-      return const SizedBox(
-        height: 100,
-        child: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
-    if (locations.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        child: Center(
-          child: Text(
-            'No recent locations yet',
-            style: styles.typography.t3
-                .textColor(styles.theme.text.withOpacity(0.6)),
-          ),
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: EdgeInsets.zero,
-      physics: const BouncingScrollPhysics(),
-      itemCount: locations.length,
-      itemExtent:
-          56, // Further reduced height for each item to prevent overflow
-      itemBuilder: (context, index) {
-        final location = locations[index];
-        return _RecentLocationItem(
-          key: ValueKey(location.placeId),
-          location: location,
-          showDivider: index < locations.length - 1,
-        );
-      },
-    );
-  }
-}
-
-class _RecentLocationItem extends StatelessWidget {
-  const _RecentLocationItem({
-    required this.location,
-    required this.showDivider,
-    super.key,
-  });
-
-  final RecentLocation location;
-  final bool showDivider;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        children: [
-          InkWell(
-            onTap: () {
-              // Handle recent location tap
-              // You can navigate to this location or show details
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(
-                children: [
-                  // Icon
-                  if (location.iconType != null &&
-                      location.iconType!.endsWith('.svg'))
-                    AppIcon(
-                      location.iconType!,
-                      size: 20,
-                    )
-                  else if (location.iconType != null &&
-                      location.iconType!.endsWith('.png'))
-                    Image.asset(
-                      location.iconType!,
-                      width: 20,
-                      height: 20,
-                      errorBuilder: (context, error, stackTrace) {
-                        return AppIcon(Assets.icons.recentPlaces, size: 20);
-                      },
-                    )
-                  else
-                    _buildCategoryIcon(location.category ?? 'location'),
-                  const SizedBox(width: 16),
-
-                  // Text content with proper overflow handling
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          location.name,
-                          style: styles.typography.t2.medium,
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                        if (location.address.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            location.address,
-                            style: styles.typography.t3.textColor(
-                              styles.theme.text.withOpacity(0.6),
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (showDivider)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Divider(
-                color: styles.theme.secondary,
-                height: 1,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCategoryIcon(String type) {
-    final path = _getIconPath(type);
-    if (path.endsWith('.svg')) {
-      return AppIcon(path, size: 20);
-    } else {
-      return Image.asset(
-        path,
-        width: 20,
-        height: 20,
-        errorBuilder: (context, error, stackTrace) {
-          return AppIcon(Assets.icons.recentPlaces, size: 20);
-        },
-      );
-    }
-  }
-
-  String _getIconPath(String type) {
-    switch (type.toLowerCase()) {
-      case 'home':
-        return Assets.icons.homeBg.path;
-      case 'hospital':
-      case 'medical':
-        return Assets.icons.hospital.path;
-      case 'park':
-        return Assets.icons.park.path;
-      case 'gas':
-      case 'fuel':
-        return Assets.icons.gas.path;
-      case 'food':
-      case 'restaurant':
-        return Assets.icons.food.path;
-      case 'location':
-      default:
-        return Assets.icons.recentPlaces;
-    }
-  }
-}
-
-///universal truth
-///
 bool confirmAddedLocation(
   List<SavedLocations> locations, {
   required String locationType,

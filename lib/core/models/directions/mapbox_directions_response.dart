@@ -126,6 +126,7 @@ class MapboxLeg {
   final double weight;
   final double duration; // in seconds
   final double distance; // in meters
+  final MapboxLegAnnotations? annotations; // Speed and other annotation data
 
   MapboxLeg({
     required this.steps,
@@ -133,6 +134,7 @@ class MapboxLeg {
     required this.weight,
     required this.duration,
     required this.distance,
+    this.annotations,
   });
 
   factory MapboxLeg.fromJson(Map<String, dynamic> json) {
@@ -145,6 +147,10 @@ class MapboxLeg {
       weight: (json['weight'] as num?)?.toDouble() ?? 0.0,
       duration: (json['duration'] as num?)?.toDouble() ?? 0.0,
       distance: (json['distance'] as num?)?.toDouble() ?? 0.0,
+      annotations: json['annotation'] != null
+          ? MapboxLegAnnotations.fromJson(
+              json['annotation'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -155,7 +161,128 @@ class MapboxLeg {
       'weight': weight,
       'duration': duration,
       'distance': distance,
+      if (annotations != null) 'annotation': annotations!.toJson(),
     };
+  }
+
+  /// Get average speed from annotations (in m/s)
+  double? get averageSpeed {
+    if (annotations?.speed == null || annotations!.speed!.isEmpty) {
+      return null;
+    }
+    final speeds = annotations!.speed!;
+    final sum = speeds.reduce((a, b) => a + b);
+    return sum / speeds.length;
+  }
+
+  /// Get average speed limit estimate (in km/h) - uses average speed as proxy
+  /// Note: This is average speed, not actual speed limit, but better than hardcoded value
+  double? get estimatedSpeedLimitKmh {
+    final avgSpeed = averageSpeed;
+    if (avgSpeed == null) return null;
+    // Convert m/s to km/h and add 20% buffer as speed limit estimate
+    return (avgSpeed * 3.6 * 1.2).roundToDouble();
+  }
+
+  /// Get expected average speed from route (in m/s) - alias for averageSpeed for clarity
+  double? get expectedAverageSpeed => averageSpeed;
+}
+
+class MapboxLegAnnotations {
+  final List<double>? speed; // Speed in m/s for each coordinate point
+  final List<double>? distance; // Distance in meters
+  final List<double>? duration; // Duration in seconds
+  final List<double>?
+      congestionNumeric; // Congestion level 0-100 for each coordinate pair (only available for driving-traffic profile)
+
+  MapboxLegAnnotations({
+    this.speed,
+    this.distance,
+    this.duration,
+    this.congestionNumeric,
+  });
+
+  factory MapboxLegAnnotations.fromJson(Map<String, dynamic> json) {
+    return MapboxLegAnnotations(
+      speed: json['speed'] != null
+          ? (json['speed'] as List<dynamic>)
+              .map((s) => (s as num).toDouble())
+              .toList()
+          : null,
+      distance: json['distance'] != null
+          ? (json['distance'] as List<dynamic>)
+              .map((d) => (d as num).toDouble())
+              .toList()
+          : null,
+      duration: json['duration'] != null
+          ? (json['duration'] as List<dynamic>)
+              .map((d) => (d as num).toDouble())
+              .toList()
+          : null,
+      congestionNumeric: json['congestion_numeric'] != null
+          ? (json['congestion_numeric'] as List<dynamic>)
+              .map((c) => (c as num).toDouble())
+              .toList()
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      if (speed != null) 'speed': speed,
+      if (distance != null) 'distance': distance,
+      if (duration != null) 'duration': duration,
+      if (congestionNumeric != null) 'congestion_numeric': congestionNumeric,
+    };
+  }
+
+  /// Calculate average congestion for the leg (0-100 scale)
+  double? get averageCongestion {
+    if (congestionNumeric == null || congestionNumeric!.isEmpty) {
+      return null;
+    }
+    final sum = congestionNumeric!.reduce((a, b) => a + b);
+    return sum / congestionNumeric!.length;
+  }
+
+  /// Map congestion value (0-100) to time multiplier
+  /// 0-30 (low) = 1.0x, 31-60 (moderate) = 1.2x, 61-80 (heavy) = 1.5x, 81-100 (severe) = 2.0x
+  static double congestionToMultiplier(double congestionValue) {
+    if (congestionValue <= 30) {
+      return 1.0; // Low congestion
+    } else if (congestionValue <= 60) {
+      return 1.2; // Moderate congestion
+    } else if (congestionValue <= 80) {
+      return 1.5; // Heavy congestion
+    } else {
+      return 2.0; // Severe congestion
+    }
+  }
+
+  /// Get congestion multiplier for a specific congestion value
+  double getCongestionMultiplier(int index) {
+    if (congestionNumeric == null ||
+        index < 0 ||
+        index >= congestionNumeric!.length) {
+      return 1.0; // Default to no delay if no congestion data
+    }
+    return congestionToMultiplier(congestionNumeric![index]);
+  }
+
+  /// Get average congestion multiplier for remaining segments starting from index
+  double getAverageCongestionMultiplier(int startIndex) {
+    if (congestionNumeric == null ||
+        startIndex < 0 ||
+        startIndex >= congestionNumeric!.length) {
+      return 1.0; // Default to no delay if no congestion data
+    }
+
+    final remainingCongestion = congestionNumeric!.sublist(startIndex);
+    if (remainingCongestion.isEmpty) return 1.0;
+
+    final sum = remainingCongestion.fold(
+        0.0, (sum, value) => sum + congestionToMultiplier(value));
+    return sum / remainingCongestion.length;
   }
 }
 

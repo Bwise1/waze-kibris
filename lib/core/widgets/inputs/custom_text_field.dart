@@ -76,6 +76,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
       initialValue: widget.initialValue,
       readOnly: widget.onTap != null,
       obscureText: _obscureText,
+      scrollPadding: EdgeInsets.zero,
       decoration: InputDecoration(
         enabled: widget.enabled,
         hintText: widget.hintText,
@@ -286,6 +287,7 @@ class CustomTextFieldWithIcon extends StatelessWidget {
       textInputAction: textInputAction,
       onChanged: onChanged,
       inputFormatters: inputFormatters,
+      scrollPadding: EdgeInsets.zero,
       decoration: InputDecoration(
         hintText: hintText,
         prefixIcon: prefixIcon,

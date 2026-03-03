@@ -1,8 +1,6 @@
-import 'dart:math';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
-import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 
 /// Utilities for Mapbox Navigation following industry best practices
 class MapboxNavigationUtils {
@@ -29,7 +27,7 @@ class MapboxNavigationUtils {
     final duration = Duration(seconds: seconds.round());
     final hours = duration.inHours;
     final minutes = duration.inMinutes.remainder(60);
-    
+
     if (hours > 0) {
       return '${hours}h ${minutes}m';
     } else {
@@ -56,7 +54,7 @@ class MapboxNavigationUtils {
   /// Extract road name from instruction or step name
   static String? extractRoadName(String? stepName) {
     if (stepName == null || stepName.isEmpty) return null;
-    
+
     // For Mapbox, step.name already contains the road name
     return stepName.isNotEmpty ? stepName : null;
   }
@@ -65,10 +63,10 @@ class MapboxNavigationUtils {
   static RouteType classifyRoute(MapboxRoute route) {
     // Mapbox doesn't explicitly categorize routes like "fastest" vs "shortest"
     // But we can infer based on duration vs distance ratios
-    
+
     final avgSpeed = route.distance / route.duration; // m/s
     final avgSpeedKmh = avgSpeed * 3.6; // km/h
-    
+
     if (avgSpeedKmh > 50) {
       return RouteType.fastest; // Highway/high-speed route
     } else if (avgSpeedKmh < 30) {
@@ -83,9 +81,9 @@ class MapboxNavigationUtils {
     final duration = formatDuration(route.duration);
     final distance = formatDistance(route.distance);
     final type = classifyRoute(route);
-    
+
     String summary = '$duration ($distance)';
-    
+
     switch (type) {
       case RouteType.fastest:
         summary += ' • via highways';
@@ -97,7 +95,7 @@ class MapboxNavigationUtils {
         summary += ' • mixed route';
         break;
     }
-    
+
     return summary;
   }
 
@@ -112,50 +110,54 @@ class MapboxNavigationUtils {
   }
 
   /// Check if user is close enough to a waypoint
-  static bool isUserNearPoint(LatLng userLocation, LatLng targetPoint, {double thresholdMeters = 20}) {
+  static bool isUserNearPoint(LatLng userLocation, LatLng targetPoint,
+      {double thresholdMeters = 20}) {
     final distance = calculateDistanceMeters(userLocation, targetPoint);
     return distance <= thresholdMeters;
   }
 
   /// Find closest point on route to user location
-  static int findClosestPointIndex(LatLng userLocation, List<List<double>> routeCoordinates) {
+  static int findClosestPointIndex(
+      LatLng userLocation, List<List<double>> routeCoordinates) {
     double minDistance = double.infinity;
     int closestIndex = 0;
-    
+
     for (int i = 0; i < routeCoordinates.length; i++) {
-      final routePoint = LatLng(routeCoordinates[i][1], routeCoordinates[i][0]); // [lng, lat] -> LatLng
+      final routePoint = LatLng(routeCoordinates[i][1],
+          routeCoordinates[i][0]); // [lng, lat] -> LatLng
       final distance = calculateDistanceMeters(userLocation, routePoint);
-      
+
       if (distance < minDistance) {
         minDistance = distance;
         closestIndex = i;
       }
     }
-    
+
     return closestIndex;
   }
 
   /// Calculate remaining distance from current position along route geometry
   static double calculateRemainingDistanceFromGeometry(
-    LatLng userLocation, 
+    LatLng userLocation,
     List<List<double>> routeCoordinates,
     int currentIndex,
   ) {
     if (currentIndex >= routeCoordinates.length - 1) return 0;
-    
+
     double remainingDistance = 0;
-    
+
     // Distance from current position to next route point
-    final nextPoint = LatLng(routeCoordinates[currentIndex + 1][1], routeCoordinates[currentIndex + 1][0]);
+    final nextPoint = LatLng(routeCoordinates[currentIndex + 1][1],
+        routeCoordinates[currentIndex + 1][0]);
     remainingDistance += calculateDistanceMeters(userLocation, nextPoint);
-    
+
     // Distance for remaining route segments
     for (int i = currentIndex + 1; i < routeCoordinates.length - 1; i++) {
       final from = LatLng(routeCoordinates[i][1], routeCoordinates[i][0]);
       final to = LatLng(routeCoordinates[i + 1][1], routeCoordinates[i + 1][0]);
       remainingDistance += calculateDistanceMeters(from, to);
     }
-    
+
     return remainingDistance;
   }
 
@@ -202,16 +204,17 @@ class MapboxNavigationUtils {
   /// Sort routes by preference (fastest first, then shortest)
   static List<MapboxRoute> sortRoutesByPreference(List<MapboxRoute> routes) {
     final sortedRoutes = List<MapboxRoute>.from(routes);
-    
+
     // Sort by duration (fastest first), then by distance if duration is similar
     sortedRoutes.sort((a, b) {
       final durationDiff = a.duration.compareTo(b.duration);
-      if (durationDiff.abs() < 300) { // If within 5 minutes, prefer shorter distance
+      if (durationDiff.abs() < 300) {
+        // If within 5 minutes, prefer shorter distance
         return a.distance.compareTo(b.distance);
       }
       return durationDiff;
     });
-    
+
     return sortedRoutes;
   }
 
@@ -246,21 +249,65 @@ class MapboxNavigationUtils {
   }
 
   /// Calculate remaining time based on remaining distance and current speed
+  /// Enhanced with congestion data and progress tracking
   static double calculateRemainingTime(
     double remainingDistance,
     double? currentSpeed,
-    List<MapboxStep> remainingSteps,
-  ) {
-    // Always use route-based durations for stability instead of volatile GPS speed
-    final routeBasedTime = remainingSteps.fold(0.0, (total, step) => total + step.duration);
-    
-    // Only use current speed if it's reasonable and for fine-tuning
-    if (currentSpeed != null && currentSpeed > 2.0 && currentSpeed < 50.0) { // 2-50 m/s (7-180 km/h)
+    List<MapboxStep> remainingSteps, {
+    List<double>? congestionNumericData,
+    double? actualAverageSpeed,
+    double? expectedAverageSpeed,
+  }) {
+    // Calculate base route time from step durations
+    double routeBasedTime =
+        remainingSteps.fold(0.0, (total, step) => total + step.duration);
+
+    // Apply congestion multipliers if congestion data is available
+    if (congestionNumericData != null && congestionNumericData.isNotEmpty) {
+      // Map congestion values to multipliers and apply weighted average
+      double congestionAdjustedTime = 0.0;
+
+      // Calculate congestion-adjusted time for each step
+      // Use average congestion multiplier for remaining route segments
+      final avgCongestion = congestionNumericData.reduce((a, b) => a + b) /
+          congestionNumericData.length;
+      final congestionMultiplier =
+          MapboxLegAnnotations.congestionToMultiplier(avgCongestion);
+
+      // Apply congestion multiplier to each step's duration
+      for (final step in remainingSteps) {
+        congestionAdjustedTime += step.duration * congestionMultiplier;
+      }
+
+      // Blend congestion-adjusted time with base route time (80% congestion-adjusted, 20% base)
+      routeBasedTime = (congestionAdjustedTime * 0.8) + (routeBasedTime * 0.2);
+    }
+
+    // Apply progress tracking adjustment if available
+    double progressAdjustment = 1.0;
+    if (actualAverageSpeed != null &&
+        expectedAverageSpeed != null &&
+        expectedAverageSpeed > 0) {
+      // Calculate speed ratio: if user is slower than expected, increase time estimate
+      final speedRatio = actualAverageSpeed / expectedAverageSpeed;
+      // Apply adjustment: if speed ratio is 0.8 (20% slower), multiply time by 1.25
+      progressAdjustment = speedRatio > 0 ? (1.0 / speedRatio) : 1.0;
+      // Smooth the adjustment to prevent wild swings (use exponential moving average)
+      // Limit adjustment to reasonable range (0.5x to 2.0x)
+      progressAdjustment = progressAdjustment.clamp(0.5, 2.0);
+    }
+
+    routeBasedTime *= progressAdjustment;
+
+    // Blend with current speed if reasonable
+    if (currentSpeed != null && currentSpeed > 2.0 && currentSpeed < 50.0) {
+      // 2-50 m/s (7-180 km/h)
       final speedBasedTime = remainingDistance / currentSpeed;
-      // Blend route time with speed time for stability (70% route, 30% current speed)
+      // Blend route time (with congestion and progress adjustments) with speed time
+      // Use 70% adjusted route time, 30% current speed for stability
       return (routeBasedTime * 0.7) + (speedBasedTime * 0.3);
     } else {
-      // Use route-based time for stability
+      // Use congestion and progress-adjusted route time
       return routeBasedTime;
     }
   }
@@ -279,9 +326,9 @@ class MapboxNavigationUtils {
 }
 
 enum RouteType {
-  fastest,   // Highway/high-speed route
-  scenic,    // City/local roads  
-  balanced,  // Mixed route
+  fastest, // Highway/high-speed route
+  scenic, // City/local roads
+  balanced, // Mixed route
 }
 
 /// Route option data class
@@ -300,21 +347,22 @@ class RouteOption {
     this.isRecommended = false,
   });
 
-  factory RouteOption.fromMapboxRoute(MapboxRoute route, {bool isRecommended = false}) {
+  factory RouteOption.fromMapboxRoute(MapboxRoute route,
+      {bool isRecommended = false}) {
     final type = MapboxNavigationUtils.classifyRoute(route);
     final duration = MapboxNavigationUtils.formatDuration(route.duration);
     final distance = MapboxNavigationUtils.formatDistance(route.distance);
-    
+
     String title;
     String subtitle;
-    
+
     switch (type) {
       case RouteType.fastest:
         title = 'Fastest Route';
         subtitle = '$duration • $distance via highways';
         break;
       case RouteType.scenic:
-        title = 'City Route'; 
+        title = 'City Route';
         subtitle = '$duration • $distance through city';
         break;
       case RouteType.balanced:
@@ -322,7 +370,7 @@ class RouteOption {
         subtitle = '$duration • $distance mixed roads';
         break;
     }
-    
+
     return RouteOption(
       route: route,
       type: type,

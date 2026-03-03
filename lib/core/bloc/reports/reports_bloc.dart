@@ -119,19 +119,18 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
   ) async {
     try {
       emit(const ReportLoading());
-      // final response = await _reportRepository.voteOnReport(
-      //   event.reportType,
-      //   event.reportID,
-      // );
+      final response = await _reportRepository.voteOnReport(
+        event.reportType, // Should be "upvote" or "downvote"
+        event.reportID,
+      );
 
-      // emit(
-      //   AuthSuccess(
-
-      //     message: response.message,
-      //     user: response.data?.user,
-      //     token: response.data?.token,
-      //   ),
-      // );
+      emit(
+        VoteReportSuccess(
+          message: response.message,
+          status: response.status,
+          data: response.message, // Backend returns message in data field
+        ),
+      );
     } catch (e) {
       emit(ReportError(message: e.toString()));
     }

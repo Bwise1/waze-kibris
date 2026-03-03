@@ -3,7 +3,8 @@ import 'package:equatable/equatable.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
 import 'package:waze_kibris/core/controllers/camera_controller.dart';
-import 'package:waze_kibris/core/controllers/navigation_controller.dart' as nav_controller;
+import 'package:waze_kibris/core/controllers/navigation_controller.dart'
+    as nav_controller;
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/navigation/waypoint.dart';
 import 'package:waze_kibris/app/dashboard/services/voice_instruction_service.dart';
@@ -53,9 +54,21 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       NavigationStarted event, Emitter<NavigationState> emit) {
     final firstStep = event.route.legs.first.steps.first;
     // Determine next step if available
-    final nextStep = event.route.legs.first.steps.length > 1 
-        ? event.route.legs.first.steps[1] 
+    final nextStep = event.route.legs.first.steps.length > 1
+        ? event.route.legs.first.steps[1]
         : null;
+
+    // Calculate speed limit from route annotations (if available)
+    double? speedLimit;
+    double? expectedAverageSpeed;
+    List<double>? congestionNumericData;
+    if (event.route.legs.isNotEmpty) {
+      // Try to get speed limit from first leg's annotations
+      final firstLeg = event.route.legs.first;
+      speedLimit = firstLeg.estimatedSpeedLimitKmh;
+      expectedAverageSpeed = firstLeg.expectedAverageSpeed;
+      congestionNumericData = firstLeg.annotations?.congestionNumeric;
+    }
 
     // Enable navigation mode on camera controller
     _cameraController?.enableNavigationMode();
@@ -72,6 +85,10 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       remainingDistance: event.route.distance, // Mapbox uses double directly
       remainingDuration: event.route.duration, // Mapbox uses double directly
       isOverviewVisible: false,
+      speedLimit: speedLimit,
+      routeStartTime: DateTime.now(),
+      expectedAverageSpeed: expectedAverageSpeed,
+      congestionNumericData: congestionNumericData,
     ));
   }
 
@@ -93,7 +110,8 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       // Update camera position using camera controller
       _cameraController?.updateCamera(
         userPosition: event.position,
-        userBearing: event.position.heading >= 0 ? event.position.heading : null,
+        userBearing:
+            event.position.heading >= 0 ? event.position.heading : null,
       );
 
       final updatedState =
@@ -126,7 +144,9 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       if (currentState.userPosition != null) {
         _cameraController?.updateCamera(
           userPosition: currentState.userPosition!,
-          userBearing: currentState.userPosition!.heading >= 0 ? currentState.userPosition!.heading : null,
+          userBearing: currentState.userPosition!.heading >= 0
+              ? currentState.userPosition!.heading
+              : null,
           isOverviewMode: newOverviewState,
         );
       }
@@ -155,7 +175,7 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       try {
         final placesService = getIt<PlacesService>();
         final currentPos = currentState.userPosition;
-        
+
         if (currentPos == null) {
           print('❌ Cannot reroute: Unknown user position');
           emit(currentState.copyWith(isRerouting: false));
@@ -168,7 +188,8 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
         final destLat = lastStep.maneuver.location[1];
         final destLng = lastStep.maneuver.location[0];
 
-        print('🔄 Rerouting from (${currentPos.latitude}, ${currentPos.longitude}) to ($destLat, $destLng)...');
+        print(
+            '🔄 Rerouting from (${currentPos.latitude}, ${currentPos.longitude}) to ($destLat, $destLng)...');
 
         // 2. Fetch new route
         final response = await placesService.fetchMapboxDirections(
@@ -187,9 +208,14 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
           // 3. Update state with new route
           // We treat this as starting a new navigation segment from current location
           final firstStep = newRoute.legs.first.steps.first;
-          final nextStep = newRoute.legs.first.steps.length > 1 
-              ? newRoute.legs.first.steps[1] 
+          final nextStep = newRoute.legs.first.steps.length > 1
+              ? newRoute.legs.first.steps[1]
               : null;
+
+          // Get congestion data and expected speed from new route
+          final newLeg = newRoute.legs.first;
+          final newCongestionData = newLeg.annotations?.congestionNumeric;
+          final newExpectedSpeed = newLeg.expectedAverageSpeed;
 
           emit(NavigationInProgress(
             route: newRoute,
@@ -204,10 +230,16 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
             currentBearing: currentState.currentBearing,
             currentSpeed: currentState.currentSpeed,
             isRerouting: false, // Reset flag
+            // Preserve progress tracking (keep start time and actual speed)
+            routeStartTime: currentState.routeStartTime,
+            actualAverageSpeed: currentState.actualAverageSpeed,
+            expectedAverageSpeed:
+                newExpectedSpeed ?? currentState.expectedAverageSpeed,
+            congestionNumericData: newCongestionData,
           ));
-          
+
           // Optionally speak "Rerouting" or new instruction
-          // _voiceService.speak("Rerouting"); 
+          // _voiceService.speak("Rerouting");
         } else {
           print('⚠️ Reroute failed: No routes found');
           emit(currentState.copyWith(isRerouting: false));
@@ -260,15 +292,44 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       state.currentStepIndex,
     );
 
+    // Get congestion data from route annotations if available
+    final currentLeg = state.route.legs[state.currentLegIndex];
+    final congestionData = currentLeg.annotations?.congestionNumeric;
+
+    // Calculate expected average speed from route
+    final expectedAverageSpeed =
+        currentLeg.expectedAverageSpeed ?? state.expectedAverageSpeed;
+
+    // Calculate actual average speed based on progress
+    double? actualAverageSpeed = state.actualAverageSpeed;
+    final routeStartTime = state.routeStartTime;
+    if (routeStartTime != null && position.speed > 0) {
+      final elapsedTime = DateTime.now().difference(routeStartTime).inSeconds;
+      if (elapsedTime > 0) {
+        // Calculate distance traveled so far
+        final totalDistance = state.route.distance;
+        final distanceTraveled = totalDistance - remainingDistance;
+
+        if (distanceTraveled > 0) {
+          // Actual average speed = distance traveled / time elapsed
+          actualAverageSpeed = distanceTraveled / elapsedTime;
+        }
+      }
+    }
+
     final remainingDuration = MapboxNavigationUtils.calculateRemainingTime(
       remainingDistance,
       position.speed, // Current speed in m/s
       allSteps.sublist(state.currentStepIndex + 1),
+      congestionNumericData: congestionData,
+      actualAverageSpeed: actualAverageSpeed,
+      expectedAverageSpeed: expectedAverageSpeed,
     );
 
     // Enhanced off-route detection
-    final isOffRoute = MapboxNavigationUtils.isOffRoute(position, currentStep) &&
-        !state.isRerouting; // Don't trigger if already rerouting
+    final isOffRoute =
+        MapboxNavigationUtils.isOffRoute(position, currentStep) &&
+            !state.isRerouting; // Don't trigger if already rerouting
 
     if (isOffRoute) {
       print('⚠️ User is off-route! Triggering reroute...');
@@ -276,9 +337,9 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       // But we can return a state with isRerouting=true to trigger the UI/Bloc listener?
       // Better: The Bloc's _onPositionUpdated calls this.
       // We should handle the event dispatch there or return a flag.
-      // Since this returns state, we'll set isRerouting=true here, 
+      // Since this returns state, we'll set isRerouting=true here,
       // AND we need to ensure the Bloc sees this and triggers the async reroute.
-      // Actually, _onPositionUpdated emits the state. 
+      // Actually, _onPositionUpdated emits the state.
       // We should probably trigger the reroute event from _onPositionUpdated if this returns isRerouting=true.
     }
 
@@ -303,6 +364,10 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       currentBearing: position.heading >= 0 ? position.heading : null,
       // Update current speed
       currentSpeed: position.speed,
+      // Update progress tracking
+      actualAverageSpeed: actualAverageSpeed,
+      expectedAverageSpeed: expectedAverageSpeed,
+      congestionNumericData: congestionData,
     );
 
     // Advance step if needed
@@ -370,7 +435,8 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       finalStep.maneuver.location[0], // lng
     );
 
-    return distanceToDestination < MapboxNavigationUtils.destinationReachedThreshold;
+    return distanceToDestination <
+        MapboxNavigationUtils.destinationReachedThreshold;
   }
 
   NavigationInProgress _advanceStep(NavigationInProgress state) {
@@ -379,8 +445,8 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
 
     if (nextStepIndex < allSteps.length) {
       // Determine the step after the next one (for preview)
-      final nextNextStep = nextStepIndex + 1 < allSteps.length 
-          ? allSteps[nextStepIndex + 1] 
+      final nextNextStep = nextStepIndex + 1 < allSteps.length
+          ? allSteps[nextStepIndex + 1]
           : null;
 
       return state.copyWith(
@@ -397,7 +463,7 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     if (state.currentLegIndex < state.route.legs.length - 1) {
       final nextLeg = state.route.legs[state.currentLegIndex + 1];
       final nextStep = nextLeg.steps.length > 1 ? nextLeg.steps[1] : null;
-      
+
       return state.copyWith(
         currentStep: nextLeg.steps.first,
         nextStep: nextStep,

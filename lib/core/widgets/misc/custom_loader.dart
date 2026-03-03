@@ -20,8 +20,9 @@ class CustomLoader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bColor =
-        isAndroid == true ? styles.theme.white : styles.theme.primary;
+    // Use contrasting colors: light background on both platforms for visibility
+    // iOS was using primary color for background, making it invisible (same as valueColor)
+    final bColor = color ?? styles.theme.white;
     switch (type) {
       case LoaderType.spinner:
         return Center(
@@ -32,7 +33,7 @@ class CustomLoader extends StatelessWidget {
               strokeCap: StrokeCap.round,
               strokeWidth: 3,
               valueColor: AlwaysStoppedAnimation<Color>(styles.theme.primary),
-              backgroundColor: color ?? bColor,
+              backgroundColor: bColor,
             ),
           ),
         );
