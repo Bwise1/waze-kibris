@@ -11,7 +11,8 @@ class SnapToRoadService {
   static const double _snapDistanceThreshold = 50.0; // meters
   static const double _offRouteThreshold = 100.0; // meters  
   static const double _rerouteThreshold = 150.0; // meters - when to trigger reroute
-  static const double _smoothingFactor = 0.3; // for position smoothing - reduced for more responsive snapping
+  static const double _smoothingFactor = 0.15; // for position smoothing - reduced for more responsive snapping
+  static const double _stickySnapThreshold = 5.0; // meters - force puck within this distance when on-route
 
   // Cache for route points
   List<PointLatLng>? _currentRoutePoints;
@@ -117,8 +118,16 @@ class SnapToRoadService {
     double bearing = gpsPosition.heading;
 
     if (isOnRoute && !hasGpsJump) {
-      // User is on route and GPS is stable - snap with smoothing
+      // User is on route and GPS is stable - snap with smoothing and sticky snap
       snappedPoint = _smoothSnapPosition(nearestResult.point, gpsPoint);
+      
+      // Sticky snap: force puck within threshold when on-route
+      final distanceToSnapped = _calculateDistance(gpsPoint, snappedPoint);
+      if (distanceToSnapped > _stickySnapThreshold) {
+        // If puck would escape beyond threshold, clamp it to threshold distance
+        snappedPoint = _movePointTowards(snappedPoint, gpsPoint, _stickySnapThreshold);
+      }
+      
       bearing = _calculateRouteBearing(nearestResult.index);
       _lastSnappedPoint = snappedPoint;
       _lastNearestIndex = nearestResult.index;
@@ -127,19 +136,29 @@ class SnapToRoadService {
       _resetOffRouteTracking();
       
     } else if (isOnRoute && hasGpsJump) {
-      // GPS jump but still on route - use less aggressive snapping
+      // GPS jump but still on route - use less aggressive snapping with sticky snap
       snappedPoint = _blendPositions(gpsPoint, nearestResult.point, 0.3);
+      
+      // Apply sticky snap even during GPS jumps
+      final distanceToSnapped = _calculateDistance(gpsPoint, snappedPoint);
+      if (distanceToSnapped > _stickySnapThreshold) {
+        snappedPoint = _movePointTowards(snappedPoint, gpsPoint, _stickySnapThreshold);
+      }
+      
       bearing = _interpolateBearing(gpsPosition.heading, _calculateRouteBearing(nearestResult.index), 0.3);
       _lastSnappedPoint = snappedPoint;
       _lastNearestIndex = nearestResult.index;
       
     } else if (isOffRoute && !needsReroute) {
-      // User is off route but not far enough for reroute yet
-      snappedPoint = gpsPoint; // Use GPS position
-      bearing = gpsPosition.heading; // Use GPS bearing
+      // User is off route but not far enough for reroute yet - ALWAYS snap to nearest route point
+      // Don't use raw GPS - this prevents visible "escape" from route
+      snappedPoint = nearestResult.point;
+      bearing = _calculateRouteBearing(nearestResult.index);
+      _lastSnappedPoint = snappedPoint;
+      _lastNearestIndex = nearestResult.index;
       
     } else if (needsReroute) {
-      // User needs rerouting - use GPS position
+      // User needs rerouting - use GPS position (reroute will handle this)
       snappedPoint = gpsPoint;
       bearing = gpsPosition.heading;
       
@@ -238,11 +257,11 @@ class SnapToRoadService {
     PointLatLng nearestPoint = _currentRoutePoints![0];
     int nearestIndex = 0;
 
-    // Expanded search window for better coverage
-    final startIndex = math.max(0, _lastNearestIndex - 20);
+    // Expanded search window for better coverage - increased to prevent escape
+    final startIndex = math.max(0, _lastNearestIndex - 50);
     final endIndex = math.min(
       _currentRoutePoints!.length,
-      _lastNearestIndex + 100,
+      _lastNearestIndex + 200,
     );
 
     for (int i = startIndex; i < endIndex - 1; i++) {
@@ -314,6 +333,28 @@ class SnapToRoadService {
     final lat = point1.latitude * (1 - weight) + point2.latitude * weight;
     final lng = point1.longitude * (1 - weight) + point2.longitude * weight;
     return PointLatLng(lat, lng);
+  }
+
+  /// Move a point towards another point by a maximum distance (for sticky snap)
+  PointLatLng _movePointTowards(PointLatLng from, PointLatLng to, double maxDistance) {
+    final distance = _calculateDistance(from, to);
+    if (distance <= maxDistance) {
+      return from; // Already within threshold
+    }
+    
+    // Calculate direction vector
+    final bearing = _calculateBearing(from, to);
+    final bearingRad = bearing * math.pi / 180.0;
+    
+    // Move from point towards to point by maxDistance
+    final lat1Rad = from.latitude * math.pi / 180.0;
+    final dLat = maxDistance / 111320.0; // meters to degrees (approximate)
+    final dLng = maxDistance / (111320.0 * math.cos(lat1Rad));
+    
+    final newLat = from.latitude + (dLat * math.cos(bearingRad));
+    final newLng = from.longitude + (dLng * math.sin(bearingRad));
+    
+    return PointLatLng(newLat, newLng);
   }
 
   /// Calculate bearing along route
@@ -515,7 +556,8 @@ class SnapToRoadService {
     final timeInHours = timeDiff.inMilliseconds / (1000 * 60 * 60);
     final maxExpectedDistance = maxReasonableSpeed * 1000 * timeInHours; // meters
 
-    if (distance > _gpsJumpThreshold && distance > maxExpectedDistance * 2) {
+    // Improved threshold: detect jumps more aggressively (1.5x instead of 2x)
+    if (distance > _gpsJumpThreshold && distance > maxExpectedDistance * 1.5) {
       debugPrint('📍 GPS jump detected: ${distance.toStringAsFixed(1)}m in ${timeDiff.inSeconds}s');
       return true;
     }

@@ -369,7 +369,8 @@ class PlacesService {
     required double originLng,
     required double destinationLat,
     required double destinationLng,
-    String profile = 'driving-traffic', // driving, walking, cycling, driving-traffic (recommended)
+    String profile =
+        'driving-traffic', // driving, walking, cycling, driving-traffic (recommended)
     List<String>? waypoints, // Optional waypoints in "lat,lng" format
     bool alternatives = true, // Get alternative routes for selection
   }) async {
@@ -377,16 +378,16 @@ class PlacesService {
       'origin': '$originLat,$originLng',
       'destination': '$destinationLat,$destinationLng',
     };
-    
+
     if (profile.isNotEmpty) {
       params['profile'] = profile;
     }
-    
+
     // Request alternatives for route selection
     if (alternatives) {
       params['alternatives'] = 'true';
     }
-    
+
     // Add waypoints if provided
     if (waypoints != null && waypoints.isNotEmpty) {
       for (int i = 0; i < waypoints.length; i++) {
@@ -395,26 +396,99 @@ class PlacesService {
     }
 
     try {
+      debugPrint('🔵 [ROUTES] Requesting Mapbox Directions');
+      debugPrint('🔵 [ROUTES] Origin: $originLat,$originLng');
+      debugPrint('🔵 [ROUTES] Destination: $destinationLat,$destinationLng');
+      debugPrint('🔵 [ROUTES] Profile: $profile, Alternatives: $alternatives');
+      debugPrint(
+          '🔵 [ROUTES] Request URL: $backendBaseUrl/places/mapboxdirections');
+      debugPrint('🔵 [ROUTES] Request params: $params');
+
       final response = await _dio.get(
         '$backendBaseUrl/places/mapboxdirections',
         queryParameters: params,
         options: Options(headers: _authHeaders),
       );
 
+      debugPrint('🔵 [ROUTES] Backend response status: ${response.statusCode}');
+      debugPrint('🔵 [ROUTES] Backend response headers: ${response.headers}');
+      debugPrint(
+          '🔵 [ROUTES] Backend response data type: ${response.data.runtimeType}');
+      debugPrint('🔵 [ROUTES] Backend response data: ${response.data}');
+
       if (response.statusCode == 200) {
-        print('Mapbox Directions response: ${response.data}');
         final dynamic responseData = response.data;
+        debugPrint(
+            '🔵 [ROUTES] Response data keys: ${responseData is Map ? responseData.keys.toList() : "Not a Map"}');
+
+        // Check if backend returned an error message even with status 200
+        if (responseData is Map<String, dynamic>) {
+          if (responseData.containsKey('message') && 
+              responseData.containsKey('status') &&
+              responseData['status'] != 'success') {
+            final errorMessage = responseData['message'] ?? responseData['status'] ?? 'Unknown error';
+            debugPrint('🔵 [ROUTES] ❌ Backend returned error: $errorMessage');
+            // Re-throw as-is, don't wrap as parsing error
+            throw Exception(errorMessage);
+          }
+        }
+
         final data = responseData['data'] ?? responseData;
-        return MapboxDirectionsResponse.fromJson(data as Map<String, dynamic>);
+        debugPrint('🔵 [ROUTES] Parsing data: ${data.runtimeType}');
+        debugPrint(
+            '🔵 [ROUTES] Data keys: ${data is Map ? data.keys.toList() : "Not a Map"}');
+
+        final directionsResponse =
+            MapboxDirectionsResponse.fromJson(data as Map<String, dynamic>);
+
+        debugPrint(
+            '🔵 [ROUTES] ✅ Successfully parsed MapboxDirectionsResponse');
+        debugPrint(
+            '🔵 [ROUTES] Routes count: ${directionsResponse.routes.length}');
+
+        if (directionsResponse.routes.isNotEmpty) {
+          for (int i = 0; i < directionsResponse.routes.length; i++) {
+            final route = directionsResponse.routes[i];
+            debugPrint(
+                '🔵 [ROUTES] Route $i: distance=${route.distance}m, duration=${route.duration}s, legs=${route.legs.length}');
+          }
+        } else {
+          debugPrint('🔵 [ROUTES] ⚠️ WARNING: Routes list is EMPTY!');
+          // Throw exception if routes are empty - this indicates an error
+          throw Exception('No routes found. Please check your connection and try again.');
+        }
+
+        return directionsResponse;
       } else {
+        debugPrint(
+            '🔵 [ROUTES] ❌ ERROR: Backend returned status ${response.statusCode}');
+        debugPrint('🔵 [ROUTES] Response body: ${response.data}');
         throw Exception('Mapbox Directions API Error: ${response.statusCode}');
       }
     } on DioException catch (e) {
-      print('Mapbox Directions error: $e');
-      debugPrint('Mapbox Directions Dio error: ${e.response?.data}');
+      debugPrint('🔵 [ROUTES] ❌ DioException occurred');
+      debugPrint('🔵 [ROUTES] Error type: ${e.type}');
+      debugPrint('🔵 [ROUTES] Error message: ${e.message}');
+      debugPrint('🔵 [ROUTES] Response status: ${e.response?.statusCode}');
+      debugPrint('🔵 [ROUTES] Response data: ${e.response?.data}');
+      debugPrint('🔵 [ROUTES] Request options: ${e.requestOptions.uri}');
       throw Exception('Network error: ${e.message}');
-    } catch (e) {
-      debugPrint('Mapbox Directions parsing error: $e');
+    } catch (e, stackTrace) {
+      debugPrint('🔵 [ROUTES] ❌ Exception occurred');
+      debugPrint('🔵 [ROUTES] Error: $e');
+      debugPrint('🔵 [ROUTES] Stack trace: $stackTrace');
+      
+      // Don't wrap backend errors as parsing errors
+      // If exception message indicates backend error, throw as-is
+      final errorString = e.toString();
+      if (errorString.contains('Failed to get') || 
+          errorString.contains('Unable to complete') ||
+          errorString.contains('No routes found')) {
+        // This is a backend error, not a parsing error - re-throw as-is
+        rethrow;
+      }
+      
+      // Otherwise, it's likely a parsing error
       throw Exception('Parsing error: $e');
     }
   }
@@ -464,11 +538,13 @@ class PlacesService {
     }
 
     final payload = {
-      'coordinates': coordinates.map((coord) => {
-        'lat': coord.lat,
-        'lng': coord.lng,
-        'timestamp': coord.timestamp?.millisecondsSinceEpoch,
-      }).toList(),
+      'coordinates': coordinates
+          .map((coord) => {
+                'lat': coord.lat,
+                'lng': coord.lng,
+                'timestamp': coord.timestamp?.millisecondsSinceEpoch,
+              })
+          .toList(),
       'approach': approach,
     };
 
@@ -478,8 +554,9 @@ class PlacesService {
     }
 
     try {
-      debugPrint('🗺️ Calling Map Matching API with ${coordinates.length} coordinates');
-      
+      debugPrint(
+          '🗺️ Calling Map Matching API with ${coordinates.length} coordinates');
+
       final response = await _dio.post(
         '$backendBaseUrl/places/mapboxmapmatching',
         data: payload,
@@ -493,37 +570,38 @@ class PlacesService {
         // Parse Map Matching response
         if (data is Map<String, dynamic> && data.containsKey('matchings')) {
           final matchings = data['matchings'] as List;
-          
+
           if (matchings.isNotEmpty) {
             final firstMatching = matchings[0] as Map<String, dynamic>;
             final geometry = firstMatching['geometry'] as Map<String, dynamic>;
             final coordinates = geometry['coordinates'] as List;
-            
+
             // Convert coordinates to LatLng
             return coordinates.map<LatLng>((coord) {
               final coordList = coord as List;
-              return LatLng(coordList[1] as double, coordList[0] as double); // [lng, lat] -> LatLng(lat, lng)
+              return LatLng(coordList[1] as double,
+                  coordList[0] as double); // [lng, lat] -> LatLng(lat, lng)
             }).toList();
           }
         }
 
         // If no matchings found, return original coordinates
         debugPrint('⚠️ No map matching results found');
-        return coordinates.map((coord) => LatLng(coord.lat, coord.lng)).toList();
-        
+        return coordinates
+            .map((coord) => LatLng(coord.lat, coord.lng))
+            .toList();
       } else {
         throw Exception('Map Matching API Error: ${response.statusCode}');
       }
     } on DioException catch (e) {
       debugPrint('Map Matching Dio error: ${e.response?.data}');
-      
+
       // Fallback to original coordinates on network error
       debugPrint('🔄 Map Matching failed, using original coordinates');
       return coordinates.map((coord) => LatLng(coord.lat, coord.lng)).toList();
-      
     } catch (e) {
       debugPrint('Map Matching parsing error: $e');
-      
+
       // Fallback to original coordinates on parsing error
       return coordinates.map((coord) => LatLng(coord.lat, coord.lng)).toList();
     }
@@ -542,7 +620,8 @@ class MapMatchingCoordinate {
     this.timestamp,
   });
 
-  factory MapMatchingCoordinate.fromGeolocatorPosition(geo.Position position, {DateTime? timestamp}) {
+  factory MapMatchingCoordinate.fromGeolocatorPosition(geo.Position position,
+      {DateTime? timestamp}) {
     return MapMatchingCoordinate(
       lat: position.latitude,
       lng: position.longitude,
@@ -550,7 +629,8 @@ class MapMatchingCoordinate {
     );
   }
 
-  factory MapMatchingCoordinate.fromLatLng(LatLng latLng, {DateTime? timestamp}) {
+  factory MapMatchingCoordinate.fromLatLng(LatLng latLng,
+      {DateTime? timestamp}) {
     return MapMatchingCoordinate(
       lat: latLng.latitude,
       lng: latLng.longitude,

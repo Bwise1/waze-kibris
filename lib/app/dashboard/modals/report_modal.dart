@@ -60,11 +60,23 @@ class ReportEventModal extends StatelessWidget {
   ];
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.all(styles.insets.sm),
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        styles.insets.sm,
+        styles.insets.sm,
+        styles.insets.sm,
+        styles.insets.sm + bottomPadding,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Drag handle
           Container(
             height: 4,
             width: 40,
@@ -94,10 +106,6 @@ class ReportEventModal extends StatelessWidget {
               return GestureDetector(
                 onTap: () {
                   if (reports[index]['isNewPage'] as bool) {
-                    /// this mean we are navigating to a different new page
-                    ///
-                    ///
-                    ///
                     Navigator.pop(context);
                   } else {
                     Navigator.pop(context);
@@ -292,6 +300,17 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                         } else if (state is SubmitReportSuccess) {
                           Navigator.pop(context);
                           RSnackBar.success(state.message).show(context);
+                          // Explicitly refresh reports after successful submission
+                          // The bloc already calls getNearByReports, but ensure it uses current position
+                          if (authState is UserCoordinate) {
+                            reportContext.read<ReportsBloc>().add(
+                                  ReportsEvent.getNearByReports(
+                                    radius: 50,
+                                    lat: authState.latitude.toString(),
+                                    long: authState.longitude.toString(),
+                                  ),
+                                );
+                          }
                         }
                         //this happens wen token has expired
                         // if (state.message == 'Exception: token-expired') {

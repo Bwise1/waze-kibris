@@ -7,6 +7,7 @@ class CustomSearchBar extends StatelessWidget {
     required this.onChanged,
     required this.onClear,
     required this.onFocus,
+    this.focusNode,
     super.key,
   });
 
@@ -14,6 +15,7 @@ class CustomSearchBar extends StatelessWidget {
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
   final VoidCallback onFocus;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +42,7 @@ class CustomSearchBar extends StatelessWidget {
               },
               child: CustomTextField(
                 controller: controller,
+                focusNode: focusNode,
                 hintText: 'Enter new destination',
                 onChanged: (v) {
                   onChanged(v);
@@ -121,7 +124,8 @@ class SearchSuggestionList extends StatelessWidget {
     }
     return ListView.separated(
       padding: EdgeInsets.zero,
-      physics: const BouncingScrollPhysics(),
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
       itemCount: suggestions.length,
       separatorBuilder: (_, __) => Divider(height: 1, color: Colors.red[100]),
       itemBuilder: (context, index) {

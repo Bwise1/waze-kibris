@@ -26,6 +26,13 @@ class NavigationInProgress extends NavigationState {
   final bool isNavigationComplete;
   final double? currentBearing; // Added for camera tracking
   final double? currentSpeed; // Added for speed tracking
+  final double?
+      speedLimit; // Estimated speed limit from route annotations (km/h)
+  final DateTime? routeStartTime; // When navigation started
+  final double? actualAverageSpeed; // Average speed so far (m/s)
+  final double? expectedAverageSpeed; // Expected average from route (m/s)
+  final List<double>?
+      congestionNumericData; // congestion_numeric values (0-100) for remaining route segments
 
   const NavigationInProgress({
     required this.route,
@@ -43,6 +50,11 @@ class NavigationInProgress extends NavigationState {
     this.isNavigationComplete = false,
     this.currentBearing,
     this.currentSpeed,
+    this.speedLimit,
+    this.routeStartTime,
+    this.actualAverageSpeed,
+    this.expectedAverageSpeed,
+    this.congestionNumericData,
   });
 
   @override
@@ -62,6 +74,11 @@ class NavigationInProgress extends NavigationState {
         isNavigationComplete,
         currentBearing,
         currentSpeed,
+        speedLimit,
+        routeStartTime,
+        actualAverageSpeed,
+        expectedAverageSpeed,
+        congestionNumericData,
       ];
 
   NavigationInProgress copyWith({
@@ -80,6 +97,11 @@ class NavigationInProgress extends NavigationState {
     bool? isNavigationComplete,
     double? currentBearing,
     double? currentSpeed,
+    double? speedLimit,
+    DateTime? routeStartTime,
+    double? actualAverageSpeed,
+    double? expectedAverageSpeed,
+    List<double>? congestionNumericData,
   }) {
     return NavigationInProgress(
       route: route ?? this.route,
@@ -98,6 +120,12 @@ class NavigationInProgress extends NavigationState {
       isNavigationComplete: isNavigationComplete ?? this.isNavigationComplete,
       currentBearing: currentBearing ?? this.currentBearing,
       currentSpeed: currentSpeed ?? this.currentSpeed,
+      speedLimit: speedLimit ?? this.speedLimit,
+      routeStartTime: routeStartTime ?? this.routeStartTime,
+      actualAverageSpeed: actualAverageSpeed ?? this.actualAverageSpeed,
+      expectedAverageSpeed: expectedAverageSpeed ?? this.expectedAverageSpeed,
+      congestionNumericData:
+          congestionNumericData ?? this.congestionNumericData,
     );
   }
 

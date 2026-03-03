@@ -1,25 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
-import 'package:sheet/sheet.dart';
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
-import 'package:waze_kibris/app/dashboard/modals/report_modal.dart';
-import 'package:waze_kibris/app/dashboard/view/map_app_bar.dart';
 import 'package:waze_kibris/app/dashboard/view/map_controller_mixin.dart';
 import 'package:waze_kibris/app/dashboard/view/map_sheet.dart';
 import 'package:waze_kibris/app/dashboard/view/navigation_overlay.dart';
+import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/app/dashboard/view/route_bar.dart';
 import 'package:waze_kibris/app/dashboard/view/route_overview.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
-import 'package:waze_kibris/core/bloc/reports/report_state.dart';
-import 'package:waze_kibris/core/dialog_route.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
-import 'package:waze_kibris/core/widgets/buttons/app_button.dart';
 
 class MainDashboard extends StatefulWidget {
   const MainDashboard({super.key});
@@ -30,48 +27,47 @@ class MainDashboard extends StatefulWidget {
 
 class _MainDashboardState extends State<MainDashboard>
     with TickerProviderStateMixin, MapControllerMixin {
-  late SheetController controller;
   bool _isModalOpen = false;
   late NavigationBloc _navigationBloc;
   SearchSuggestion? _activeRouteSuggestion;
   Position? _lastReportFetchPosition;
   bool _initialReportsFetched = false;
+  bool _isMapSheetVisible = true; // Control MapSheet visibility
+  Timer?
+      _routeRefreshTimer; // Timer for periodic route refresh during navigation
 
   @override
   NavigationBloc get navigationBloc => _navigationBloc;
 
   void _fetchNearbyReports(Position position) {
-    // Only fetch if we've moved significantly or haven't fetched before
     if (_lastReportFetchPosition == null ||
         Geolocator.distanceBetween(
-          _lastReportFetchPosition!.latitude,
-          _lastReportFetchPosition!.longitude,
-          position.latitude,
-          position.longitude,
-        ) > 1000) { // Fetch reports every 1km movement
-      
+              _lastReportFetchPosition!.latitude,
+              _lastReportFetchPosition!.longitude,
+              position.latitude,
+              position.longitude,
+            ) >
+            1000) {
       _lastReportFetchPosition = position;
-      
-      debugPrint('🚨 Fetching reports near: ${position.latitude}, ${position.longitude}');
-      
+
+      debugPrint(
+          '🚨 Fetching reports near: ${position.latitude}, ${position.longitude}');
+
       context.read<ReportsBloc>().add(
-        ReportsEvent.getNearByReports(
-          radius: 50, // 50km radius
-          lat: position.latitude.toString(),
-          long: position.longitude.toString(),
-        ),
-      );
+            ReportsEvent.getNearByReports(
+              radius: 50,
+              lat: position.latitude.toString(),
+              long: position.longitude.toString(),
+            ),
+          );
     }
   }
 
   void _fetchNearbyReportsAfterDelay() async {
-    // Wait for location to be available before fetching reports
     await Future.delayed(const Duration(seconds: 3));
-    
+
     try {
       final currentPosition = await Geolocator.getCurrentPosition();
-      
-      // Check if widget is still mounted before using context
       if (mounted) {
         _fetchNearbyReports(currentPosition);
       }
@@ -82,10 +78,8 @@ class _MainDashboardState extends State<MainDashboard>
 
   @override
   void onPositionUpdate(Position position) {
-    // Fetch reports when user moves significantly
     _fetchNearbyReports(position);
 
-    // Update route progress during navigation
     final currentState = _navigationBloc.state;
     if (currentState is NavigationInProgress) {
       updateRouteProgress(
@@ -101,18 +95,18 @@ class _MainDashboardState extends State<MainDashboard>
     super.initState();
     _navigationBloc = NavigationBloc();
     setupPositionTracking();
-    controller = SheetController();
     _preloadUserLocation();
   }
 
   Future<void> _preloadUserLocation() async {
     try {
-      // Get last known position immediately for fast startup
       final position = await Geolocator.getLastKnownPosition();
       if (position != null && mounted) {
         setState(() {
           _lastReportFetchPosition = position;
         });
+        // Fetch reports immediately if we have a last known position
+        _fetchNearbyReports(position);
       }
     } catch (e) {
       debugPrint('Error preloading location: $e');
@@ -121,6 +115,7 @@ class _MainDashboardState extends State<MainDashboard>
 
   @override
   void dispose() {
+    _routeRefreshTimer?.cancel();
     _navigationBloc.close();
     super.dispose();
   }
@@ -138,7 +133,6 @@ class _MainDashboardState extends State<MainDashboard>
   }
 
   void _startNavigation(MapboxRoute route) {
-    // Check if we are already at the destination (e.g., distance < 50 meters)
     if (route.distance < 50) {
       showDialog(
         context: context,
@@ -156,42 +150,99 @@ class _MainDashboardState extends State<MainDashboard>
       return;
     }
 
-    // Draw the route polyline first
+    // MapSheet is already hidden during navigation, but ensure it stays hidden
+    setState(() {
+      _isMapSheetVisible = false;
+    });
+
     drawMapboxPolyline(route);
-
-    // Update map for navigation mode FIRST
     updateMapForNavigationMode(true);
-
-    // Immediately zoom to navigation level
     forceNavigationZoom();
-
-    // Start navigation
     _navigationBloc.add(NavigationStarted(route: route));
     setIsFollowingUser(true);
-
-    // Initialize snap-to-road with route data
     initializeSnapToRoad(route);
 
-    // Close the sheet when navigation starts
-    controller.relativeAnimateTo(
-      0.0,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
+    // Start periodic route refresh timer (every 4 minutes)
+    _startRouteRefreshTimer(route);
+  }
+
+  void _startRouteRefreshTimer(MapboxRoute initialRoute) {
+    // Cancel any existing timer
+    _routeRefreshTimer?.cancel();
+
+    // Refresh route every 4 minutes to get updated traffic conditions
+    _routeRefreshTimer =
+        Timer.periodic(const Duration(minutes: 4), (timer) async {
+      final currentState = _navigationBloc.state;
+      if (currentState is NavigationInProgress && !currentState.isRerouting) {
+        try {
+          final currentPos = currentState.userPosition;
+          if (currentPos == null) {
+            debugPrint('⚠️ Cannot refresh route: No current position');
+            return;
+          }
+
+          // Get destination from current route (last point of last step)
+          final lastLeg = currentState.route.legs.last;
+          final lastStep = lastLeg.steps.last;
+          final destLat = lastStep.maneuver.location[1];
+          final destLng = lastStep.maneuver.location[0];
+
+          debugPrint(
+              '🔄 Refreshing route from (${currentPos.latitude}, ${currentPos.longitude}) to ($destLat, $destLng)...');
+
+          final placesService = getIt<PlacesService>();
+          final response = await placesService.fetchMapboxDirections(
+            originLat: currentPos.latitude,
+            originLng: currentPos.longitude,
+            destinationLat: destLat,
+            destinationLng: destLng,
+            profile: 'driving-traffic',
+            alternatives: false,
+          );
+
+          if (response.routes.isNotEmpty) {
+            final refreshedRoute = response.routes.first;
+            debugPrint(
+                '✅ Route refreshed! New distance: ${refreshedRoute.distance}m, duration: ${refreshedRoute.duration}s');
+
+            // Update navigation with refreshed route
+            _navigationBloc.add(NavigationStarted(route: refreshedRoute));
+
+            // Update polyline visualization
+            drawMapboxPolyline(refreshedRoute);
+          } else {
+            debugPrint('⚠️ Route refresh failed: No routes found');
+          }
+        } catch (e) {
+          debugPrint('❌ Error refreshing route: $e');
+          // Don't cancel timer on error - will retry on next interval
+        }
+      } else {
+        // Navigation ended or rerouting in progress, cancel timer
+        timer.cancel();
+      }
+    });
   }
 
   void _endNavigation() {
+    // Cancel route refresh timer
+    _routeRefreshTimer?.cancel();
+    _routeRefreshTimer = null;
+
     _navigationBloc.add(NavigationStopped());
     updateMapForNavigationMode(false);
     clearRoutePolyline();
     clearSnapToRoad();
-    _clearRouteBar(); // Also dismiss the route bar when ending navigation
+    _clearRouteBar();
+    // Restore MapSheet visibility when navigation ends
+    setState(() {
+      _isMapSheetVisible = true;
+    });
   }
 
   void _onReportsReceived(List<ReportData> reports) {
     debugPrint('📍 Received ${reports.length} reports to display on map');
-    
-    // Pass reports to map controller to display as markers
     displayReportsOnMap(reports);
   }
 
@@ -199,48 +250,42 @@ class _MainDashboardState extends State<MainDashboard>
 
   @override
   Widget build(BuildContext context) {
-    // Trigger initial reports fetch after first build
     if (!_initialReportsFetched) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _fetchNearbyReportsAfterDelay();
+        // Fetch reports immediately if we have a last known position
+        // Otherwise, fetch after delay as fallback
+        if (_lastReportFetchPosition != null) {
+          _fetchNearbyReports(_lastReportFetchPosition!);
+        } else {
+          _fetchNearbyReportsAfterDelay();
+        }
         _initialReportsFetched = true;
       });
     }
-    
+
     debugPrint('🔥 MainDashboard build() called');
 
     return BlocProvider.value(
       value: _navigationBloc,
       child: Scaffold(
         extendBodyBehindAppBar: true,
-        resizeToAvoidBottomInset: false, // Prevent keyboard from pushing sheet up
+        resizeToAvoidBottomInset: false,
         backgroundColor: Colors.grey[200],
-        // Fixed AppBar issue - wrap BlocBuilder in PreferredSize
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(kToolbarHeight),
-          child: BlocBuilder<NavigationBloc, NavigationState>(
-            builder: (context, state) {
-              // Hide app bar during navigation
-              if (state is NavigationInProgress && !state.isOverviewVisible) {
-                return AppBar(
-                  backgroundColor: Colors.transparent,
-                  elevation: 0,
-                  toolbarHeight: 0,
-                  automaticallyImplyLeading: false,
-                );
-              }
-              return MapAppBar(controller: controller);
-            },
-          ),
-        ),
         body: MultiBlocListener(
           listeners: [
             BlocListener<NavigationBloc, NavigationState>(
               listener: (context, state) {
                 if (state is NavigationInProgress) {
-                  // Handle navigation state changes
                   if (state.isNavigationComplete) {
                     _showNavigationCompleteDialog();
+                  }
+                } else if (state is NavigationInitial) {
+                  // Self-healing failsafe: whenever navigation returns to initial/idle,
+                  // ensure MapSheet is restored regardless of how it was hidden.
+                  if (!_isMapSheetVisible) {
+                    setState(() {
+                      _isMapSheetVisible = true;
+                    });
                   }
                 }
               },
@@ -259,12 +304,11 @@ class _MainDashboardState extends State<MainDashboard>
             builder: (context, state) {
               return Stack(
                 children: [
-                  // Map widget
+                  // Map widget (full screen)
                   mp.MapWidget(
                     key: _mapWidgetKey,
                     onMapCreated: onMapCreated,
                     onTapListener: onMapTap,
-                    // Use initial camera options if we have a last known position
                     cameraOptions: _lastReportFetchPosition != null
                         ? mp.CameraOptions(
                             center: mp.Point(
@@ -273,12 +317,12 @@ class _MainDashboardState extends State<MainDashboard>
                                 _lastReportFetchPosition!.latitude,
                               ),
                             ),
-                            zoom: 15.0, // Start close up
+                            zoom: 15.0,
                           )
                         : null,
                   ),
 
-                  // Show route bar if there's an active suggestion and not navigating
+                  // Route bar (shown when a destination is selected)
                   if (_activeRouteSuggestion != null &&
                       state is! NavigationInProgress)
                     Positioned(
@@ -294,7 +338,7 @@ class _MainDashboardState extends State<MainDashboard>
                       ),
                     ),
 
-                  // Show navigation UI when in navigation mode
+                  // Navigation UI
                   if (state is NavigationInProgress) ...[
                     if (state.isOverviewVisible)
                       RouteOverviewWidget(
@@ -311,65 +355,45 @@ class _MainDashboardState extends State<MainDashboard>
                         onToggleOverview: () {
                           _navigationBloc.add(NavigationOverviewToggled());
                           if (!state.isOverviewVisible) {
-                            // Switching to overview mode
                             setIsFollowingUser(false);
                           } else {
-                            // Switching back to navigation mode
                             setIsFollowingUser(true);
                           }
                         },
                       ),
                   ],
 
-                    // Show bottom sheet only when not navigating and no modal is open
-                    if (state is! NavigationInProgress && !_isModalOpen)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final screenHeight = MediaQuery.of(context).size.height;
-                            return AnimatedBuilder(
-                              animation: controller.animation,
-                              builder: (context, child) {
-                                return SizedBox(
-                                  height: screenHeight,
-                                  child: MapSheet(
-                                    controller: controller,
-                                    onSuggestionSelected: _onSuggestionSelected,
-                                    onDrawMapboxPolyline: drawMapboxPolyline,
-                                    onStartNavigation: _startNavigation,
-                                    context: context,
-                                  ),
-                                );
-                              },
-                            );
-                          },
-                        ),
+                  // Expandable sheet — hidden during navigation and when location selected
+                  if (state is! NavigationInProgress &&
+                      !_isModalOpen &&
+                      _isMapSheetVisible)
+                    Positioned.fill(
+                      child: MapSheet(
+                        onSuggestionSelected: _onSuggestionSelected,
+                        onDrawMapboxPolyline: drawMapboxPolyline,
+                        onStartNavigation: _startNavigation,
+                        onLocationSelected: () {
+                          setState(() {
+                            _isMapSheetVisible = false;
+                          });
+                        },
+                        // Restores MapSheet when any bottom sheet is dismissed without
+                        // starting navigation (including error paths and back-swipes).
+                        onRouteSelectionDismissed: () {
+                          setState(() {
+                            _isMapSheetVisible = true;
+                          });
+                        },
                       ),
-
-
+                    ),
                 ],
               );
             },
           ),
         ),
-
       ),
     );
   }
-
-  // void _hideLoadingAfterLocation() async {
-  //   // Wait for location to be obtained and map to be positioned
-  //   await Future.delayed(const Duration(milliseconds: 1500));
-
-  //   if (mounted) {
-  //     setState(() {
-  //       _isMapLoading = false;
-  //     });
-  //   }
-  // }
 
   void _showNavigationCompleteDialog() {
     showDialog(

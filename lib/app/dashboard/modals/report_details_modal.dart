@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gap/gap.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/bloc/reports/report_state.dart';
+import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
+import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
-import 'package:timeago/timeago.dart' as timeago;
 
 class ReportDetailsModal extends StatelessWidget {
   final ReportData report;
@@ -14,9 +17,40 @@ class ReportDetailsModal extends StatelessWidget {
     required this.report,
   });
 
+  // ── Exact timestamp with smart fallback ───────────────────────────────────
+
+  String _formatTimestamp(String createdAt) {
+    try {
+      final dt = DateTime.parse(createdAt).toLocal();
+      final now = DateTime.now();
+      final diff = now.difference(dt);
+
+      if (diff.inSeconds < 60) {
+        return 'Just now';
+      } else if (diff.inMinutes < 60) {
+        final m = diff.inMinutes;
+        return '$m min${m == 1 ? '' : 's'} ago';
+      } else if (diff.inHours < 24) {
+        final h = diff.inHours;
+        final m = diff.inMinutes % 60;
+        return m == 0 ? '$h hr${h == 1 ? '' : 's'} ago' : '$h hr ${m}m ago';
+      } else {
+        // Show exact date/time for older reports
+        final day = dt.day.toString().padLeft(2, '0');
+        final month = dt.month.toString().padLeft(2, '0');
+        final hour = dt.hour.toString().padLeft(2, '0');
+        final minute = dt.minute.toString().padLeft(2, '0');
+        return '$day/$month at $hour:$minute';
+      }
+    } catch (_) {
+      return 'Unknown time';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
+    final reportColor = _getReportColor(report.type);
 
     return Container(
       decoration: BoxDecoration(
@@ -26,9 +60,9 @@ class ReportDetailsModal extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.15),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.18),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -39,159 +73,244 @@ class ReportDetailsModal extends StatelessWidget {
           // Status bar spacer
           SizedBox(height: topPadding + 4),
 
-          // Drag Handle
+          // Drag handle
           Center(
             child: Container(
-              height: 2,
-              width: 28,
+              height: 3,
+              width: 32,
               decoration: BoxDecoration(
                 color: Colors.grey[300],
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
 
-          // Content with padding
           Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: styles.insets.sm,
-              vertical: styles.insets.xs,
-            ),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-
-              // Header: Icon + Type + Time
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: _getReportColor(report.type).withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: SvgPicture.asset(
-                      _getReportIcon(report.type),
-                      width: 20,
-                      height: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _formatReportType(report.type),
-                          style: styles.typography.h4.bold,
+                // ── Header row ───────────────────────────────────────────────
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Colored icon container
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: reportColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: reportColor.withOpacity(0.3),
+                          width: 1,
                         ),
-                        const SizedBox(height: 1),
-                        Text(
-                          'Reported ${timeago.format(DateTime.parse(report.createdAt))}',
-                          style: styles.typography.caption.textColor(Colors.grey[600]!),
+                      ),
+                      child: Center(
+                        child: SvgPicture.asset(
+                          _getReportIcon(report.type),
+                          width: 24,
+                          height: 24,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Type + timestamp
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _formatReportType(report.type),
+                            style: styles.typography.h4.bold
+                                .textColor(reportColor),
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.access_time_rounded,
+                                size: 12,
+                                color: Colors.grey[500],
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _formatTimestamp(report.createdAt),
+                                style: styles.typography.caption
+                                    .textColor(Colors.grey[600]!)
+                                    .copyWith(fontStyle: FontStyle.normal),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Upvote badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: styles.theme.primary.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: styles.theme.primary.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.thumb_up_rounded,
+                            size: 12,
+                            color: styles.theme.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${report.upvotesCount}',
+                            style: styles.typography.caption.bold
+                                .textColor(styles.theme.primary)
+                                .copyWith(fontStyle: FontStyle.normal),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 10),
+
+                // ── Divider ───────────────────────────────────────────────────
+                Divider(color: Colors.grey[100], height: 1),
+                const SizedBox(height: 10),
+
+                // ── Reporter info ─────────────────────────────────────────────
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 11,
+                      backgroundColor: Colors.grey[100],
+                      child: Icon(
+                        Icons.person_rounded,
+                        size: 13,
+                        color: Colors.grey[500],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Reported by ',
+                      style: styles.typography.caption
+                          .textColor(Colors.grey[500]!)
+                          .copyWith(fontStyle: FontStyle.normal),
+                    ),
+                    Text(
+                      report.userId.isNotEmpty
+                          ? 'User ${report.userId.substring(0, report.userId.length.clamp(0, 4))}'
+                          : 'Wazer',
+                      style: styles.typography.caption.bold
+                          .copyWith(fontStyle: FontStyle.normal),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── "Still there?" label ──────────────────────────────────────
+                Row(
+                  children: [
+                    Container(
+                      width: 3,
+                      height: 14,
+                      decoration: BoxDecoration(
+                        color: reportColor,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Is this still there?',
+                      style: styles.typography.t2.bold.copyWith(
+                        decoration: TextDecoration.none,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 10),
+
+                // ── Vote buttons ──────────────────────────────────────────────
+                BlocConsumer<ReportsBloc, ReportState>(
+                  listener: (context, state) {
+                    if (state is VoteReportSuccess) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(state.message),
+                          backgroundColor: styles.theme.primary,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      );
+                    } else if (state is ReportError) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(state.message),
+                          backgroundColor: Colors.red,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                  builder: (context, state) {
+                    final isLoading = state is ReportLoading;
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _ActionButton(
+                            icon: Icons.thumb_up_rounded,
+                            label: 'Yes, still there',
+                            color: styles.theme.primary,
+                            isLoading: isLoading,
+                            onPressed: () {
+                              context.read<ReportsBloc>().add(
+                                    ReportsEvent.voteOnReport(
+                                      reportID: report.id,
+                                      reportType: 'upvote',
+                                    ),
+                                  );
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _ActionButton(
+                            icon: Icons.thumb_down_rounded,
+                            label: 'Not there',
+                            color: Colors.grey[700]!,
+                            isOutlined: true,
+                            isLoading: isLoading,
+                            onPressed: () {
+                              context.read<ReportsBloc>().add(
+                                    ReportsEvent.voteOnReport(
+                                      reportID: report.id,
+                                      reportType: 'downvote',
+                                    ),
+                                  );
+                            },
+                          ),
                         ),
                       ],
-                    ),
-                  ),
-                  // Thumbs up count (Mocked for now)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.thumb_up_rounded,
-                            size: 11, color: styles.theme.primary),
-                        const SizedBox(width: 2),
-                        Text(
-                          '124',
-                          style: styles.typography.caption.bold
-                              .textColor(styles.theme.primary),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 8),
-
-              // Reporter Info
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 10,
-                    backgroundColor: Colors.grey[200],
-                    child:
-                        Icon(Icons.person, size: 12, color: Colors.grey[400]),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Reported by ',
-                    style: styles.typography.caption,
-                  ),
-                  Text(
-                    report.userId.isNotEmpty
-                        ? 'User ${report.userId.substring(0, 4)}'
-                        : 'Wazer',
-                    style: styles.typography.caption.bold,
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 10),
-
-              // "Still There?" Section
-              Text(
-                'Is this still there?',
-                style: styles.typography.caption.bold,
-              ),
-              const SizedBox(height: 6),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: _ActionButton(
-                      icon: Icons.thumb_up_off_alt_rounded,
-                      label: 'Yes',
-                      color: styles.theme.primary,
-                      onPressed: () {
-                        Navigator.pop(context);
-                        // TODO: Implement verify logic
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Thanks for your feedback!')),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _ActionButton(
-                      icon: Icons.thumb_down_off_alt_rounded,
-                      label: 'Not there',
-                      color: Colors.grey[700]!,
-                      isOutlined: true,
-                      onPressed: () {
-                        Navigator.pop(context);
-                        // TODO: Implement not there logic
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('Thanks for updating the map!')),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -201,7 +320,6 @@ class ReportDetailsModal extends StatelessWidget {
   }
 
   String _formatReportType(String type) {
-    // Capitalize first letter
     if (type.isEmpty) return 'Report';
     return type[0].toUpperCase() + type.substring(1).toLowerCase();
   }
@@ -211,27 +329,29 @@ class ReportDetailsModal extends StatelessWidget {
       case 'police':
         return Assets.icons.reports.police;
       case 'traffic':
-        return Assets.icons.reports.trafic; // Note: typo in asset name 'trafic'
+        return Assets.icons.reports.trafic;
       case 'accident':
         return Assets.icons.reports.accident;
       default:
-        return Assets.icons.reports.police; // Fallback
+        return Assets.icons.reports.police;
     }
   }
 
   Color _getReportColor(String type) {
     switch (type.toLowerCase()) {
       case 'police':
-        return Colors.blue;
+        return Colors.blue[700]!;
       case 'traffic':
-        return Colors.red;
+        return Colors.red[600]!;
       case 'accident':
-        return Colors.orange;
+        return Colors.orange[700]!;
       default:
         return Colors.grey;
     }
   }
 }
+
+// ── Action button ─────────────────────────────────────────────────────────────
 
 class _ActionButton extends StatelessWidget {
   final IconData icon;
@@ -239,6 +359,7 @@ class _ActionButton extends StatelessWidget {
   final Color color;
   final bool isOutlined;
   final VoidCallback onPressed;
+  final bool isLoading;
 
   const _ActionButton({
     required this.icon,
@@ -246,6 +367,7 @@ class _ActionButton extends StatelessWidget {
     required this.color,
     this.isOutlined = false,
     required this.onPressed,
+    this.isLoading = false,
   });
 
   @override
@@ -254,10 +376,10 @@ class _ActionButton extends StatelessWidget {
       color: isOutlined ? Colors.transparent : color,
       borderRadius: BorderRadius.circular(styles.corners.sm),
       child: InkWell(
-        onTap: onPressed,
+        onTap: isLoading ? null : onPressed,
         borderRadius: BorderRadius.circular(styles.corners.sm),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
           decoration: isOutlined
               ? BoxDecoration(
                   border: Border.all(color: Colors.grey[300]!, width: 1.5),
@@ -267,17 +389,31 @@ class _ActionButton extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                color: isOutlined ? color : Colors.white,
-                size: 14,
-              ),
-              const SizedBox(width: 4),
+              if (isLoading)
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      isOutlined ? color : Colors.white,
+                    ),
+                  ),
+                )
+              else
+                Icon(
+                  icon,
+                  color: isOutlined ? color : Colors.white,
+                  size: 15,
+                ),
+              const SizedBox(width: 6),
               Text(
                 label,
-                style: styles.typography.caption.bold.textColor(
-                  isOutlined ? color : Colors.white,
-                ),
+                style: styles.typography.caption.bold
+                    .textColor(
+                      isOutlined ? color : Colors.white,
+                    )
+                    .copyWith(fontStyle: FontStyle.normal),
               ),
             ],
           ),

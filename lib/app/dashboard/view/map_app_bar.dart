@@ -61,28 +61,26 @@ class _MapAppBarState extends State<MapAppBar> {
           ),
         );
       },
-      child:
-          // scrolled
-          // ? AppBar(
-          //     key: const ValueKey('scrolled'),
-          //     elevation: 1,
-          //     systemOverlayStyle: SystemUiOverlayStyle.dark,
-          //     backgroundColor: Colors.white,
-          //     foregroundColor: Colors.black,
-          //     automaticallyImplyLeading: false,
-          //     // leadingWidth: 50 + styles.insets.sm,
-          //     // leading: BackBtn.close(
-          //     //   onPressed: () async {
-          //     //     await widget.controller.relativeAnimateTo(
-          //     //       0.3,
-          //     //       duration: const Duration(milliseconds: 200),
-          //     //       curve: Curves.easeOut,
-          //     //     );
-          //     //   },
-          //     // ).padding(left: 16, top: 4),
-          //   )
-          // :
-          AnimatedBuilder(
+      child: scrolled
+          ? AppBar(
+              key: const ValueKey('scrolled'),
+              elevation: 1,
+              systemOverlayStyle: SystemUiOverlayStyle.dark,
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
+              automaticallyImplyLeading: false,
+              leadingWidth: 50 + styles.insets.sm,
+              leading: BackBtn.close(
+                onPressed: () async {
+                  await widget.controller.relativeAnimateTo(
+                    0.3,
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOut,
+                  );
+                },
+              ).padding(left: 16, top: 4),
+            )
+          : AnimatedBuilder(
         key: const ValueKey('nonScrolled'),
         animation: widget.controller.animation,
         builder: (BuildContext context, Widget? child) {

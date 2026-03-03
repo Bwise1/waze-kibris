@@ -83,6 +83,8 @@ class ReportData extends Equatable {
     required this.reportStatus,
     required this.longitude,
     required this.latitude,
+    this.upvotesCount = 0,
+    this.downvotesCount = 0,
   });
 
   factory ReportData.fromJson(Map<String, dynamic> json) =>
@@ -107,6 +109,10 @@ class ReportData extends Equatable {
   final String reportSource;
   @JsonKey(name: 'report_status')
   final String reportStatus;
+  @JsonKey(name: 'upvotes_count')
+  final int upvotesCount;
+  @JsonKey(name: 'downvotes_count')
+  final int downvotesCount;
 
   Map<String, dynamic> toJson() => _$ReportDataToJson(this);
 
@@ -125,6 +131,8 @@ class ReportData extends Equatable {
         severity,
         active,
         type,
+        upvotesCount,
+        downvotesCount,
       ];
 }
 
