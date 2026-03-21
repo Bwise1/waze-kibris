@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/profile/modals/edit_location_modal.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 
 class ProfileMainScreen extends StatelessWidget {
   const ProfileMainScreen({super.key});
@@ -197,7 +199,11 @@ class ProfileMainScreen extends StatelessWidget {
                         ),
                       ),
                       ProfileActionItemButton(
-                        onPressed: () {},
+                        onPressed: () {
+                          context.read<AuthBloc>().add(
+                                const LogoutRequested(),
+                              );
+                        },
                         icon: Assets.icons.bin,
                         titleColor: styles.theme.red,
                         title: 'Logout',

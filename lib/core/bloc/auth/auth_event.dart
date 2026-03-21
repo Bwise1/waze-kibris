@@ -33,6 +33,18 @@ abstract class AuthEvent extends Equatable {
     return const GetProfileRequested();
   }
 
+  factory AuthEvent.updateProfileRequested({
+    String? firstname,
+    String? lastname,
+    String? profileIcon,
+  }) {
+    return UpdateProfileRequested(
+      firstname: firstname,
+      lastname: lastname,
+      profileIcon: profileIcon,
+    );
+  }
+
   factory AuthEvent.refreshTokenRequested({VoidCallback? onRefreshToken}) {
     return RefreshTokenRequested(onTokenRefresh: onRefreshToken);
   }
@@ -99,6 +111,21 @@ class GoogleAuthRequested extends AuthEvent {
 
 class GetProfileRequested extends AuthEvent {
   const GetProfileRequested();
+}
+
+class UpdateProfileRequested extends AuthEvent {
+  const UpdateProfileRequested({
+    this.firstname,
+    this.lastname,
+    this.profileIcon,
+  });
+
+  final String? firstname;
+  final String? lastname;
+  final String? profileIcon;
+
+  @override
+  List<Object?> get props => [firstname, lastname, profileIcon];
 }
 
 class LogoutRequested extends AuthEvent {

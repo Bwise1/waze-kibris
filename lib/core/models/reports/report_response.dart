@@ -72,6 +72,7 @@ class ReportData extends Equatable {
   const ReportData({
     required this.id,
     required this.userId,
+    this.username,
     required this.type,
     required this.severity,
     required this.active,
@@ -83,6 +84,7 @@ class ReportData extends Equatable {
     required this.reportStatus,
     required this.longitude,
     required this.latitude,
+    this.imageUrl,
     this.upvotesCount = 0,
     this.downvotesCount = 0,
   });
@@ -93,6 +95,7 @@ class ReportData extends Equatable {
   final int id;
   @JsonKey(name: 'user_id')
   final String userId;
+  final String? username;
   final String type;
   final double latitude;
   final double longitude;
@@ -109,6 +112,8 @@ class ReportData extends Equatable {
   final String reportSource;
   @JsonKey(name: 'report_status')
   final String reportStatus;
+  @JsonKey(name: 'image_url')
+  final String? imageUrl;
   @JsonKey(name: 'upvotes_count')
   final int upvotesCount;
   @JsonKey(name: 'downvotes_count')
@@ -120,6 +125,7 @@ class ReportData extends Equatable {
   List<Object?> get props => [
         id,
         userId,
+        username,
         longitude,
         latitude,
         reportStatus,
@@ -131,6 +137,7 @@ class ReportData extends Equatable {
         severity,
         active,
         type,
+        imageUrl,
         upvotesCount,
         downvotesCount,
       ];
@@ -145,8 +152,34 @@ class GetReportsResponse extends Equatable {
     required this.data,
   });
 
-  factory GetReportsResponse.fromJson(Map<String, dynamic> json) =>
-      _$GetReportsResponseFromJson(json);
+  factory GetReportsResponse.fromJson(dynamic json) {
+    if (json == null || json is! Map<String, dynamic>) {
+      return const GetReportsResponse(
+        message: '',
+        status: '',
+        statusCode: 0,
+        data: [],
+      );
+    }
+    List<ReportData> data = [];
+    try {
+      final rawData = json['data'];
+      if (rawData is List<dynamic>) {
+        data = rawData
+            .map((e) => e is Map<String, dynamic>
+                ? ReportData.fromJson(e)
+                : null)
+            .whereType<ReportData>()
+            .toList();
+      }
+    } catch (_) {}
+    return GetReportsResponse(
+      message: json['message'] as String? ?? '',
+      status: json['status'] as String? ?? '',
+      statusCode: (json['status_code'] as num?)?.toInt() ?? 0,
+      data: data,
+    );
+  }
 
   final String message;
   final String status;
@@ -232,8 +265,34 @@ class GetSavedLocationsResponse extends Equatable {
     required this.data,
   });
 
-  factory GetSavedLocationsResponse.fromJson(Map<String, dynamic> json) =>
-      _$GetSavedLocationsResponseFromJson(json);
+  factory GetSavedLocationsResponse.fromJson(dynamic json) {
+    if (json == null || json is! Map<String, dynamic>) {
+      return const GetSavedLocationsResponse(
+        message: '',
+        status: '',
+        statusCode: 0,
+        data: [],
+      );
+    }
+    List<SavedLocations> data = [];
+    try {
+      final rawData = json['data'];
+      if (rawData is List<dynamic>) {
+        data = rawData
+            .map((e) => e is Map<String, dynamic>
+                ? SavedLocations.fromJson(e)
+                : null)
+            .whereType<SavedLocations>()
+            .toList();
+      }
+    } catch (_) {}
+    return GetSavedLocationsResponse(
+      message: json['message'] as String? ?? '',
+      status: json['status'] as String? ?? '',
+      statusCode: (json['status_code'] as num?)?.toInt() ?? 0,
+      data: data,
+    );
+  }
 
   final String message;
   final String status;

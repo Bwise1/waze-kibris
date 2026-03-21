@@ -2,9 +2,10 @@ import 'dart:developer';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
-import 'package:waze_kibris/core/res/store_keys.dart';
+// Auth header is attached by AuthInterceptor when a token exists.
 
 abstract class ReportRepository {
   Future<SubmitReportResponse> getReportById(String reportID);
@@ -22,8 +23,9 @@ abstract class ReportRepository {
   Future<SubmitReportResponse> submitReport(
     double latitude,
     double longitude,
-    String type,
-  );
+    String type, {
+    XFile? imageFile,
+  });
   Future<SaveLocationResponse> saveLocation(
     String locationName,
     String? address,
@@ -39,6 +41,8 @@ class ReportRepositoryImpl implements ReportRepository {
         _store = store ?? getIt<ILocalStorage>();
 
   final Dio _dio;
+  // Kept for backward compatibility with DI signature; auth headers are set via AuthInterceptor.
+  // ignore: unused_field
   final ILocalStorage _store;
   @override
   Future<GetReportsResponse> getNearByReport(
@@ -53,15 +57,9 @@ class ReportRepositoryImpl implements ReportRepository {
 
       final response = await _dio.get<Map<String, dynamic>>(
         '/reports/nearby?latitude=$latitude&longitude=$longitude&radius=$radius',
-        options: Options(
-          headers: {
-            'Authorization':
-                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
-          },
-        ),
       );
       // print('hhhh${response.data}');
-      return GetReportsResponse.fromJson(response.data!);
+      return GetReportsResponse.fromJson(response.data);
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
@@ -72,12 +70,6 @@ class ReportRepositoryImpl implements ReportRepository {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/reports/$reportID',
-        options: Options(
-          headers: {
-            'Authorization':
-                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
-          },
-        ),
       );
       return SubmitReportResponse.fromJson(response.data!);
     } on DioException catch (e) {
@@ -90,17 +82,11 @@ class ReportRepositoryImpl implements ReportRepository {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/saved-locations',
-        options: Options(
-          headers: {
-            'Authorization':
-                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
-          },
-        ),
       );
       // debugPrint(response.data.toString());
       log("${response.data.toString()},,,,,,,,,,,,,,,,,,,,,,,,,,,,,,");
 
-      return GetSavedLocationsResponse.fromJson(response.data!);
+      return GetSavedLocationsResponse.fromJson(response.data);
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
@@ -116,15 +102,9 @@ class ReportRepositoryImpl implements ReportRepository {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         '/reports/$reportID/votes',
-        options: Options(
-          headers: {
-            'Authorization':
-                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
-          },
-        ),
         data: {'vote_type': voteType},
       );
-      return GetReportsResponse.fromJson(response.data!);
+      return GetReportsResponse.fromJson(response.data);
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
@@ -136,12 +116,6 @@ class ReportRepositoryImpl implements ReportRepository {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
         '/saved-locations',
-        options: Options(
-          headers: {
-            'Authorization':
-                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
-          },
-        ),
         data: {
           'name': locationName,
           'address': address,
@@ -161,24 +135,37 @@ class ReportRepositoryImpl implements ReportRepository {
   Future<SubmitReportResponse> submitReport(
     double latitude,
     double longitude,
-    String type,
-  ) async {
+    String type, {
+    XFile? imageFile,
+  }) async {
     try {
+      if (imageFile != null) {
+        final path = imageFile.path;
+        if (path.isNotEmpty) {
+          final formData = FormData.fromMap({
+            'type': type.toUpperCase(),
+            'latitude': latitude,
+            'longitude': longitude,
+            'image': await MultipartFile.fromFile(
+              path,
+              filename: imageFile.name,
+            ),
+          });
+          final response = await _dio.post<Map<String, dynamic>>(
+            '/reports',
+            data: formData,
+          );
+          return SubmitReportResponse.fromJson(response.data!);
+        }
+      }
       final response = await _dio.post<Map<String, dynamic>>(
         '/reports',
-        options: Options(
-          headers: {
-            'Authorization':
-                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
-          },
-        ),
         data: {
           'type': type.toUpperCase(),
           'longitude': longitude,
           'latitude': latitude,
         },
       );
-      // print(response.data); //
       return SubmitReportResponse.fromJson(response.data!);
     } on DioException catch (e) {
       throw _handleDioError(e);

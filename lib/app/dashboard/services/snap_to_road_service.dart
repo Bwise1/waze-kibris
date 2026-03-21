@@ -14,8 +14,11 @@ class SnapToRoadService {
   static const double _smoothingFactor = 0.15; // for position smoothing - reduced for more responsive snapping
   static const double _stickySnapThreshold = 5.0; // meters - force puck within this distance when on-route
 
-  // Cache for route points
+  // Cache for route points and Mapbox route for along-route distances
   List<PointLatLng>? _currentRoutePoints;
+  MapboxRoute? _currentMapboxRoute;
+  List<double>? _cumulativeDistances; // cumulative meters from route start to each point index
+  double? _totalRouteLengthMeters;
   PointLatLng? _lastSnappedPoint;
   int _lastNearestIndex = 0;
   
@@ -39,16 +42,26 @@ class SnapToRoadService {
   static const int _maxTraceBufferSize = 10; // Max GPS points to buffer
   static const double _mapMatchingThreshold = 300.0; // meters - when to trigger map matching
 
-  /// Initialize with current route
+  /// Initialize with current route (Google format; no along-route to maneuver)
   void setRoute(DirectionsRoute route) {
+    _currentMapboxRoute = null;
     _currentRoutePoints = _decodeRoutePolyline(route);
+    _cumulativeDistances = _buildCumulativeDistances(_currentRoutePoints!);
+    _totalRouteLengthMeters = _cumulativeDistances != null && _cumulativeDistances!.isNotEmpty
+        ? _cumulativeDistances!.last
+        : null;
     _lastNearestIndex = 0;
     _lastSnappedPoint = null;
   }
 
-  /// Initialize with Mapbox route
+  /// Initialize with Mapbox route (stores route for along-route distance to step maneuver)
   void setMapboxRoute(MapboxRoute route) {
+    _currentMapboxRoute = route;
     _currentRoutePoints = _decodeMapboxRouteGeometry(route);
+    _cumulativeDistances = _buildCumulativeDistances(_currentRoutePoints!);
+    _totalRouteLengthMeters = _cumulativeDistances != null && _cumulativeDistances!.isNotEmpty
+        ? _cumulativeDistances!.last
+        : null;
     _lastNearestIndex = 0;
     _lastSnappedPoint = null;
   }
@@ -61,6 +74,9 @@ class SnapToRoadService {
   /// Clear route data
   void clearRoute() {
     _currentRoutePoints = null;
+    _currentMapboxRoute = null;
+    _cumulativeDistances = null;
+    _totalRouteLengthMeters = null;
     _lastSnappedPoint = null;
     _lastNearestIndex = 0;
     _clearGpsHistory();
@@ -68,8 +84,21 @@ class SnapToRoadService {
     _clearMapMatchingBuffer();
   }
 
-  /// Snap GPS position to nearest point on route with rerouting detection
-  Future<SnapToRoadResult> snapToRoad(geo.Position gpsPosition) async {
+  /// Returns route points from current snap position to end (for overview framing). Null if no route.
+  List<PointLatLng>? getRemainingRoutePoints() {
+    if (_currentRoutePoints == null || _currentRoutePoints!.isEmpty) return null;
+    if (_lastNearestIndex >= _currentRoutePoints!.length) return null;
+    return _currentRoutePoints!.sublist(_lastNearestIndex);
+  }
+
+  /// Snap GPS position to nearest point on route with rerouting detection.
+  /// When [currentLegIndex] and [currentStepIndex] are provided and a Mapbox route is set,
+  /// [SnapToRoadResult] includes along-route distances for navigation (distance to maneuver, etc.).
+  Future<SnapToRoadResult> snapToRoad(
+    geo.Position gpsPosition, {
+    int? currentLegIndex,
+    int? currentStepIndex,
+  }) async {
     if (_currentRoutePoints == null || _currentRoutePoints!.isEmpty) {
       return SnapToRoadResult(
         snappedPosition:
@@ -174,6 +203,50 @@ class SnapToRoadService {
     // Update position history for GPS jump detection
     _updatePositionHistory(gpsPosition);
 
+    // Along-route distances (for navigation parity with native SDK)
+    double? distanceTraveledAlongRouteMeters;
+    double? distanceToCurrentStepManeuverAlongRouteMeters;
+    double? remainingDistanceAlongRouteMeters;
+    if (_cumulativeDistances != null &&
+        _currentRoutePoints != null &&
+        _currentRoutePoints!.isNotEmpty) {
+      final idx = nearestResult.index.clamp(0, _currentRoutePoints!.length - 1);
+      final partialSegment = idx < _currentRoutePoints!.length - 1
+          ? _calculateDistance(_currentRoutePoints![idx], nearestResult.point)
+          : 0.0;
+      distanceTraveledAlongRouteMeters =
+          (_cumulativeDistances![idx] + partialSegment).clamp(0.0, _totalRouteLengthMeters ?? 0.0);
+
+      if (currentLegIndex != null &&
+          currentStepIndex != null &&
+          _currentMapboxRoute != null &&
+          currentLegIndex < _currentMapboxRoute!.legs.length) {
+        final leg = _currentMapboxRoute!.legs[currentLegIndex];
+        if (currentStepIndex < leg.steps.length) {
+          final step = leg.steps[currentStepIndex];
+          if (step.maneuver.location.length >= 2) {
+            final maneuverLat = step.maneuver.location[1];
+            final maneuverLng = step.maneuver.location[0];
+            final maneuverPoint = PointLatLng(maneuverLat, maneuverLng);
+            final maneuverRouteIndex = _findNearestRouteIndex(maneuverPoint);
+            final distanceToManeuverAlongRoute = maneuverRouteIndex != null
+                ? (_cumulativeDistances![maneuverRouteIndex] - distanceTraveledAlongRouteMeters)
+                : null;
+            if (distanceToManeuverAlongRoute != null) {
+              distanceToCurrentStepManeuverAlongRouteMeters =
+                  distanceToManeuverAlongRoute.clamp(-50.0, double.infinity);
+            }
+          }
+        }
+      }
+
+      if (_totalRouteLengthMeters != null) {
+        final total = _totalRouteLengthMeters!;
+        remainingDistanceAlongRouteMeters =
+            (total - distanceTraveledAlongRouteMeters).clamp(0.0, total);
+      }
+    }
+
     return SnapToRoadResult(
       snappedPosition: snappedPoint,
       isOnRoute: isOnRoute,
@@ -183,6 +256,10 @@ class SnapToRoadService {
       isOffRoute: isOffRoute,
       needsReroute: needsReroute,
       routeIndex: nearestResult.index,
+      distanceTraveledAlongRouteMeters: distanceTraveledAlongRouteMeters,
+      distanceToCurrentStepManeuverAlongRouteMeters:
+          distanceToCurrentStepManeuverAlongRouteMeters,
+      remainingDistanceAlongRouteMeters: remainingDistanceAlongRouteMeters,
     );
   }
 
@@ -488,6 +565,33 @@ class SnapToRoadService {
     return currentIndex / _currentRoutePoints!.length;
   }
 
+  /// Build cumulative distances from route start to each point index (meters).
+  List<double>? _buildCumulativeDistances(List<PointLatLng> points) {
+    if (points.isEmpty) return null;
+    final cumul = <double>[0.0];
+    for (int i = 1; i < points.length; i++) {
+      cumul.add(cumul.last + _calculateDistance(points[i - 1], points[i]));
+    }
+    return cumul;
+  }
+
+  /// Find the route point index nearest to [point] (for mapping maneuver to route).
+  int? _findNearestRouteIndex(PointLatLng point) {
+    if (_currentRoutePoints == null || _currentRoutePoints!.isEmpty) {
+      return null;
+    }
+    double minDist = double.infinity;
+    int best = 0;
+    for (int i = 0; i < _currentRoutePoints!.length; i++) {
+      final d = _calculateDistance(_currentRoutePoints![i], point);
+      if (d < minDist) {
+        minDist = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
   /// Decode route polyline to points
   List<PointLatLng> _decodeRoutePolyline(DirectionsRoute route) {
     final points = <PointLatLng>[];
@@ -683,6 +787,12 @@ class SnapToRoadResult {
   final bool isOffRoute;
   final bool needsReroute;
   final int routeIndex;
+  /// Distance traveled along route from start to projected point (meters). Present when route has geometry.
+  final double? distanceTraveledAlongRouteMeters;
+  /// Distance along route from projected point to current step's maneuver (meters). Negative if passed. Present when leg/step indices provided.
+  final double? distanceToCurrentStepManeuverAlongRouteMeters;
+  /// Remaining distance along route to destination (meters). Present when route length is known.
+  final double? remainingDistanceAlongRouteMeters;
 
   SnapToRoadResult({
     required this.snappedPosition,
@@ -693,6 +803,9 @@ class SnapToRoadResult {
     this.isOffRoute = false,
     this.needsReroute = false,
     this.routeIndex = 0,
+    this.distanceTraveledAlongRouteMeters,
+    this.distanceToCurrentStepManeuverAlongRouteMeters,
+    this.remainingDistanceAlongRouteMeters,
   });
 }
 

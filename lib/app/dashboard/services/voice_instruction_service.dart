@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 
@@ -10,6 +11,7 @@ class VoiceInstructionService {
   VoiceInstructionService._internal();
 
   FlutterTts? _flutterTts;
+  AudioSession? _audioSession;
   bool _isEnabled = true;
   bool _isSpeaking = false;
   String _language = 'en-US';
@@ -36,17 +38,33 @@ class VoiceInstructionService {
             name: 'VoiceInstructionService');
       });
 
-      _flutterTts!.setCompletionHandler(() {
+      _flutterTts!.setCompletionHandler(() async {
         _isSpeaking = false;
+        await _audioSession?.setActive(false);
         developer.log('Voice instruction completed',
             name: 'VoiceInstructionService');
       });
 
-      _flutterTts!.setErrorHandler((msg) {
+      _flutterTts!.setErrorHandler((msg) async {
         _isSpeaking = false;
+        await _audioSession?.setActive(false);
         developer.log('Voice instruction error: $msg',
             name: 'VoiceInstructionService');
       });
+
+      // Configure audio session for navigation: duck background media during TTS
+      try {
+        _audioSession = await AudioSession.instance;
+        await _audioSession!.configure(AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playback,
+          avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.duckOthers,
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
+          androidWillPauseWhenDucked: false,
+        ));
+      } catch (e) {
+        developer.log('Audio session configuration failed: $e',
+            name: 'VoiceInstructionService');
+      }
 
       developer.log('Voice instruction service initialized',
           name: 'VoiceInstructionService');
@@ -96,6 +114,8 @@ class VoiceInstructionService {
     _announcedInstructions.add(instructionKey);
 
     try {
+      await _audioSession?.setActive(true);
+
       // Use SSML if available for better pronunciation, otherwise use plain text
       final textToSpeak =
           instruction.ssmlAnnouncement ?? instruction.announcement;
@@ -106,6 +126,17 @@ class VoiceInstructionService {
     } catch (e) {
       developer.log('Error speaking instruction: $e',
           name: 'VoiceInstructionService');
+    }
+  }
+
+  /// Speak a plain text phrase (e.g. "Rerouting" when user goes off-route).
+  Future<void> speak(String text) async {
+    if (!_isEnabled || _flutterTts == null || text.isEmpty) return;
+    try {
+      await _audioSession?.setActive(true);
+      await _flutterTts!.speak(text);
+    } catch (e) {
+      developer.log('Error speaking: $e', name: 'VoiceInstructionService');
     }
   }
 
@@ -128,6 +159,7 @@ class VoiceInstructionService {
     }
 
     try {
+      await _audioSession?.setActive(true);
       developer.log('Manual speech: $textToSpeak',
           name: 'VoiceInstructionService');
       await _flutterTts!.speak(textToSpeak);
@@ -147,6 +179,21 @@ class VoiceInstructionService {
   void reset() {
     _announcedInstructions.clear();
     stop();
+  }
+
+  /// Prepare audio session for a new navigation session so the first utterance is less likely to be missed.
+  Future<void> prepareForNavigation() async {
+    try {
+      await _audioSession?.setActive(true);
+    } catch (e) {
+      developer.log('Error preparing audio session for navigation: $e',
+          name: 'VoiceInstructionService');
+    }
+  }
+
+  /// Clear announced instructions for the new step (call when advancing step so new step's announcements can play).
+  void clearAnnouncedInstructionsForNewStep() {
+    _announcedInstructions.clear();
   }
 
   // Settings
@@ -181,13 +228,16 @@ class VoiceInstructionService {
   }
 
   // Get available languages
-  Future getLanguages() async {
-    return await _flutterTts?.getLanguages ?? [];
+  Future<List<dynamic>> getLanguages() async {
+    final languages = await _flutterTts?.getLanguages;
+    if (languages == null) return <dynamic>[];
+    return List<dynamic>.from(languages as Iterable<dynamic>);
   }
 
   // Test speech
   Future<void> testSpeech() async {
     if (_isEnabled && _flutterTts != null) {
+      await _audioSession?.setActive(true);
       await _flutterTts!.speak('Voice instructions are working correctly');
     }
   }

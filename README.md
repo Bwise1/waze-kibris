@@ -21,8 +21,15 @@ This project contains 3 flavors:
 To run the desired flavor either use the launch configuration in VSCode/Android Studio or use the following commands:
 
 ```sh
-# Development
+# Development (works once native Mapbox token is in Info.plist / strings.xml)
 $ flutter run --flavor development --target lib/main_development.dart
+
+# Example: release on a physical device (same idea)
+$ flutter run --release --flavor development --target lib/main_development.dart -d <DEVICE_ID>
+
+# Optional: also pass the token into Dart (VS Code "Launch development" does this)
+$ flutter run --flavor development --target lib/main_development.dart \
+  --dart-define-from-file=.vscode/dart_defines_development.json
 
 # Staging
 $ flutter run --flavor staging --target lib/main_staging.dart
@@ -31,7 +38,35 @@ $ flutter run --flavor staging --target lib/main_staging.dart
 $ flutter run --flavor production --target lib/main_production.dart
 ```
 
+With native `MBXAccessToken` / Android `mapbox_access_token` set, you do **not** need `--dart-define` for the map to load tiles. Add `--dart-define` or `--dart-define-from-file` when you want the same token baked into Dart via `String.fromEnvironment` (e.g. for future HTTP calls that read `mapboxAccessToken`).
+
 _\*Waze Kibris works on iOS, Android, Web, and Windows._
+
+### Mapbox token (required for maps)
+
+**Two separate places** must carry the same **public** token from [Mapbox Account](https://account.mapbox.com/access-tokens/) (starts with `pk` — do not commit it):
+
+1. **Native (Mapbox SDK v11+)** — Required for map tiles on device: `MBXAccessToken` in `ios/Runner/Info.plist` (via `ios/Flutter/Secrets.xcconfig`, gitignored) and `mapbox_access_token` injected by Gradle from `android/local.properties` (`mapbox.access.token`). See [docs/MAPBOX_LOCAL.md](docs/MAPBOX_LOCAL.md).
+
+2. **Dart (optional)** — `--dart-define` / `--dart-define-from-file` bakes `MAPBOX_ACCESS_TOKEN` into the app via `String.fromEnvironment` (see `lib/core/res/env.dart`). VS Code **Launch development** passes `--dart-define-from-file=.vscode/dart_defines_development.json`. Shell `export` does **not** populate `fromEnvironment`; use `dart-define` when you need the token in Dart. If you omit it, `applyMapboxAccessTokenFromDartIfPresent` skips `MapboxOptions.setAccessToken` and the native token still authenticates the SDK.
+
+Keep a local `.vscode/dart_defines_development.json` (gitignored) with your token and rotate native config when you rotate the token.
+
+```sh
+# Run / build with the same defines as VS Code Launch development
+flutter run --flavor development --target lib/main_development.dart \
+  --dart-define-from-file=.vscode/dart_defines_development.json
+
+flutter build apk --flavor development --target lib/main_development.dart \
+  --dart-define-from-file=.vscode/dart_defines_development.json
+
+# Alternative: inline define (use your real public token value)
+flutter build apk --dart-define=MAPBOX_ACCESS_TOKEN=YOUR_MAPBOX_PUBLIC_TOKEN
+```
+
+### Firebase Auth (Google / Apple)
+
+Social login uses Firebase on the device and your API endpoint `POST /auth/firebase/login` with a Firebase ID token. See [docs/FIREBASE_SETUP.md](docs/FIREBASE_SETUP.md) for the Firebase Console checklist, **service account JSON** for the Go backend (never commit it), Sign in with Apple / iOS URL scheme notes, and **email-based migration** for existing users.
 
 ---
 

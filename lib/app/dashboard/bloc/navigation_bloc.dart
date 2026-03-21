@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
+import 'package:waze_kibris/core/constants/navigation_camera_constants.dart';
 import 'package:waze_kibris/core/controllers/camera_controller.dart';
 import 'package:waze_kibris/core/controllers/navigation_controller.dart'
     as nav_controller;
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/navigation/waypoint.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:waze_kibris/app/dashboard/services/voice_instruction_service.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/di.dart';
@@ -18,6 +21,12 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
   final CameraController? _cameraController;
   final nav_controller.NavigationController? _navigationController;
   final VoiceInstructionService _voiceService = VoiceInstructionService();
+
+  // Circuit breaker fields for preventing infinite reroute loops
+  int _consecutiveReroutes = 0;
+  DateTime? _lastRerouteTime;
+  static const int _maxConsecutiveReroutes = 5;
+  static const Duration _rerouteCooldownPeriod = Duration(seconds: 60);
 
   NavigationBloc({
     CameraController? cameraController,
@@ -31,6 +40,7 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     on<NavigationOverviewToggled>(_onOverviewToggled);
     on<NavigationStepCompleted>(_onStepCompleted);
     on<NavigationRerouteRequested>(_onRerouteRequested);
+    on<ClearRerouteError>(_onClearRerouteError);
 
     // Initialize voice service
     _voiceService.initialize();
@@ -90,10 +100,18 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       expectedAverageSpeed: expectedAverageSpeed,
       congestionNumericData: congestionNumericData,
     ));
+
+    WakelockPlus.enable();
+
+    // Prepare audio session and speak first instruction so user hears voice immediately
+    _voiceService.prepareForNavigation();
+    _voiceService.speakCurrentInstruction(firstStep);
   }
 
   void _onNavigationStopped(
       NavigationStopped event, Emitter<NavigationState> emit) {
+    WakelockPlus.disable();
+
     // Disable navigation mode on camera controller
     _cameraController?.disableNavigationMode();
 
@@ -114,21 +132,18 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
             event.position.heading >= 0 ? event.position.heading : null,
       );
 
-      final updatedState =
-          _updateNavigationProgress(currentState, event.position);
+      final updatedState = _updateNavigationProgress(currentState, event);
 
-      // Check if off-route was detected (isRerouting set to true by _updateNavigationProgress)
+      // Trigger reroute when snap service reported needsReroute (single source of truth)
       if (updatedState.isRerouting && !currentState.isRerouting) {
         add(NavigationRerouteRequested());
       }
 
-      // Process voice instructions for current step
-      if (updatedState.distanceToNextManeuver != null) {
-        await _voiceService.processVoiceInstructions(
-          updatedState.currentStep,
-          updatedState.distanceToNextManeuver!,
-        );
-      }
+      // Process voice instructions for current step (uses along-route distance when available)
+      await _voiceService.processVoiceInstructions(
+        updatedState.currentStep,
+        updatedState.distanceToNextManeuver,
+      );
 
       emit(updatedState);
     }
@@ -165,41 +180,174 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     }
   }
 
+  void _onClearRerouteError(
+      ClearRerouteError event, Emitter<NavigationState> emit) {
+    if (state is NavigationInProgress) {
+      emit((state as NavigationInProgress).copyWith(rerouteError: ''));
+    }
+  }
+
+  /// Helper method to fetch route with exponential backoff retry
+  Future<MapboxDirectionsResponse?> _fetchRouteWithRetry({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+    int maxRetries = 2,
+  }) async {
+    final placesService = getIt<PlacesService>();
+    int attempt = 0;
+
+    while (attempt <= maxRetries) {
+      try {
+        final response = await placesService
+            .fetchMapboxDirections(
+              originLat: originLat,
+              originLng: originLng,
+              destinationLat: destLat,
+              destinationLng: destLng,
+              profile: 'driving-traffic',
+              alternatives: false,
+            )
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () =>
+                  throw TimeoutException('Reroute request timed out'),
+            );
+
+        // Success - return immediately
+        return response;
+      } catch (e) {
+        attempt++;
+
+        if (attempt > maxRetries) {
+          // All retries exhausted
+          rethrow;
+        }
+
+        // Exponential backoff: 1s, 2s, 4s
+        final delaySeconds = 1 << (attempt - 1);
+        print(
+            '⚠️ Reroute attempt $attempt failed: $e. Retrying in ${delaySeconds}s...');
+        await Future.delayed(Duration(seconds: delaySeconds));
+      }
+    }
+
+    return null; // Should never reach here
+  }
+
   void _onRerouteRequested(
       NavigationRerouteRequested event, Emitter<NavigationState> emit) async {
     final currentState = state;
     if (currentState is NavigationInProgress) {
+      // Circuit breaker check
+      final now = DateTime.now();
+      if (_lastRerouteTime != null) {
+        final timeSinceLastReroute = now.difference(_lastRerouteTime!);
+
+        if (timeSinceLastReroute < _rerouteCooldownPeriod) {
+          _consecutiveReroutes++;
+
+          if (_consecutiveReroutes >= _maxConsecutiveReroutes) {
+            print(
+                '🚨 Circuit breaker: Too many reroutes ($_consecutiveReroutes) in ${timeSinceLastReroute.inSeconds}s');
+            if (!isClosed) {
+              emit(currentState.copyWith(
+                isRerouting: false,
+                rerouteError:
+                    'Too many reroute attempts. Navigation paused for 1 minute.',
+              ));
+            }
+
+            // Reset after cooldown
+            Future.delayed(_rerouteCooldownPeriod, () {
+              _consecutiveReroutes = 0;
+              _lastRerouteTime = null;
+            });
+            return;
+          }
+        } else {
+          // Cooldown period passed, reset counter
+          _consecutiveReroutes = 0;
+        }
+      }
+
+      _lastRerouteTime = now;
+
       // 1. Set rerouting flag
       emit(currentState.copyWith(isRerouting: true));
 
       try {
-        final placesService = getIt<PlacesService>();
         final currentPos = currentState.userPosition;
 
         if (currentPos == null) {
           print('❌ Cannot reroute: Unknown user position');
-          emit(currentState.copyWith(isRerouting: false));
+          if (!isClosed) {
+            emit(currentState.copyWith(isRerouting: false));
+          }
           return;
         }
 
-        // Get destination from current route (last point of last step)
+        // Validate route structure before extracting destination
+        if (currentState.route.legs.isEmpty) {
+          print('❌ Cannot reroute: Route has no legs');
+          if (!isClosed) {
+            emit(currentState.copyWith(
+              isRerouting: false,
+              rerouteError: 'Cannot reroute: Invalid route data',
+            ));
+          }
+          return;
+        }
+
         final lastLeg = currentState.route.legs.last;
+        if (lastLeg.steps.isEmpty) {
+          print('❌ Cannot reroute: Route has no steps');
+          if (!isClosed) {
+            emit(currentState.copyWith(
+              isRerouting: false,
+              rerouteError: 'Cannot reroute: Invalid route data',
+            ));
+          }
+          return;
+        }
+
         final lastStep = lastLeg.steps.last;
+        if (lastStep.maneuver.location.length < 2) {
+          print('❌ Cannot reroute: Invalid destination location format');
+          if (!isClosed) {
+            emit(currentState.copyWith(
+              isRerouting: false,
+              rerouteError: 'Cannot reroute: Invalid destination location',
+            ));
+          }
+          return;
+        }
+
         final destLat = lastStep.maneuver.location[1];
         final destLng = lastStep.maneuver.location[0];
 
         print(
             '🔄 Rerouting from (${currentPos.latitude}, ${currentPos.longitude}) to ($destLat, $destLng)...');
 
-        // 2. Fetch new route
-        final response = await placesService.fetchMapboxDirections(
+        // 2. Fetch new route with retry and timeout
+        final response = await _fetchRouteWithRetry(
           originLat: currentPos.latitude,
           originLng: currentPos.longitude,
-          destinationLat: destLat,
-          destinationLng: destLng,
-          profile: 'driving-traffic', // Ensure consistent profile
-          alternatives: false, // We just want the best route
+          destLat: destLat,
+          destLng: destLng,
+          maxRetries: 2,
         );
+
+        if (response == null) {
+          throw Exception('Failed to fetch route after retries');
+        }
+
+        // Check if bloc is still open before emitting
+        if (isClosed) {
+          print('⚠️ Bloc closed during reroute, skipping state emission');
+          return;
+        }
 
         if (response.routes.isNotEmpty) {
           final newRoute = response.routes.first;
@@ -238,59 +386,92 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
             congestionNumericData: newCongestionData,
           ));
 
-          // Optionally speak "Rerouting" or new instruction
-          // _voiceService.speak("Rerouting");
+          // Reset circuit breaker on success
+          _consecutiveReroutes = 0;
+
+          _voiceService.speak('Rerouting');
         } else {
           print('⚠️ Reroute failed: No routes found');
-          emit(currentState.copyWith(isRerouting: false));
+          if (!isClosed) {
+            emit(currentState.copyWith(
+              isRerouting: false,
+              rerouteError: 'No alternative route found',
+            ));
+          }
         }
       } catch (e) {
         print('❌ Reroute error: $e');
-        emit(currentState.copyWith(isRerouting: false));
+        final errorMessage = e is TimeoutException
+            ? 'Reroute timed out. Please try again.'
+            : 'Could not calculate new route';
+
+        if (!isClosed) {
+          emit(currentState.copyWith(
+            isRerouting: false,
+            rerouteError: errorMessage,
+          ));
+        }
       }
     }
   }
 
+  /// Step advance threshold when using along-route distance (native parity: advance when passed maneuver)
+  static const double _passedManeuverThresholdMeters = 10.0;
+
   NavigationInProgress _updateNavigationProgress(
-      NavigationInProgress state, Position position) {
+      NavigationInProgress state, NavigationPositionUpdated event) {
+    final position = event.position;
     final currentStep = state.currentStep;
     final allSteps = state.route.legs[state.currentLegIndex].steps;
 
-    // Calculate distance to next maneuver using MapboxNavigationUtils
-    double distanceToNextManeuver = Geolocator.distanceBetween(
-      position.latitude,
-      position.longitude,
-      currentStep.maneuver.location[1], // lat
-      currentStep.maneuver.location[0], // lng
-    );
-
-    // For better accuracy, calculate distance to the actual next maneuver point
-    if (state.currentStepIndex < allSteps.length - 1) {
-      final nextStep = allSteps[state.currentStepIndex + 1];
+    // Prefer along-route distance from snap (native SDK parity); fallback to straight-line
+    double distanceToNextManeuver;
+    if (event.distanceToManeuverAlongRouteMeters != null) {
+      final d = event.distanceToManeuverAlongRouteMeters!;
+      distanceToNextManeuver = d < 0 ? 0.0 : d; // treat "passed" as 0 for display
+    } else {
       distanceToNextManeuver = Geolocator.distanceBetween(
         position.latitude,
         position.longitude,
-        nextStep.maneuver.location[1], // lat
-        nextStep.maneuver.location[0], // lng
+        currentStep.maneuver.location[1],
+        currentStep.maneuver.location[0],
+      );
+      if (state.currentStepIndex < allSteps.length - 1) {
+        final nextStep = allSteps[state.currentStepIndex + 1];
+        distanceToNextManeuver = Geolocator.distanceBetween(
+          position.latitude,
+          position.longitude,
+          nextStep.maneuver.location[1],
+          nextStep.maneuver.location[0],
+        );
+      }
+    }
+
+    // Step advancement: when along-route available, advance when passed maneuver (<= threshold past)
+    bool shouldAdvanceStep;
+    if (event.distanceToManeuverAlongRouteMeters != null) {
+      final d = event.distanceToManeuverAlongRouteMeters!;
+      shouldAdvanceStep = d <= _passedManeuverThresholdMeters &&
+          state.currentStepIndex < allSteps.length - 1;
+    } else {
+      shouldAdvanceStep = _shouldAdvanceToNextStep(
+        position,
+        currentStep,
+        distanceToNextManeuver,
+        state.currentStepIndex,
+        allSteps,
       );
     }
 
-    // Enhanced step advancement logic - more precise
-    bool shouldAdvanceStep = _shouldAdvanceToNextStep(
-      position,
-      currentStep,
-      distanceToNextManeuver,
-      state.currentStepIndex,
-      allSteps,
-    );
-
-    // Calculate remaining route distance and time using MapboxNavigationUtils
-    final remainingDistance = MapboxNavigationUtils.calculateRemainingDistance(
-      position,
-      currentStep,
-      allSteps,
-      state.currentStepIndex,
-    );
+    // Remaining distance: prefer along-route from snap; fallback to util
+    final remainingDistance =
+        event.remainingDistanceAlongRouteMeters ??
+        MapboxNavigationUtils.calculateRemainingDistance(
+          position,
+          currentStep,
+          allSteps,
+          state.currentStepIndex,
+        );
 
     // Get congestion data from route annotations if available
     final currentLeg = state.route.legs[state.currentLegIndex];
@@ -326,30 +507,21 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       expectedAverageSpeed: expectedAverageSpeed,
     );
 
-    // Enhanced off-route detection
-    final isOffRoute =
-        MapboxNavigationUtils.isOffRoute(position, currentStep) &&
-            !state.isRerouting; // Don't trigger if already rerouting
-
-    if (isOffRoute) {
-      print('⚠️ User is off-route! Triggering reroute...');
-      // We can't emit directly here as this is a helper method.
-      // But we can return a state with isRerouting=true to trigger the UI/Bloc listener?
-      // Better: The Bloc's _onPositionUpdated calls this.
-      // We should handle the event dispatch there or return a flag.
-      // Since this returns state, we'll set isRerouting=true here,
-      // AND we need to ensure the Bloc sees this and triggers the async reroute.
-      // Actually, _onPositionUpdated emits the state.
-      // We should probably trigger the reroute event from _onPositionUpdated if this returns isRerouting=true.
+    // Off-route/reroute: single source of truth from snap result (native SDK parity)
+    final isRerouting = event.needsRerouteFromSnap == true;
+    if (isRerouting) {
+      print('⚠️ User off-route (snap): triggering reroute...');
     }
 
-    // Enhanced destination reached detection
+    // Enhanced destination reached detection (native parity: along-route when available, straight-line fallback; straight-line always allows arrival e.g. when user took another route)
     final isDestinationReached = _isDestinationReached(
       position,
       currentStep,
       state.currentStepIndex,
       allSteps,
       distanceToNextManeuver,
+      remainingDistanceAlongRouteMeters: event.remainingDistanceAlongRouteMeters,
+      isRerouting: isRerouting,
     );
 
     // Create updated state
@@ -359,7 +531,7 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       remainingDistance: remainingDistance,
       remainingDuration: remainingDuration,
       isNavigationComplete: isDestinationReached,
-      isRerouting: isOffRoute,
+      isRerouting: isRerouting,
       // Add bearing for camera tracking
       currentBearing: position.heading >= 0 ? position.heading : null,
       // Update current speed
@@ -370,8 +542,9 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       congestionNumericData: congestionData,
     );
 
-    // Advance step if needed
+    // Advance step if needed (native parity: clear voice state for new step)
     if (shouldAdvanceStep && state.currentStepIndex < allSteps.length - 1) {
+      _voiceService.clearAnnouncedInstructionsForNewStep();
       updatedState = _advanceStep(updatedState);
     }
 
@@ -419,24 +592,36 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     MapboxStep currentStep,
     int currentStepIndex,
     List<MapboxStep> allSteps,
-    double distanceToNextManeuver,
-  ) {
+    double distanceToNextManeuver, {
+    double? remainingDistanceAlongRouteMeters,
+    bool isRerouting = false,
+  }) {
     // Only check for destination if we're on the last step
     if (currentStepIndex != allSteps.length - 1) {
       return false;
     }
 
-    // Calculate distance to final destination
     final finalStep = allSteps.last;
-    final distanceToDestination = Geolocator.distanceBetween(
+    final straightLineToDestination = Geolocator.distanceBetween(
       position.latitude,
       position.longitude,
       finalStep.maneuver.location[1], // lat
       finalStep.maneuver.location[0], // lng
     );
 
-    return distanceToDestination <
-        MapboxNavigationUtils.destinationReachedThreshold;
+    // Straight-line fallback: always allow arrival when physically at destination (e.g. user took another route but reached it)
+    if (straightLineToDestination < kDestinationReachedThresholdMeters) {
+      return true;
+    }
+
+    // Along-route (native-style): use remaining distance from snap when available; guard against arrival during reroute
+    if (remainingDistanceAlongRouteMeters != null &&
+        !isRerouting &&
+        remainingDistanceAlongRouteMeters <= kDestinationReachedThresholdMeters) {
+      return true;
+    }
+
+    return false;
   }
 
   NavigationInProgress _advanceStep(NavigationInProgress state) {

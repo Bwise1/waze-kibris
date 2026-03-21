@@ -1,21 +1,27 @@
 import 'dart:developer';
 
 import 'package:flutter/cupertino.dart';
+import 'dart:convert';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
+import 'package:waze_kibris/core/models/reports/report_response.dart';
+import 'package:waze_kibris/core/models/reports/ws_report_update.dart';
 import 'package:waze_kibris/core/repositories/report_repository.dart';
 import 'package:waze_kibris/core/res/store_keys.dart';
 import 'package:waze_kibris/core/services/recent_locations_service.dart';
+import 'package:waze_kibris/core/services/websocket_service.dart';
 import 'package:waze_kibris/core/services/local_storage.dart';
 
 class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
   ReportsBloc({
     required ReportRepository reportRepository,
     required this.authBloc,
+    required WebSocketService webSocketService,
   })  : _reportRepository = reportRepository,
+        _webSocketService = webSocketService,
         _recentLocationsService = RecentLocationsService(getIt<ILocalStorage>()),
         super(const ReportInitial()) {
     on<GetReportByID>(_onRequestReportByID);
@@ -30,11 +36,25 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
     on<ClearRecentLocations>(_onClearRecentLocations);
     on<SubmitReportRequested>(_onSubmitReportRequested);
     on<ClearExpiredToken>(_onClearExpiredToken);
+    on<ReportUpdatedFromWs>(_onReportUpdatedFromWs);
+
+    _webSocketService.messages.listen((msg) {
+      if (msg.type == 'report_update' && msg.content != null) {
+        try {
+          final json = jsonDecode(msg.content!) as Map<String, dynamic>;
+          final update = WsReportUpdate.fromJson(json);
+          add(ReportsEvent.reportUpdatedFromWs(update: update));
+        } catch (_) {
+          // ignore malformed payloads
+        }
+      }
+    });
   }
 
   final ReportRepository _reportRepository;
   final RecentLocationsService _recentLocationsService;
   final AuthBloc authBloc;
+  final WebSocketService _webSocketService;
   // final ILocalStorage _localStorage;
   Future<void> _onRequestReportByID(
     GetReportByID event,
@@ -61,13 +81,6 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
         ),
       );
     } catch (e) {
-      if (e.toString() == 'Exception: token-expired') {
-        authBloc.add(
-          AuthEvent.refreshTokenRequested(
-            onRefreshToken: () {},
-          ),
-        );
-      }
       emit(ReportError(message: e.toString()));
     }
   }
@@ -100,14 +113,6 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
         ),
       );
     } catch (e) {
-      if (e.toString() == 'Exception: token-expired') {
-        authBloc.add(
-          AuthEvent.refreshTokenRequested(
-            onRefreshToken: () {},
-          ),
-        );
-      }
-
       emit(ReportError(message: e.toString()));
     }
   }
@@ -133,6 +138,79 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
       );
     } catch (e) {
       emit(ReportError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onReportUpdatedFromWs(
+    ReportUpdatedFromWs event,
+    Emitter<ReportState> emit,
+  ) async {
+    final update = event.update;
+    final current = state;
+
+    if (current is GetReportSuccess) {
+      final reports = [...current.data];
+      final index = reports.indexWhere((r) => r.id == update.id);
+
+      if (index >= 0) {
+        final r = reports[index];
+        reports[index] = ReportData(
+          id: r.id,
+          userId: r.userId,
+          username: r.username,
+          type: update.type,
+          severity: r.severity,
+          active: update.active,
+          resolved: update.resolved,
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+          expiresAt: r.expiresAt,
+          reportSource: r.reportSource,
+          reportStatus: r.reportStatus,
+          longitude: update.longitude,
+          latitude: update.latitude,
+          imageUrl: r.imageUrl,
+          upvotesCount: update.upvotesCount,
+          downvotesCount: update.downvotesCount,
+        );
+      } else {
+        // New report from WebSocket – add to list so it displays on the map
+        final now = DateTime.now().toUtc().toIso8601String();
+        final expiresAt = DateTime.now().toUtc()
+            .add(const Duration(hours: 24))
+            .toIso8601String();
+        reports.insert(
+          0,
+          ReportData(
+            id: update.id,
+            userId: update.userId,
+            username: null,
+            type: update.type,
+            severity: 0,
+            active: update.active,
+            resolved: update.resolved,
+            createdAt: now,
+            updatedAt: now,
+            expiresAt: expiresAt,
+            reportSource: 'user',
+            reportStatus: 'pending',
+            longitude: update.longitude,
+            latitude: update.latitude,
+            imageUrl: null,
+            upvotesCount: update.upvotesCount,
+            downvotesCount: update.downvotesCount,
+          ),
+        );
+      }
+
+      emit(
+        GetReportSuccess(
+          message: current.message,
+          data: reports,
+          status: current.status,
+          statusCode: current.statusCode,
+        ),
+      );
     }
   }
 
@@ -275,6 +353,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
         event.latitude,
         event.longitude,
         event.type,
+        imageFile: event.imageFile,
       ); //
 
       log(response.toString());
@@ -304,7 +383,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
 
         add(
           ReportsEvent.getNearByReports(
-              radius: 50,
+              radius: 5000,
               lat: event.latitude.toString(),
               long: event.longitude.toString()),
         );

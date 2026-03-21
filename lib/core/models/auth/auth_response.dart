@@ -34,6 +34,7 @@ class AuthData extends Equatable {
     this.email = '',
     this.user,
     this.token,
+    this.refreshToken,
   });
 
   factory AuthData.fromJson(Map<String, dynamic> json) =>
@@ -43,11 +44,13 @@ class AuthData extends Equatable {
   final String email;
   final User? user;
   final String? token;
+  @JsonKey(name: 'refresh_token')
+  final String? refreshToken;
 
   Map<String, dynamic> toJson() => _$AuthDataToJson(this);
 
   @override
-  List<Object?> get props => [id, email, user, token];
+  List<Object?> get props => [id, email, user, token, refreshToken];
 }
 
 @JsonSerializable()
@@ -58,6 +61,10 @@ class User extends Equatable {
     required this.isVerified,
     required this.preferredLanguage,
     this.authProvider = 'email',
+    this.username,
+    this.firstName,
+    this.lastName,
+    this.profileIcon,
     this.createdAt,
     this.updatedAt,
   });
@@ -71,12 +78,28 @@ class User extends Equatable {
   final String preferredLanguage;
   @JsonKey(name: 'auth_provider')
   final String authProvider;
+  final String? username;
+  @JsonKey(name: 'firstname')
+  final String? firstName;
+  @JsonKey(name: 'lastname')
+  final String? lastName;
+  @JsonKey(name: 'profile_icon')
+  final String? profileIcon;
   @JsonKey(name: 'created_at')
   final DateTime? createdAt;
   @JsonKey(name: 'updated_at')
   final DateTime? updatedAt;
 
   Map<String, dynamic> toJson() => _$UserToJson(this);
+
+  /// Display name for profile: first+last name, username, or email.
+  String get displayName {
+    final first = firstName?.trim() ?? '';
+    final last = lastName?.trim() ?? '';
+    if (first.isNotEmpty || last.isNotEmpty) return '$first $last'.trim();
+    if (username != null && username!.trim().isNotEmpty) return username!;
+    return email;
+  }
 
   @override
   List<Object?> get props => [
@@ -85,6 +108,10 @@ class User extends Equatable {
         isVerified,
         preferredLanguage,
         authProvider,
+        username,
+        firstName,
+        lastName,
+        profileIcon,
         createdAt,
         updatedAt,
       ];

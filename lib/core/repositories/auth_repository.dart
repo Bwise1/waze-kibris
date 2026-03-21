@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/models/auth/auth_response.dart';
+import 'package:waze_kibris/core/models/user/nearby_user.dart';
 import 'package:waze_kibris/core/res/store_keys.dart';
 
 abstract class AuthRepository {
@@ -8,9 +9,15 @@ abstract class AuthRepository {
   Future<AuthResponse> register(String email);
   Future<AuthResponse> verifyOtp(String email, String code, String type);
   Future<AuthResponse> resendOtp(String email);
-  Future<AuthResponse> googleAuth(String token);
+  /// Exchange a Firebase ID token for app JWTs (recommended for Google / Apple via Firebase).
+  Future<AuthResponse> firebaseAuth(String idToken);
+
+  /// Legacy: exchange a Google OAuth ID token (not from Firebase) for app JWTs.
+  Future<AuthResponse> googleAuth(String idToken);
   Future<AuthResponse> getProfile();
   Future<RefreshTokenResponse> getRefreshToken();
+  Future<List<NearbyUser>> getNearbyUsers(double lat, double lon, {double radiusM = 2000});
+  Future<void> updateProfile({String? firstname, String? lastname, String? profileIcon});
 }
 
 class IAuthRepository implements AuthRepository {
@@ -81,11 +88,24 @@ class IAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<AuthResponse> googleAuth(String token) async {
+  Future<AuthResponse> firebaseAuth(String idToken) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
-        '/auth/google',
-        data: {'token': token},
+        '/auth/firebase/login',
+        data: {'id_token': idToken},
+      );
+      return AuthResponse.fromJson(response.data!);
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  @override
+  Future<AuthResponse> googleAuth(String idToken) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/auth/google/login',
+        data: {'id_token': idToken},
       );
       return AuthResponse.fromJson(response.data!);
     } on DioException catch (e) {
@@ -105,7 +125,11 @@ class IAuthRepository implements AuthRepository {
           },
         ),
       );
-      return AuthResponse.fromJson(response.data!);
+      final json = response.data!;
+      if (json['data'] != null && json['data'] is Map<String, dynamic>) {
+        json['data'] = {'user': json['data']};
+      }
+      return AuthResponse.fromJson(json);
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
@@ -121,6 +145,56 @@ class IAuthRepository implements AuthRepository {
         },
       );
       return RefreshTokenResponse.fromJson(response.data!);
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  @override
+  Future<void> updateProfile({String? firstname, String? lastname, String? profileIcon}) async {
+    try {
+      final data = <String, dynamic>{};
+      if (firstname != null) data['firstname'] = firstname;
+      if (lastname != null) data['lastname'] = lastname;
+      if (profileIcon != null) data['profile_icon'] = profileIcon;
+      await _dio.put<Map<String, dynamic>>(
+        '/user/profile',
+        data: data,
+        options: Options(
+          headers: {
+            'Authorization':
+                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
+          },
+        ),
+      );
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  @override
+  Future<List<NearbyUser>> getNearbyUsers(double lat, double lon, {double radiusM = 2000}) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/user/nearby-users',
+        queryParameters: {
+          'latitude': lat,
+          'longitude': lon,
+          'radius_m': radiusM.toInt(),
+        },
+        options: Options(
+          headers: {
+            'Authorization':
+                'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
+          },
+        ),
+      );
+      final data = response.data?['data'];
+      if (data is! List<dynamic>) return [];
+      return data
+          .map((e) => e is Map<String, dynamic> ? NearbyUser.fromJson(e) : null)
+          .whereType<NearbyUser>()
+          .toList();
     } on DioException catch (e) {
       throw _handleDioError(e);
     }

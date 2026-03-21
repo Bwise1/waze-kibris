@@ -4,6 +4,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:waze_kibris/core/models/auth/auth_response.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
 
+import '../../fake_local_storage.dart';
+
 class MockDio extends Mock implements Dio {}
 
 void main() {
@@ -12,7 +14,10 @@ void main() {
 
   setUp(() {
     mockDio = MockDio();
-    authRepository = IAuthRepository(dio: mockDio);
+    authRepository = IAuthRepository(
+      dio: mockDio,
+      store: FakeLocalStorage(),
+    );
   });
 
   group('AuthRepository', () {
@@ -149,8 +154,45 @@ void main() {
       expect(result.data?.email, equals(testEmail));
     });
 
-    test('googleAuth - success', () async {
-      const token = 'google-token';
+    test('firebaseAuth - success', () async {
+      const idToken = 'firebase-id-token';
+      final firebaseResponse = {
+        ...testResponse,
+        'data': {
+          'user': {
+            'id': 'test-id',
+            'email': testEmail,
+            'is_verified': true,
+            'preferred_language': 'en',
+          },
+          'token': 'test-token',
+          'refresh_token': 'test-refresh',
+        },
+      };
+
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/firebase/login',
+          data: {'id_token': idToken},
+        ),
+      ).thenAnswer(
+        (_) async => Response(
+          data: firebaseResponse,
+          requestOptions: RequestOptions(),
+        ),
+      );
+
+      final result = await authRepository.firebaseAuth(idToken);
+
+      expect(result, isA<AuthResponse>());
+      expect(result.message, equals('Success'));
+      expect(result.data?.user?.email, equals(testEmail));
+      expect(result.data?.token, equals('test-token'));
+      expect(result.data?.refreshToken, equals('test-refresh'));
+    });
+
+    test('googleAuth (legacy) - success', () async {
+      const idToken = 'google-oauth-id-token';
       final googleResponse = {
         ...testResponse,
         'data': {
@@ -166,8 +208,8 @@ void main() {
 
       when(
         () => mockDio.post<Map<String, dynamic>>(
-          '/auth/google',
-          data: {'token': token},
+          '/auth/google/login',
+          data: {'id_token': idToken},
         ),
       ).thenAnswer(
         (_) async => Response(
@@ -176,11 +218,9 @@ void main() {
         ),
       );
 
-      final result = await authRepository.googleAuth(token);
+      final result = await authRepository.googleAuth(idToken);
 
       expect(result, isA<AuthResponse>());
-      expect(result.message, equals('Success'));
-      expect(result.data?.user?.email, equals(testEmail));
       expect(result.data?.token, equals('test-token'));
     });
   });

@@ -1,8 +1,92 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
+import 'package:waze_kibris/core/repositories/auth_repository.dart';
 
-class UpdateUsernameScreen extends StatelessWidget {
+class UpdateUsernameScreen extends StatefulWidget {
   const UpdateUsernameScreen({super.key});
+
+  @override
+  State<UpdateUsernameScreen> createState() => _UpdateUsernameScreenState();
+}
+
+class _UpdateUsernameScreenState extends State<UpdateUsernameScreen> {
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
+  bool _saving = false;
+  bool _hasPrefilled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fillFromUser());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Prefill when profile loads after we open the screen (e.g. slow network)
+    if (!_hasPrefilled) _fillFromUser();
+  }
+
+  void _fillFromUser() {
+    if (_hasPrefilled) return;
+    final authState = context.read<AuthBloc>().state;
+    if (authState is! AuthSuccess || authState.user == null) return;
+
+    _hasPrefilled = true;
+    final user = authState.user!;
+    _firstNameController.text = user.firstName?.trim() ?? '';
+    _lastNameController.text = user.lastName?.trim() ?? '';
+  }
+
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final first = _firstNameController.text.trim();
+    final last = _lastNameController.text.trim();
+    if (first.isEmpty && last.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enter at least first or last name')),
+        );
+      }
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await context.read<AuthRepository>().updateProfile(
+            firstname: first.isEmpty ? null : first,
+            lastname: last.isEmpty ? null : last,
+          );
+      if (!mounted) return;
+      context.read<AuthBloc>().add(const GetProfileRequested());
+      if (!mounted) return;
+      context.pop();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile updated')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -11,6 +95,7 @@ class UpdateUsernameScreen extends StatelessWidget {
         AppHeader(
           backIcon: Assets.icons.backArrow,
           isTransparent: true,
+          onBack: () => context.pop(),
         ),
         Expanded(
           child: SingleChildScrollView(
@@ -26,10 +111,8 @@ class UpdateUsernameScreen extends StatelessWidget {
                 ),
                 Gap(8 * styles.scale),
                 Text(
-                  '''
-What do you want us to call you by? Enter your full name below''',
-                  style:
-                  styles.typography.body.textColor(styles.theme.ash),
+                  'What do you want us to call you by? Enter your full name below',
+                  style: styles.typography.body.textColor(styles.theme.ash),
                 ),
                 Gap(24 * styles.scale),
                 Text(
@@ -38,9 +121,9 @@ What do you want us to call you by? Enter your full name below''',
                 ),
                 Gap(2 * styles.scale),
                 CustomTextField(
+                  controller: _firstNameController,
                   fillColor: styles.theme.white,
                   hintText: 'Enter your first name',
-                  initialValue: 'Enter your first name',
                   prefix: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -49,12 +132,11 @@ What do you want us to call you by? Enter your full name below''',
                         bgColor: Colors.transparent,
                         color: styles.theme.text,
                         onPressed: () {},
-                        semanticLabel: 'at',
+                        semanticLabel: 'first-name',
                       ),
                       Text(
                         '|',
-                        style:
-                        styles.typography.h4.textColor(styles.theme.ash),
+                        style: styles.typography.h4.textColor(styles.theme.ash),
                       ),
                     ],
                   ),
@@ -66,8 +148,9 @@ What do you want us to call you by? Enter your full name below''',
                 ),
                 Gap(2 * styles.scale),
                 CustomTextField(
+                  controller: _lastNameController,
                   fillColor: styles.theme.white,
-                  hintText: 'Enter your first name',
+                  hintText: 'Enter your last name',
                   prefix: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -76,17 +159,16 @@ What do you want us to call you by? Enter your full name below''',
                         bgColor: Colors.transparent,
                         color: styles.theme.text,
                         onPressed: () {},
-                        semanticLabel: 'at',
+                        semanticLabel: 'last-name',
                       ),
                       Text(
                         '|',
-                        style:
-                        styles.typography.h4.textColor(styles.theme.ash),
+                        style: styles.typography.h4.textColor(styles.theme.ash),
                       ),
                     ],
                   ),
                 ),
-                Gap(282 * styles.scale),
+                Gap(48 * styles.scale),
               ],
             ),
           ),
@@ -97,11 +179,11 @@ What do you want us to call you by? Enter your full name below''',
           child: Column(
             children: [
               AppBtn.from(
-                onPressed: () {},
-                semanticLabel: '',
+                onPressed: _saving ? null : _save,
+                semanticLabel: 'save-profile',
                 expand: true,
                 corner: styles.corners.x24,
-                text: 'Save',
+                text: _saving ? 'Saving…' : 'Save',
                 iconColor: styles.theme.primary,
                 bgColor: styles.theme.secondary,
                 padding: EdgeInsets.symmetric(vertical: styles.insets.xs),

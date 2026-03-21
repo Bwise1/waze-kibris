@@ -60,10 +60,10 @@ class CustomSearchBar extends StatelessWidget {
                         size: 18,
                       ),
                     ),
-                    Text(
-                      '|',
-                      style: styles.typography.h4.textColor(styles.theme.ash),
-                    ),
+                    // Text(
+                    //   '|',
+                    //   style: styles.typography.h4.textColor(styles.theme.ash),
+                    // ),
                   ],
                 ),
                 suffix: Row(

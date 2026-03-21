@@ -16,12 +16,16 @@ class NavigationOverlay extends StatefulWidget {
   final NavigationInProgress navigationState;
   final VoidCallback onEndNavigation;
   final VoidCallback onToggleOverview;
+  final VoidCallback onToggleCourseUp;
+  final bool isCourseUp;
 
   const NavigationOverlay({
     Key? key,
     required this.navigationState,
     required this.onEndNavigation,
     required this.onToggleOverview,
+    required this.onToggleCourseUp,
+    required this.isCourseUp,
   }) : super(key: key);
 
   @override
@@ -31,6 +35,7 @@ class NavigationOverlay extends StatefulWidget {
 class _NavigationOverlayState extends State<NavigationOverlay>
     with TickerProviderStateMixin {
   late AnimationController _slideController;
+  late AnimationController _panelSlideController;
   bool _isMuted = false;
   Timer? _updateTimer;
 
@@ -41,6 +46,11 @@ class _NavigationOverlayState extends State<NavigationOverlay>
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
+    _panelSlideController = AnimationController(
+      duration: const Duration(milliseconds: 280),
+      vsync: this,
+    );
+    _panelSlideController.forward();
 
     // Start timer for real-time updates every 3 seconds for stability
     _updateTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
@@ -56,6 +66,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
   void dispose() {
     _updateTimer?.cancel();
     _slideController.dispose();
+    _panelSlideController.dispose();
     super.dispose();
   }
 
@@ -68,6 +79,32 @@ class _NavigationOverlayState extends State<NavigationOverlay>
         widget.navigationState.currentStepIndex) {
       _slideController.forward().then((_) {
         _slideController.reverse();
+      });
+    }
+
+    // Show snackbar when reroute error occurs
+    if (widget.navigationState.rerouteError != null &&
+        widget.navigationState.rerouteError!.isNotEmpty &&
+        oldWidget.navigationState.rerouteError !=
+            widget.navigationState.rerouteError) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(widget.navigationState.rerouteError!),
+              backgroundColor: Colors.red.shade700,
+              action: SnackBarAction(
+                label: 'Dismiss',
+                textColor: Colors.white,
+                onPressed: () {
+                  // Clear error
+                  context.read<NavigationBloc>().add(ClearRerouteError());
+                },
+              ),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
       });
     }
   }
@@ -93,19 +130,36 @@ class _NavigationOverlayState extends State<NavigationOverlay>
           ),
         ),
 
-        // Bottom Left: Speedometer
+        // Bottom Left: Speedometer — above bottom panel with clear gap
         Positioned(
-          bottom: 230, // Lifted up to avoid bottom panel overlap
+          bottom: 192,
           left: 16,
           child: SpeedometerWidget(
             currentSpeed: navigationState.currentSpeed ?? 0,
-            speedLimit: navigationState.speedLimit ?? 90, // Use route annotations or fallback to 90
+            speedLimit: navigationState.speedLimit ??
+                90, // Use route annotations or fallback to 90
           ),
         ),
 
-        // Bottom Right: Report Button
+        // Bottom Right: Compass Toggle Button — above the report button
         Positioned(
-          bottom: 230, // Lifted up to avoid bottom panel overlap
+          bottom: 260,
+          right: 16,
+          child: FloatingActionButton(
+            heroTag: 'compass_fab_nav',
+            onPressed: widget.onToggleCourseUp,
+            backgroundColor: Colors.white,
+            mini: true,
+            child: Icon(
+              widget.isCourseUp ? Icons.explore : Icons.explore_off,
+              color: widget.isCourseUp ? Colors.blueAccent : Colors.grey,
+            ),
+          ),
+        ),
+
+        // Bottom Right: Report Button — above bottom panel with clear gap
+        Positioned(
+          bottom: 192,
           right: 16,
           child: FloatingActionButton(
             onPressed: () => _showReportModal(context),
@@ -114,33 +168,46 @@ class _NavigationOverlayState extends State<NavigationOverlay>
           ),
         ),
 
-        // Bottom: Navigation Controls & Info
+        // Bottom: Navigation Controls & Info — flush with screen bottom, slides up from beneath
         Positioned(
           bottom: 0,
           left: 0,
           right: 0,
-          child: Container(
-            width: double.infinity,
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 12,
-                  offset: const Offset(0, -4),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Progress indicator
-                if (!navigationState.isOverviewVisible) ...[
-                  Builder(
-                    builder: (context) {
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(
+              parent: _panelSlideController,
+              curve: Curves.easeOutCubic,
+            )),
+            child: Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(top: 8, bottom: 0),
+              padding: EdgeInsets.only(
+                left: 12,
+                right: 12,
+                top: 8,
+                bottom: 8 + MediaQuery.of(context).padding.bottom,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(16)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 12,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Progress indicator
+                  if (!navigationState.isOverviewVisible) ...[
+                    Builder(builder: (context) {
                       // Calculate progress safely to avoid NaN/Infinity errors
                       double progress = 0.0;
                       if (navigationState.route.distance > 0) {
@@ -150,7 +217,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                         // Ensure valid range [0.0, 1.0]
                         progress = progress.clamp(0.0, 1.0);
                       }
-                      
+
                       return Row(
                         children: [
                           Expanded(
@@ -164,121 +231,137 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                           ),
                         ],
                       );
-                    }
-                  ),
-                  const SizedBox(height: 16),
-                ],
+                    }),
+                    const SizedBox(height: 10),
+                  ],
 
-                // ETA and distance info
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    Column(
-                      children: [
-                        Text(
-                          MapboxNavigationUtils.formatDuration(
-                              navigationState.remainingDuration),
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black,
-                          ),
-                        ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'ETA ${MapboxNavigationUtils.formatETA(navigationState.remainingDuration)}',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[600],
-                              ),
+                  // ETA and distance info
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      Column(
+                        children: [
+                          Text(
+                            MapboxNavigationUtils.formatDuration(
+                                navigationState.remainingDuration),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black,
                             ),
-                            // Show indicator if congestion data is available (real-time traffic)
-                            if (navigationState.congestionNumericData != null &&
-                                navigationState.congestionNumericData!.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(left: 4),
-                                child: Icon(
-                                  Icons.traffic,
-                                  size: 12,
-                                  color: Colors.orange[700],
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'ETA ${MapboxNavigationUtils.formatETA(navigationState.remainingDuration)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
                                 ),
                               ),
-                            // Show indicator if route is being refreshed
-                            if (navigationState.isRerouting)
-                              Padding(
-                                padding: const EdgeInsets.only(left: 4),
-                                child: SizedBox(
-                                  width: 12,
-                                  height: 12,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.blue[700]!,
-                                    ),
+                              // Show indicator if congestion data is available (real-time traffic)
+                              if (navigationState.congestionNumericData !=
+                                      null &&
+                                  navigationState
+                                      .congestionNumericData!.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 4),
+                                  child: Icon(
+                                    Icons.traffic,
+                                    size: 12,
+                                    color: Colors.orange[700],
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    Container(
-                      width: 1,
-                      height: 40,
-                      color: Colors.grey[300],
-                    ),
-                    Column(
-                      children: [
-                        Text(
-                          MapboxNavigationUtils.formatDistance(
-                              navigationState.remainingDistance),
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black,
+                              // Show "Rerouting..." and spinner when route is being recalculated
+                              if (navigationState.isRerouting)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 4),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                        width: 12,
+                                        height: 12,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                            Colors.blue[700]!,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Rerouting...',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.blue[700],
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
                           ),
-                        ),
-                        Text(
-                          'Distance',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
+                        ],
+                      ),
+                      Container(
+                        width: 1,
+                        height: 40,
+                        color: Colors.grey[300],
+                      ),
+                      Column(
+                        children: [
+                          Text(
+                            MapboxNavigationUtils.formatDistance(
+                                navigationState.remainingDistance),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                          Text(
+                            'Distance',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
 
-                const SizedBox(height: 10),
+                  const SizedBox(height: 6),
 
-                // Control buttons
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildControlButton(
-                      icon: navigationState.isOverviewVisible
-                          ? Icons.navigation
-                          : Icons.map_outlined,
-                      label: navigationState.isOverviewVisible
-                          ? 'Resume'
-                          : 'Overview',
-                      onPressed: widget.onToggleOverview,
-                    ),
-
-                    _buildControlButton(
-                      icon: Icons.close,
-                      label: 'End',
-                      onPressed: () {
-                        _showEndNavigationDialog(context);
-                      },
-                      isDestructive: true,
-                    ),
-                  ],
-                ),
-              ],
+                  // Control buttons
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildControlButton(
+                        icon: navigationState.isOverviewVisible
+                            ? Icons.navigation
+                            : Icons.map_outlined,
+                        label: navigationState.isOverviewVisible
+                            ? 'Resume'
+                            : 'Overview',
+                        onPressed: widget.onToggleOverview,
+                      ),
+                      _buildControlButton(
+                        icon: Icons.close,
+                        label: 'End',
+                        onPressed: () {
+                          _showEndNavigationDialog(context);
+                        },
+                        isDestructive: true,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -296,12 +379,12 @@ class _NavigationOverlayState extends State<NavigationOverlay>
       onTap: onPressed,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         child: Column(
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
                 color: isDestructive ? Colors.red[50] : Colors.grey[100],
                 shape: BoxShape.circle,
@@ -309,7 +392,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
               child: Icon(
                 icon,
                 color: isDestructive ? Colors.red : Colors.grey[700],
-                size: 20,
+                size: 18,
               ),
             ),
             const SizedBox(height: 4),
@@ -356,7 +439,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
   void _showReportModal(BuildContext context) async {
     // Get current position from navigation state or fetch it
     Position? currentPosition = widget.navigationState.userPosition;
-    
+
     // If position not available, fetch it
     if (currentPosition == null) {
       try {
@@ -377,10 +460,10 @@ class _NavigationOverlayState extends State<NavigationOverlay>
               context: context,
             ),
           );
-      
+
       // Wait a moment for AuthBloc to update, then show modal
       await Future<void>.delayed(const Duration(milliseconds: 100));
-      
+
       if (context.mounted) {
         showModalBottomSheet<void>(
           context: context,

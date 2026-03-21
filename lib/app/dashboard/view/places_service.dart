@@ -10,19 +10,15 @@ import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/places/places_response.dart'; // For AutocompleteSuggestion
-import 'package:waze_kibris/core/res/store_keys.dart';
-import 'package:waze_kibris/core/services/local_storage.dart';
 
 class PlacesService {
   static const String backendBaseUrl = 'https://waze-api.benjys.me';
-  final Dio _dio = Dio();
-  final ILocalStorage _store;
+  PlacesService({Dio? dio}) : _dio = dio ?? Dio();
 
-  PlacesService(this._store);
+  final Dio _dio;
 
-  Map<String, String> get _authHeaders => {
+  Map<String, String> get _baseHeaders => const {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${_store.get<String>(StoreKeys.wazeToken)}',
         'X-Request-Source': 'flutter-app',
       };
 
@@ -31,7 +27,7 @@ class PlacesService {
       final response = await _dio.get(
         '$backendBaseUrl/places/autocomplete',
         queryParameters: {'text': query},
-        options: Options(headers: _authHeaders),
+        options: Options(headers: _baseHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -127,7 +123,7 @@ class PlacesService {
       final response = await _dio.get(
         '$backendBaseUrl/places/placedetails',
         queryParameters: {'gid': gid},
-        options: Options(headers: _authHeaders),
+        options: Options(headers: _baseHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -191,7 +187,7 @@ class PlacesService {
       final response = await _dio.post(
         backendUrl,
         data: payload,
-        options: Options(headers: _authHeaders),
+        options: Options(headers: _baseHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -233,7 +229,7 @@ class PlacesService {
       final response = await _dio.get(
         '$backendBaseUrl/places/googleautocomplete',
         queryParameters: params,
-        options: Options(headers: _authHeaders),
+        options: Options(headers: _baseHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -306,7 +302,7 @@ class PlacesService {
       final response = await _dio.get(
         '$backendBaseUrl/places/googleplacedetails',
         queryParameters: {'place_id': placeId},
-        options: Options(headers: _authHeaders),
+        options: Options(headers: _baseHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -343,7 +339,7 @@ class PlacesService {
           // 'origin': '9.1538,7.3220',
           'destination': 'place_id:$destinationPlaceId',
         },
-        options: Options(headers: _authHeaders),
+        options: Options(headers: _baseHeaders),
       );
 
       if (response.statusCode == 200) {
@@ -407,7 +403,7 @@ class PlacesService {
       final response = await _dio.get(
         '$backendBaseUrl/places/mapboxdirections',
         queryParameters: params,
-        options: Options(headers: _authHeaders),
+        options: Options(headers: _baseHeaders),
       );
 
       debugPrint('🔵 [ROUTES] Backend response status: ${response.statusCode}');
@@ -560,7 +556,7 @@ class PlacesService {
       final response = await _dio.post(
         '$backendBaseUrl/places/mapboxmapmatching',
         data: payload,
-        options: Options(headers: _authHeaders),
+        options: Options(headers: _baseHeaders),
       );
 
       if (response.statusCode == 200) {

@@ -236,6 +236,10 @@ class _MapSheetState extends State<MapSheet> {
       debugPrint(
           '🟢 [MAP_SHEET] Details to show - name: ${details.name}, distance: ${distanceKm}km');
 
+      // Hide MapSheet first so it doesn't remain underneath the PlaceDetailsSheet / Route sheet.
+      debugPrint('🟢 [MAP_SHEET] Hiding MapSheet before showing PlaceDetailsSheet');
+      widget.onLocationSelected?.call();
+
       // Show PlaceDetailsScreen first using root navigator context
       debugPrint(
           '🟢 [MAP_SHEET] Calling showModalBottomSheet for PlaceDetailsSheet...');
@@ -281,7 +285,7 @@ class _MapSheetState extends State<MapSheet> {
                 debugPrint('🟡 [ROUTE_SHEET] Closing PlaceDetailsSheet');
 
                 // Close PlaceDetailsSheet first
-                Navigator.of(modalContext).pop();
+                Navigator.of(modalContext).pop('routes_opened');
                 debugPrint('🟡 [ROUTE_SHEET] PlaceDetailsSheet closed');
 
                 debugPrint(
@@ -375,15 +379,10 @@ class _MapSheetState extends State<MapSheet> {
                     return;
                   }
 
-                  // Try to draw first route polyline if widget is still mounted
-                  if (mounted) {
-                    final firstRoute = directions.routes.first;
-                    debugPrint('🟡 [ROUTE_SHEET] Drawing first route polyline');
-                    widget.onDrawMapboxPolyline?.call(firstRoute);
-                  } else {
-                    debugPrint(
-                        '🟡 [ROUTE_SHEET] Widget not mounted, skipping polyline drawing (will show RouteSelectionSheet anyway)');
-                  }
+                  // Parent (MainDashboard) owns the map; forward even if MapSheet is offstage.
+                  final firstRoute = directions.routes.first;
+                  debugPrint('🟡 [ROUTE_SHEET] Drawing first route polyline');
+                  widget.onDrawMapboxPolyline?.call(firstRoute);
 
                   debugPrint(
                       '🟡 [ROUTE_SHEET] Attempting to show RouteSelectionSheet');
@@ -420,17 +419,13 @@ class _MapSheetState extends State<MapSheet> {
                           onRouteSelected: (selectedRoute) {
                             debugPrint(
                                 '🟡 [ROUTE_SHEET] Route selected: ${selectedRoute.distance}m');
-                            if (mounted) {
-                              widget.onDrawMapboxPolyline?.call(selectedRoute);
-                            }
+                            widget.onDrawMapboxPolyline?.call(selectedRoute);
                           },
                           onStartNavigation: (selectedRoute) {
                             debugPrint(
                                 '🟡 [ROUTE_SHEET] Navigation started with route: ${selectedRoute.distance}m');
-                            if (mounted) {
-                              widget.onDrawMapboxPolyline?.call(selectedRoute);
-                              widget.onStartNavigation?.call(selectedRoute);
-                            }
+                            widget.onDrawMapboxPolyline?.call(selectedRoute);
+                            widget.onStartNavigation?.call(selectedRoute);
                           },
                         );
                       },
@@ -537,15 +532,11 @@ class _MapSheetState extends State<MapSheet> {
         // and disposes MapSheet. We don't need it since PlaceDetailsSheet handles the flow.
         // onSuggestionSelected is only used for RouteBar, which we don't show with PlaceDetailsSheet.
 
-        // Now hide MapSheet since PlaceDetailsSheet is successfully shown
-        debugPrint(
-            '🟢 [MAP_SHEET] Hiding MapSheet now that PlaceDetailsSheet is shown');
-        widget.onLocationSelected?.call();
-
         // Restore MapSheet visibility when PlaceDetailsSheet is dismissed (unless navigation started)
         debugPrint(
             '🟢 [MAP_SHEET] PlaceDetailsSheet dismissed with result: $placeDetailsResult');
-        if (placeDetailsResult != 'navigation_started') {
+        if (placeDetailsResult != 'navigation_started' &&
+            placeDetailsResult != 'routes_opened') {
           debugPrint(
               '🟢 [MAP_SHEET] Restoring MapSheet visibility after PlaceDetailsSheet dismissal');
           widget.onRouteSelectionDismissed?.call();
@@ -575,8 +566,8 @@ class _MapSheetState extends State<MapSheet> {
           }
         }
 
-        // PlaceDetailsSheet failed to show: do NOT hide the MapSheet.
-        // Instead, restore it immediately so users can try again.
+        // PlaceDetailsSheet failed to show: restore MapSheet visibility so users can try again.
+        widget.onRouteSelectionDismissed?.call();
         debugPrint(
             '🟢 [MAP_SHEET] Restoring MapSheet due to error showing PlaceDetailsSheet');
         widget.onRouteSelectionDismissed?.call();
@@ -721,7 +712,7 @@ class _MapSheetState extends State<MapSheet> {
             debugPrint('🔵 [ROUTE_SHEET] Closing PlaceDetailsSheet');
 
             // Close PlaceDetailsSheet first
-            Navigator.of(modalContext).pop();
+            Navigator.of(modalContext).pop('routes_opened');
             debugPrint('🔵 [ROUTE_SHEET] PlaceDetailsSheet closed');
 
             debugPrint('🔵 [ROUTE_SHEET] Showing loading overlay for routes');
@@ -813,15 +804,9 @@ class _MapSheetState extends State<MapSheet> {
                 return;
               }
 
-              // Try to draw first route polyline if widget is still mounted
-              if (mounted) {
-                final firstRoute = directions.routes.first;
-                debugPrint('🔵 [ROUTE_SHEET] Drawing first route polyline');
-                widget.onDrawMapboxPolyline?.call(firstRoute);
-              } else {
-                debugPrint(
-                    '🔵 [ROUTE_SHEET] Widget not mounted, skipping polyline drawing (will show RouteSelectionSheet anyway)');
-              }
+              final firstRoute = directions.routes.first;
+              debugPrint('🔵 [ROUTE_SHEET] Drawing first route polyline');
+              widget.onDrawMapboxPolyline?.call(firstRoute);
 
               debugPrint(
                   '🔵 [ROUTE_SHEET] Attempting to show RouteSelectionSheet');
@@ -863,17 +848,13 @@ class _MapSheetState extends State<MapSheet> {
                       onRouteSelected: (selectedRoute) {
                         debugPrint(
                             '🔵 [ROUTE_SHEET] Route selected: ${selectedRoute.distance}m');
-                        if (mounted) {
-                          widget.onDrawMapboxPolyline?.call(selectedRoute);
-                        }
+                        widget.onDrawMapboxPolyline?.call(selectedRoute);
                       },
                       onStartNavigation: (selectedRoute) {
                         debugPrint(
                             '🔵 [ROUTE_SHEET] Navigation started with route: ${selectedRoute.distance}m');
-                        if (mounted) {
-                          widget.onDrawMapboxPolyline?.call(selectedRoute);
-                          widget.onStartNavigation?.call(selectedRoute);
-                        }
+                        widget.onDrawMapboxPolyline?.call(selectedRoute);
+                        widget.onStartNavigation?.call(selectedRoute);
                       },
                     );
                   },
@@ -964,7 +945,8 @@ class _MapSheetState extends State<MapSheet> {
     // Restore MapSheet visibility when PlaceDetailsSheet is dismissed (unless navigation started)
     debugPrint(
         '🔵 [MAP_SHEET] PlaceDetailsSheet dismissed with result: $savedPlaceDetailsResult');
-    if (savedPlaceDetailsResult != 'navigation_started') {
+    if (savedPlaceDetailsResult != 'navigation_started' &&
+        savedPlaceDetailsResult != 'routes_opened') {
       debugPrint(
           '🔵 [MAP_SHEET] Restoring MapSheet visibility after PlaceDetailsSheet dismissal');
       widget.onRouteSelectionDismissed?.call();
@@ -1016,6 +998,10 @@ class _MapSheetState extends State<MapSheet> {
     debugPrint(
         '🟣 [MAP_SHEET] Using root navigator context (independent of MapSheet lifecycle)');
 
+    // Hide MapSheet first so it doesn't remain underneath the PlaceDetailsSheet / Route sheet.
+    debugPrint('🟣 [MAP_SHEET] Hiding MapSheet before showing PlaceDetailsSheet');
+    widget.onLocationSelected?.call();
+
     // Show PlaceDetailsScreen first using root navigator context
     final recentPlaceDetailsResult = await showModalBottomSheet<String>(
       context: rootNavigator.context,
@@ -1043,7 +1029,7 @@ class _MapSheetState extends State<MapSheet> {
             debugPrint('🟣 [ROUTE_SHEET] Closing PlaceDetailsSheet');
 
             // Close PlaceDetailsSheet first
-            Navigator.of(modalContext).pop();
+            Navigator.of(modalContext).pop('routes_opened');
             debugPrint('🟣 [ROUTE_SHEET] PlaceDetailsSheet closed');
 
             debugPrint('🟣 [ROUTE_SHEET] Showing loading overlay for routes');
@@ -1135,15 +1121,9 @@ class _MapSheetState extends State<MapSheet> {
                 return;
               }
 
-              // Try to draw first route polyline if widget is still mounted
-              if (mounted) {
-                final firstRoute = directions.routes.first;
-                debugPrint('🟣 [ROUTE_SHEET] Drawing first route polyline');
-                widget.onDrawMapboxPolyline?.call(firstRoute);
-              } else {
-                debugPrint(
-                    '🟣 [ROUTE_SHEET] Widget not mounted, skipping polyline drawing (will show RouteSelectionSheet anyway)');
-              }
+              final firstRoute = directions.routes.first;
+              debugPrint('🟣 [ROUTE_SHEET] Drawing first route polyline');
+              widget.onDrawMapboxPolyline?.call(firstRoute);
 
               debugPrint(
                   '🟣 [ROUTE_SHEET] Attempting to show RouteSelectionSheet');
@@ -1185,17 +1165,13 @@ class _MapSheetState extends State<MapSheet> {
                       onRouteSelected: (selectedRoute) {
                         debugPrint(
                             '🟣 [ROUTE_SHEET] Route selected: ${selectedRoute.distance}m');
-                        if (mounted) {
-                          widget.onDrawMapboxPolyline?.call(selectedRoute);
-                        }
+                        widget.onDrawMapboxPolyline?.call(selectedRoute);
                       },
                       onStartNavigation: (selectedRoute) {
                         debugPrint(
                             '🟣 [ROUTE_SHEET] Navigation started with route: ${selectedRoute.distance}m');
-                        if (mounted) {
-                          widget.onDrawMapboxPolyline?.call(selectedRoute);
-                          widget.onStartNavigation?.call(selectedRoute);
-                        }
+                        widget.onDrawMapboxPolyline?.call(selectedRoute);
+                        widget.onStartNavigation?.call(selectedRoute);
                       },
                     );
                   },
@@ -1275,14 +1251,11 @@ class _MapSheetState extends State<MapSheet> {
       },
     );
 
-    // Now hide MapSheet since PlaceDetailsSheet is successfully shown
-    debugPrint('🟣 [MAP_SHEET] PlaceDetailsSheet shown, hiding MapSheet');
-    widget.onLocationSelected?.call();
-
     // Restore MapSheet visibility when PlaceDetailsSheet is dismissed (unless navigation started)
     debugPrint(
         '🟣 [MAP_SHEET] PlaceDetailsSheet dismissed with result: $recentPlaceDetailsResult');
-    if (recentPlaceDetailsResult != 'navigation_started') {
+    if (recentPlaceDetailsResult != 'navigation_started' &&
+        recentPlaceDetailsResult != 'routes_opened') {
       debugPrint(
           '🟣 [MAP_SHEET] Restoring MapSheet visibility after PlaceDetailsSheet dismissal');
       widget.onRouteSelectionDismissed?.call();

@@ -1,11 +1,19 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/app/dashboard/view/groups/group_list_screen.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
+import 'package:waze_kibris/core/bloc/groups/groups_bloc.dart';
+import 'package:waze_kibris/core/bloc/groups/groups_state.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
+import 'package:waze_kibris/core/widgets/misc/custom_badge.dart';
 
 class ReportEventModal extends StatelessWidget {
   const ReportEventModal({super.key});
@@ -47,12 +55,12 @@ class ReportEventModal extends StatelessWidget {
       'name': 'Photo Sharing',
       'type': ReportType.photoSharing.name,
       'icon': SvgPicture.asset(Assets.icons.reports.sending),
-      'isNewPage': true,
-      'page': const ReportPoliceEventModal(),
+      'isNewPage': false,
+      'page': const ReportPhotoModal(),
     },
     {
       'name': 'Chat',
-      'type': ReportType.photoSharing.name,
+      'type': ReportType.chatPage.name,
       'icon': SvgPicture.asset(Assets.icons.reports.chat),
       'isNewPage': true,
       'page': const ReportPoliceEventModal(),
@@ -103,8 +111,19 @@ class ReportEventModal extends StatelessWidget {
               childAspectRatio: 0.85,
             ),
             itemBuilder: (context, index) {
+              final isChat = (reports[index]['name'] as String) == 'Chat';
               return GestureDetector(
                 onTap: () {
+                  if (isChat) {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const GroupListScreen(),
+                      ),
+                    );
+                    return;
+                  }
                   if (reports[index]['isNewPage'] as bool) {
                     Navigator.pop(context);
                   } else {
@@ -124,7 +143,36 @@ class ReportEventModal extends StatelessWidget {
                         boxShadow: styles.shadows.md,
                       ),
                       padding: EdgeInsets.all(styles.insets.sm),
-                      child: reports[index]['icon'] as Widget,
+                      child: isChat
+                          ? BlocBuilder<GroupsBloc, GroupsState>(
+                              builder: (context, state) {
+                                final totalUnread = state is GetGroupsSuccess
+                                    ? state.totalUnreadCount
+                                    : 0;
+                                final badgeText = totalUnread > 99
+                                    ? '99+'
+                                    : totalUnread.toString();
+
+                                return Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    reports[index]['icon'] as Widget,
+                                    if (totalUnread > 0)
+                                      Positioned(
+                                        top: -8,
+                                        right: -8,
+                                        child: CustomBadge(
+                                          badgeText,
+                                          radius: 999,
+                                          bordered: true,
+                                          borderColor: styles.theme.white,
+                                        ),
+                                      ),
+                                  ],
+                                );
+                              },
+                            )
+                          : (reports[index]['icon'] as Widget),
                     ),
                     Gap(4),
                     Text(
@@ -140,6 +188,193 @@ class ReportEventModal extends StatelessWidget {
           Gap(styles.insets.xs),
         ],
       ),
+    );
+  }
+}
+
+/// Modal for submitting a photo report: capture or pick image, preview, then submit.
+class ReportPhotoModal extends StatefulWidget {
+  const ReportPhotoModal({super.key});
+
+  @override
+  State<ReportPhotoModal> createState() => _ReportPhotoModalState();
+}
+
+class _ReportPhotoModalState extends State<ReportPhotoModal> {
+  XFile? _selectedImage;
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<AuthBloc>().add(
+          AuthEvent.getUserCoordinateRequested(context: context),
+        );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final XFile? file = await _picker.pickImage(
+        source: source,
+        maxWidth: 1920,
+        imageQuality: 85,
+      );
+      if (file != null && mounted) {
+        setState(() => _selectedImage = file);
+      }
+    } catch (e) {
+      if (mounted) {
+        RSnackBar.error('Could not get image: $e').show(context);
+      }
+    }
+  }
+
+  void _submitPhoto(BuildContext context, double latitude, double longitude) {
+    if (_selectedImage == null) return;
+    context.read<ReportsBloc>().add(
+          ReportsEvent.submitReportRequested(
+            latitude: latitude,
+            longitude: longitude,
+            type: ReportType.photoSharing.name,
+            imageFile: _selectedImage,
+          ),
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocConsumer<AuthBloc, AuthState>(
+      listener: (context, state) {},
+      builder: (context, authState) {
+        return BlocConsumer<ReportsBloc, ReportState>(
+          listener: (reportContext, state) {
+            if (state is ReportError) {
+              RSnackBar.error(state.message).show(context);
+            } else if (state is SubmitReportSuccess) {
+              Navigator.pop(context);
+              RSnackBar.success(state.message).show(context);
+              final coord = reportContext.read<AuthBloc>().state;
+              if (coord is UserCoordinate) {
+                reportContext.read<ReportsBloc>().add(
+                      ReportsEvent.getNearByReports(
+                        radius: 5000,
+                        lat: coord.latitude.toString(),
+                        long: coord.longitude.toString(),
+                      ),
+                    );
+              }
+            }
+          },
+          builder: (reportContext, reportState) {
+            final isLoading = reportState is ReportLoading;
+            final hasLocation = authState is UserCoordinate;
+            final lat = hasLocation ? authState.latitude : 0.0;
+            final lng = hasLocation ? authState.longitude : 0.0;
+
+            return Padding(
+              padding: EdgeInsets.all(styles.insets.sm),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    height: 4,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      color: styles.theme.grey.withValues(alpha: .3),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  Gap(styles.insets.xs),
+                  Text(
+                    'Photo Sharing',
+                    style: styles.typography.f.size(17).bold,
+                  ),
+                  Text(
+                    'Take or choose a photo to share on the map',
+                    style: styles.typography.caption
+                        .textColor(styles.theme.caption),
+                  ),
+                  Gap(styles.insets.sm),
+                  if (_selectedImage == null) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: styles.theme.primary,
+                              backgroundColor: styles.theme.white,
+                              side: BorderSide(color: styles.theme.primary),
+                            ),
+                            onPressed: () => _pickImage(ImageSource.camera),
+                            icon: const Icon(Icons.camera_alt),
+                            label: const Text('Camera'),
+                          ),
+                        ),
+                        Gap(styles.insets.xs),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: styles.theme.primary,
+                              backgroundColor: styles.theme.white,
+                              side: BorderSide(color: styles.theme.primary),
+                            ),
+                            onPressed: () => _pickImage(ImageSource.gallery),
+                            icon: const Icon(Icons.photo_library),
+                            label: const Text('Gallery'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(styles.corners.sm),
+                      child: _selectedImage!.path.isNotEmpty
+                          ? Image.file(
+                              File(_selectedImage!.path),
+                              height: 180,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                            )
+                          : const SizedBox(
+                              height: 180,
+                              child: Center(child: Text('Preview unavailable')),
+                            ),
+                    ),
+                    Gap(styles.insets.xs),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () => setState(() => _selectedImage = null),
+                          child: const Text('Change photo'),
+                        ),
+                        const Spacer(),
+                        PrimaryButton(
+                          onPressed: hasLocation && !isLoading
+                              ? () => _submitPhoto(context, lat, lng)
+                              : null,
+                          isLoading: isLoading,
+                          text: 'Submit',
+                          bgColor: styles.theme.primary,
+                          textColor: styles.theme.white,
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (!hasLocation)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Getting your location…',
+                        style: styles.typography.caption
+                            .textColor(styles.theme.caption),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -305,7 +540,7 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                           if (authState is UserCoordinate) {
                             reportContext.read<ReportsBloc>().add(
                                   ReportsEvent.getNearByReports(
-                                    radius: 50,
+                                    radius: 5000,
                                     lat: authState.latitude.toString(),
                                     long: authState.longitude.toString(),
                                   ),

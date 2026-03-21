@@ -12,6 +12,7 @@
       "args": [
         "--flavor",
         "development",
+        "--dart-define-from-file=.vscode/dart_defines_development.json",
         "--target",
         "lib/main_development.dart"
       ]

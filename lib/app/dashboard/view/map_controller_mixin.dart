@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'dart:math' as math;
@@ -16,6 +17,7 @@ import 'package:waze_kibris/core/controllers/camera_controller.dart';
 import 'package:waze_kibris/core/services/route_visualization_service.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
+import 'package:waze_kibris/core/models/user/nearby_user.dart';
 import 'package:waze_kibris/app/dashboard/modals/report_details_modal.dart';
 
 mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
@@ -23,6 +25,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   StreamSubscription<Position>? _userPositionStream;
   mp.PointAnnotationManager? pointAnnotationManager;
   mp.PointAnnotationManager? reportAnnotationManager;
+  mp.PointAnnotationManager? groupAnnotationManager;
+  mp.PointAnnotationManager? nearbyUsersAnnotationManager;
   // Navigation puck layer constants
   static const String _puckSourceId = 'navigation-puck-source';
   static const String _puckLayerId = 'navigation-puck-layer';
@@ -41,6 +45,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   List<ReportData> _currentReports = [];
   List<PointLatLng>? _currentPolylinePoints;
 
+  // Last known user position for recentering
+  Position? _lastKnownUserPosition;
+
   // Map to track annotation ID to report ID mapping
   final Map<String, int> _annotationToReportMap = {};
 
@@ -48,12 +55,22 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   final SnapToRoadService _snapToRoadService = SnapToRoadService();
 
   // Clustering Constants
-  static const List<String> _reportTypes = ['police', 'traffic', 'accident'];
-  
+  static const List<String> _reportTypes = [
+    'police',
+    'traffic',
+    'accident',
+    'photosharing',
+  ];
+
   String _getReportSourceId(String type) => 'report-source-$type';
   String _getClusterLayerId(String type) => 'report-layer-clusters-$type';
-  String _getClusterCountLayerId(String type) => 'report-layer-cluster-count-$type';
-  String _getUnclusteredLayerId(String type) => 'report-layer-unclustered-$type';
+  String _getClusterCountLayerId(String type) =>
+      'report-layer-cluster-count-$type';
+  String _getUnclusteredLayerId(String type) =>
+      'report-layer-unclustered-$type';
+
+  /// Minimum distance (m) from user puck for report icons; closer reports are radially offset so they don't cover the puck.
+  static const double _puckMinDisplayDistanceMeters = 35.0;
 
   // Getters for subclasses
   mp.MapboxMap? get mapboxMapController => _mapboxMapController;
@@ -84,6 +101,36 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
+  /// Call this from map pan/zoom/rotate gesture handlers to exit follow mode
+  /// (similar to Mapbox NavigationCamera behavior).
+  void onUserMapGesture() {
+    _cameraController.disableFollowUser();
+  }
+
+  /// Recenter the map on the user's current (or last known) position
+  /// and re-enable follow mode, similar to Waze/Google Maps.
+  Future<void> recenterOnUser() async {
+    if (_mapboxMapController == null) return;
+
+    Position? targetPosition;
+
+    try {
+      targetPosition = await Geolocator.getCurrentPosition();
+    } catch (e) {
+      debugPrint('Error getting current position for recenter: $e');
+    }
+
+    targetPosition ??= _lastKnownUserPosition;
+
+    if (targetPosition == null) {
+      debugPrint('No known user position available for recenter');
+      return;
+    }
+
+    await _cameraController.updatePosition(targetPosition);
+    setIsFollowingUser(true);
+  }
+
   /// Get TickerProvider from implementing class if available
   /// This allows the mixin to use animation controllers even though mixins can't extend TickerProviderStateMixin directly
   TickerProvider? _getTickerProvider() {
@@ -99,70 +146,114 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       _mapboxMapController = controller;
     });
 
-    // Set camera bounds to restrict zooming out too far
-    await controller.setBounds(
-      mp.CameraBoundsOptions(
-        minZoom: 4.0, // Restrict world view
-        maxZoom: 22.0,
-      ),
-    );
+    // Defer heavy style/runtime mutations until after first layout.
+    // This helps avoid Mapbox warnings about invalid view sizes and ignored style updates.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || _mapboxMapController == null) return;
 
-    // Initialize camera controller with map
-    _cameraController.initialize(controller);
+      // If we already obtained a user position before the map was created,
+      // apply an initial camera update now so the map starts centered/zoomed correctly.
+      final pendingPos = _lastKnownUserPosition;
+      if (pendingPos != null) {
+        _mapboxMapController?.easeTo(
+          mp.CameraOptions(
+            center: mp.Point(
+              coordinates:
+                  mp.Position(pendingPos.longitude, pendingPos.latitude),
+            ),
+            zoom: 16.0,
+            bearing: 0.0,
+            pitch: 0.0,
+          ),
+          mp.MapAnimationOptions(duration: 750),
+        );
+      }
 
-    // Initialize route visualization service with map (await it)
-    await _initializeRouteVisualization(controller);
-    
-    // Add report icons to style
-    await _addReportIconsToStyle();
+      // Set camera bounds to restrict zooming out too far
+      await controller.setBounds(
+        mp.CameraBoundsOptions(
+          minZoom: 4.0, // Restrict world view
+          maxZoom: 22.0,
+        ),
+      );
 
-    // Setup annotation managers
-    _mapboxMapController?.annotations
-        .createPointAnnotationManager()
-        .then((manager) {
-      setState(() {
-        pointAnnotationManager = manager;
+      // Initialize camera controller with map
+      _cameraController.initialize(controller);
+
+      // Initialize route visualization service with map (await it)
+      await _initializeRouteVisualization(controller);
+
+      // Add report icons to style
+      await _addReportIconsToStyle();
+
+      // Setup annotation managers
+      _mapboxMapController?.annotations
+          .createPointAnnotationManager()
+          .then((manager) {
+        if (!mounted) return;
+        setState(() {
+          pointAnnotationManager = manager;
+        });
       });
-    });
 
-    // Setup report annotation manager
-    _mapboxMapController?.annotations
-        .createPointAnnotationManager()
-        .then((manager) {
-      setState(() {
-        reportAnnotationManager = manager;
+      // Setup report annotation manager
+      _mapboxMapController?.annotations
+          .createPointAnnotationManager()
+          .then((manager) {
+        if (!mounted) return;
+        setState(() {
+          reportAnnotationManager = manager;
+        });
+
+        // Add tap listener for report annotations
+        manager.tapEvents(onTap: _onReportAnnotationTap);
+
+        // Display any reports that arrived before the manager was ready
+        if (mounted && _currentReports.isNotEmpty) {
+          displayReportsOnMap(_currentReports);
+        }
       });
 
-      // Add tap listener for report annotations
-      manager.tapEvents(onTap: _onReportAnnotationTap);
+      // Setup group annotation manager
+      _mapboxMapController?.annotations
+          .createPointAnnotationManager()
+          .then((manager) {
+        if (!mounted) return;
+        setState(() {
+          groupAnnotationManager = manager;
+        });
+      });
+
+      // Setup nearby users annotation manager
+      _mapboxMapController?.annotations
+          .createPointAnnotationManager()
+          .then((manager) {
+        if (!mounted) return;
+        setState(() {
+          nearbyUsersAnnotationManager = manager;
+        });
+      });
+
+      // Setup location component with custom CurrentPosition.png
+      await _setupLocationPuck();
+
+      // Hide UI elements
+      _mapboxMapController?.logo
+          .updateSettings(mp.LogoSettings(enabled: false));
+      _mapboxMapController?.attribution
+          .updateSettings(mp.AttributionSettings(enabled: false));
+      _mapboxMapController?.compass.updateSettings(mp.CompassSettings(
+        enabled: true,
+        position: mp.OrnamentPosition.TOP_RIGHT,
+        marginTop: 180.0, // Space below the top bar
+        marginRight: 16.0,
+      ));
+      _mapboxMapController?.scaleBar
+          .updateSettings(mp.ScaleBarSettings(enabled: false));
+
+      // Initialize clustering
+      await _setupReportClustering();
     });
-
-    // Setup navigation puck manager - REMOVED
-    // _mapboxMapController?.annotations
-    //     .createPointAnnotationManager()
-    //     .then((manager) {
-    //   setState(() {
-    //     navigationPuckManager = manager;
-    //   });
-    // });
-
-    // Setup location component with custom CurrentPosition.png
-    _setupLocationPuck();
-
-    // Hide UI elements
-    _mapboxMapController?.logo.updateSettings(mp.LogoSettings(enabled: false));
-    _mapboxMapController?.attribution
-        .updateSettings(mp.AttributionSettings(enabled: false));
-    _mapboxMapController?.compass
-        .updateSettings(mp.CompassSettings(enabled: false));
-    _mapboxMapController?.scaleBar
-        .updateSettings(mp.ScaleBarSettings(enabled: false));
-
-    // Add report icons to map style
-    // Setup report icons - moved to onMapCreated via _addReportIconsToStyle
-
-    // Initialize clustering
-    _setupReportClustering();
   }
 
   /// Setup GeoJSON source and layers for report clustering (Type-Based)
@@ -223,7 +314,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             textHaloColor: 0xFF000000, // Black outline for readability
             textHaloWidth: 1.0,
             textAnchor: mp.TextAnchor.CENTER,
-            textOffset: [offset[0] / 10.0, -1.5], // Adjust text position to match icon offset (approximate scale)
+            textOffset: [
+              offset[0] / 10.0,
+              -1.5
+            ], // Adjust text position to match icon offset (approximate scale)
           ),
         );
 
@@ -232,7 +326,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           mp.SymbolLayer(
             id: unclusteredLayerId,
             sourceId: sourceId,
-            filter: ['!', ['has', 'point_count']], // Only show when NOT clustered
+            filter: [
+              '!',
+              ['has', 'point_count']
+            ], // Only show when NOT clustered
             iconImage: iconId, // Use the specific report icon
             iconSize: 0.5, // Reduced from 0.7
             iconAllowOverlap: true,
@@ -257,7 +354,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   Future<void> _initializeRouteVisualization(mp.MapboxMap controller) async {
     try {
       await _routeVisualizationService.initialize(controller);
-      debugPrint('✅ RouteVisualizationService initialized in MapControllerMixin');
+      debugPrint(
+          '✅ RouteVisualizationService initialized in MapControllerMixin');
     } catch (e) {
       debugPrint('❌ Failed to initialize RouteVisualizationService: $e');
     }
@@ -265,11 +363,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Display reports using PointAnnotations with click handling and smart positioning
   Future<void> displayReportsOnMap(List<ReportData> reports) async {
+    _currentReports = reports;
     if (reportAnnotationManager == null || !mounted) return;
 
     try {
-      _currentReports = reports;
-
       // Clear existing report annotations and mapping
       await reportAnnotationManager!.deleteAll();
       _annotationToReportMap.clear();
@@ -278,8 +375,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       final cameraState = await _mapboxMapController?.getCameraState();
       final zoom = cameraState?.zoom ?? 14.0;
 
-      // Group reports by proximity (Waze-style clustering)
-      final clusters = _clusterReports(reports, zoom);
+      // Group reports by proximity (Waze-style clustering); optionally offset clusters near user puck
+      final clusters = _clusterReports(reports, zoom, _lastKnownUserPosition);
 
       // Create annotations for each cluster
       for (final cluster in clusters) {
@@ -307,14 +404,48 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         _annotationToReportMap[annotation.id] = cluster.reports.first.id;
       }
 
-      debugPrint('✅ Displayed ${clusters.length} report annotations (${reports.length} reports total)');
+      debugPrint(
+          '✅ Displayed ${clusters.length} report annotations (${reports.length} reports total)');
+
+      // Keep user puck above report annotations so it is never covered
+      await _ensureNavigationPuckOnTop();
     } catch (e) {
       debugPrint('❌ Error displaying reports on map: $e');
     }
   }
 
-  /// Cluster nearby reports to prevent overlap (Waze-style)
-  List<_ReportCluster> _clusterReports(List<ReportData> reports, double zoom) {
+  /// Display nearby connected users on the map (driver/user pins). Does not include the current user.
+  Future<void> displayNearbyUsersOnMap(List<NearbyUser> users) async {
+    if (nearbyUsersAnnotationManager == null || !mounted) return;
+
+    try {
+      await nearbyUsersAnnotationManager!.deleteAll();
+
+      for (final user in users) {
+        await nearbyUsersAnnotationManager!.create(
+          mp.PointAnnotationOptions(
+            geometry: mp.Point(
+              coordinates: mp.Position(user.longitude, user.latitude),
+            ),
+            iconImage: 'group-member-icon',
+            iconSize: 0.8,
+            iconAnchor: mp.IconAnchor.BOTTOM,
+          ),
+        );
+      }
+
+      await _ensureNavigationPuckOnTop();
+    } catch (e) {
+      debugPrint('❌ Error displaying nearby users on map: $e');
+    }
+  }
+
+  /// Cluster nearby reports to prevent overlap (Waze-style). If [userPosition] is set, clusters very close to the user are radially offset so they don't cover the puck.
+  List<_ReportCluster> _clusterReports(
+    List<ReportData> reports,
+    double zoom, [
+    Position? userPosition,
+  ]) {
     final clusters = <_ReportCluster>[];
     final processed = <int>{};
 
@@ -342,25 +473,55 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         }
       }
 
+      // Display position: optionally push away from user puck so report doesn't cover it
+      double displayLat = report.latitude;
+      double displayLon = report.longitude;
+      if (userPosition != null) {
+        final pos = _clusterDisplayPositionNearPuck(
+          userPosition.latitude,
+          userPosition.longitude,
+          report.latitude,
+          report.longitude,
+          _puckMinDisplayDistanceMeters,
+        );
+        displayLat = pos.lat;
+        displayLon = pos.lon;
+      }
+
       // Create cluster with offset for overlapping reports
       if (nearbyReports.length == 1) {
         // Single report - no offset
         clusters.add(_ReportCluster(
           reports: nearbyReports,
-          latitude: report.latitude,
-          longitude: report.longitude,
+          latitude: displayLat,
+          longitude: displayLon,
           offset: [0, 0],
         ));
       } else {
         // Multiple reports at same location - create fan pattern
         for (var k = 0; k < nearbyReports.length; k++) {
           final angle = (k * 360 / nearbyReports.length) * (math.pi / 180);
-          final radius = zoom > 15 ? 25.0 : 20.0; // Wider offset for better separation
+          final radius =
+              zoom > 15 ? 25.0 : 20.0; // Wider offset for better separation
+
+          double fanLat = nearbyReports[k].latitude;
+          double fanLon = nearbyReports[k].longitude;
+          if (userPosition != null) {
+            final pos = _clusterDisplayPositionNearPuck(
+              userPosition.latitude,
+              userPosition.longitude,
+              nearbyReports[k].latitude,
+              nearbyReports[k].longitude,
+              _puckMinDisplayDistanceMeters,
+            );
+            fanLat = pos.lat;
+            fanLon = pos.lon;
+          }
 
           clusters.add(_ReportCluster(
             reports: [nearbyReports[k]],
-            latitude: nearbyReports[k].latitude,
-            longitude: nearbyReports[k].longitude,
+            latitude: fanLat,
+            longitude: fanLon,
             offset: [
               radius * math.cos(angle),
               -radius * math.sin(angle),
@@ -378,6 +539,49 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     final dx = a.longitude - b.longitude;
     final dy = a.latitude - b.latitude;
     return math.sqrt(dx * dx + dy * dy);
+  }
+
+  /// Distance in meters between two lat/lon points (Haversine via Geolocator).
+  double _distanceMeters(double lat1, double lon1, double lat2, double lon2) {
+    return Geolocator.distanceBetween(lat1, lon1, lat2, lon2).toDouble();
+  }
+
+  /// If (targetLat, targetLon) is within [minDistanceMeters] of (userLat, userLon), returns the point at [minDistanceMeters] from user in the direction of target (radial offset). Otherwise returns (targetLat, targetLon).
+  ({double lat, double lon}) _clusterDisplayPositionNearPuck(
+    double userLat,
+    double userLon,
+    double targetLat,
+    double targetLon,
+    double minDistanceMeters,
+  ) {
+    final dist = _distanceMeters(userLat, userLon, targetLat, targetLon);
+    if (dist >= minDistanceMeters || dist < 1) {
+      return (lat: targetLat, lon: targetLon);
+    }
+    // Bearing from user to target (radians)
+    const toRad = math.pi / 180;
+    final dLon = (targetLon - userLon) * toRad;
+    final lat1 = userLat * toRad;
+    final lat2 = targetLat * toRad;
+    final y = math.sin(dLon) * math.cos(lat2);
+    final x = math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+    final bearingRad = math.atan2(y, x);
+    // Destination point at minDistanceMeters from user (standard formula)
+    const R = 6371000.0;
+    final lon1Rad = userLon * toRad;
+    final ang = minDistanceMeters / R;
+    final newLatRad = math.asin(math.sin(lat1) * math.cos(ang) +
+        math.cos(lat1) * math.sin(ang) * math.cos(bearingRad));
+    final newLonRad = lon1Rad +
+        math.atan2(
+          math.sin(bearingRad) * math.sin(ang) * math.cos(lat1),
+          math.cos(ang) - math.sin(lat1) * math.sin(newLatRad),
+        );
+    return (
+      lat: newLatRad / toRad,
+      lon: newLonRad / toRad,
+    );
   }
 
   /// Handle tap on report annotation
@@ -435,7 +639,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-
   /// Get appropriate icon ID for report type
   String _getReportIcon(String reportType) {
     switch (reportType.toLowerCase()) {
@@ -445,6 +648,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         return 'traffic-icon';
       case 'accident':
         return 'accident-icon';
+      case 'photosharing':
+        return 'photo-icon';
       default:
         return 'police-icon'; // Default fallback
     }
@@ -482,13 +687,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       }
     } else {
       // Normal mode: Enable built-in location component
-      
+
       // Remove custom puck if it exists
       if (_mapboxMapController != null) {
         if (await _mapboxMapController!.style.styleLayerExists(_puckLayerId)) {
           await _mapboxMapController!.style.removeStyleLayer(_puckLayerId);
         }
-        if (await _mapboxMapController!.style.styleSourceExists(_puckSourceId)) {
+        if (await _mapboxMapController!.style
+            .styleSourceExists(_puckSourceId)) {
           await _mapboxMapController!.style.removeStyleSource(_puckSourceId);
         }
       }
@@ -504,11 +710,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
                 'interpolate',
                 ['linear'],
                 ['zoom'],
-                10.0, 1.0,
-                14.0, 1.0,
-                16.0, 1.0,
-                18.0, 1.0,
-                20.0, 1.0
+                10.0,
+                0.85,
+                14.0,
+                1.0,
+                18.0,
+                1.15,
+                22.0,
+                1.2,
               ]),
             ),
           ),
@@ -526,11 +735,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     try {
       // Check if image already exists (optional, but good for performance)
-      // For now, we'll just try to add it. If it exists, it might update or throw, 
+      // For now, we'll just try to add it. If it exists, it might update or throw,
       // but addStyleImage usually handles updates fine or we can catch.
-      
+
       // Load the image data
-      final ByteData byteData = await rootBundle.load('assets/icons/4.0x/CurrentPosition.png');
+      final ByteData byteData =
+          await rootBundle.load('assets/icons/4.0x/CurrentPosition.png');
       final Uint8List imageBytes = byteData.buffer.asUint8List();
 
       // Get dimensions to create MbxImage
@@ -564,12 +774,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   Animation<double>? _latAnimation;
   Animation<double>? _lngAnimation;
   Animation<double>? _bearingAnimation;
-  
+
   // Track last known puck state for interpolation
   mp.Position? _lastPuckPosition;
   double? _lastPuckBearing;
-
-
 
   /// Create the custom navigation puck using SymbolLayer for smooth scaling
   Future<void> _createNavigationPuck() async {
@@ -580,7 +788,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       final position = await Geolocator.getCurrentPosition();
       _lastPuckPosition = mp.Position(position.longitude, position.latitude);
       _lastPuckBearing = position.heading;
-      
+
       // Initialize animation controller if needed
       // Check if implementing class provides TickerProvider (e.g., MainDashboard with TickerProviderStateMixin)
       if (_puckAnimationController == null) {
@@ -589,17 +797,21 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         if (tickerProvider != null) {
           _puckAnimationController = AnimationController(
             vsync: tickerProvider,
-            duration: const Duration(milliseconds: 1000), // Smooth 1s transition
+            duration:
+                const Duration(milliseconds: 1000), // Smooth 1s transition
           );
-          
+
           _puckAnimationController!.addListener(() {
-            if (_latAnimation != null && _lngAnimation != null && _bearingAnimation != null) {
+            if (_latAnimation != null &&
+                _lngAnimation != null &&
+                _bearingAnimation != null) {
               final currentLat = _latAnimation!.value;
               final currentLng = _lngAnimation!.value;
               final currentBearing = _bearingAnimation!.value;
-              
+
               // Update the GeoJSON source with interpolated position
-              _updatePuckSource(mp.Position(currentLng, currentLat), currentBearing);
+              _updatePuckSource(
+                  mp.Position(currentLng, currentLat), currentBearing);
             }
           });
         }
@@ -641,23 +853,38 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             iconAllowOverlap: true,
             iconIgnorePlacement: true,
             iconRotationAlignment: mp.IconRotationAlignment.MAP,
-            iconPitchAlignment: mp.IconPitchAlignment.MAP, // Lie flat on the road
-            iconRotateExpression: ['get', 'bearing'], // Rotate based on bearing property
-            // Fixed size matching non-navigation mode
+            iconPitchAlignment:
+                mp.IconPitchAlignment.MAP, // Lie flat on the road
+            iconRotateExpression: [
+              'get',
+              'bearing'
+            ], // Rotate based on bearing property
+            // Zoom-dependent size aligned with native range (10.5–16.35 follow, 19 arrival)
             iconSizeExpression: [
               'interpolate',
               ['linear'],
               ['zoom'],
-              10.0, 1.0,
-              22.0, 1.0,
+              10.5,
+              1.0,
+              14.0,
+              1.2,
+              16.35,
+              1.35,
+              18.0,
+              1.5,
+              19.0,
+              1.55,
+              22.0,
+              1.5,
             ],
             symbolSortKey: 1000, // Ensure on top
           ),
         );
       }
 
-      debugPrint('✅ Custom navigation puck created with SymbolLayer (smooth scaling)');
-      
+      debugPrint(
+          '✅ Custom navigation puck created with SymbolLayer (smooth scaling)');
+
       // Ensure puck is on top of route
       await _ensureNavigationPuckOnTop();
     } catch (e) {
@@ -702,7 +929,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     try {
       if (await _mapboxMapController!.style.styleLayerExists(_puckLayerId)) {
-        await _mapboxMapController!.style.moveStyleLayer(_puckLayerId, null); // Move to very top
+        await _mapboxMapController!.style
+            .moveStyleLayer(_puckLayerId, null); // Move to very top
         debugPrint('✅ Moved navigation puck layer ($_puckLayerId) to top');
       }
     } catch (e) {
@@ -722,17 +950,20 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       // If we have an animation controller, animate to the new position
       if (_puckAnimationController != null) {
         // Use current animated value as start if animating, to prevent jumps
-        final startLat = _puckAnimationController!.isAnimating && _latAnimation != null
-            ? _latAnimation!.value
-            : (_lastPuckPosition?.lat.toDouble() ?? newLat);
-            
-        final startLng = _puckAnimationController!.isAnimating && _lngAnimation != null
-            ? _lngAnimation!.value
-            : (_lastPuckPosition?.lng.toDouble() ?? newLng);
-            
-        final startBearing = _puckAnimationController!.isAnimating && _bearingAnimation != null
-            ? _bearingAnimation!.value
-            : (_lastPuckBearing ?? newBearing);
+        final startLat =
+            _puckAnimationController!.isAnimating && _latAnimation != null
+                ? _latAnimation!.value
+                : (_lastPuckPosition?.lat.toDouble() ?? newLat);
+
+        final startLng =
+            _puckAnimationController!.isAnimating && _lngAnimation != null
+                ? _lngAnimation!.value
+                : (_lastPuckPosition?.lng.toDouble() ?? newLng);
+
+        final startBearing =
+            _puckAnimationController!.isAnimating && _bearingAnimation != null
+                ? _bearingAnimation!.value
+                : (_lastPuckBearing ?? newBearing);
 
         // Handle bearing wrap-around (e.g. 350 -> 10 degrees)
         double targetBearing = newBearing;
@@ -744,12 +975,16 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           }
         }
 
-        _latAnimation = Tween<double>(begin: startLat, end: newLat).animate(_puckAnimationController!);
-        _lngAnimation = Tween<double>(begin: startLng, end: newLng).animate(_puckAnimationController!);
-        _bearingAnimation = Tween<double>(begin: startBearing, end: targetBearing).animate(_puckAnimationController!);
+        _latAnimation = Tween<double>(begin: startLat, end: newLat)
+            .animate(_puckAnimationController!);
+        _lngAnimation = Tween<double>(begin: startLng, end: newLng)
+            .animate(_puckAnimationController!);
+        _bearingAnimation =
+            Tween<double>(begin: startBearing, end: targetBearing)
+                .animate(_puckAnimationController!);
 
         _puckAnimationController!.forward(from: 0.0);
-        
+
         // Update last known state
         _lastPuckPosition = mp.Position(newLng, newLat);
         _lastPuckBearing = newBearing;
@@ -811,21 +1046,27 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   /// Update route progress during navigation
-  Future<void> updateRouteProgress(MapboxRoute route, int currentStepIndex, {Position? currentPosition}) async {
+  Future<void> updateRouteProgress(
+    MapboxRoute route,
+    int currentStepIndex, {
+    int currentLegIndex = 0,
+    Position? currentPosition,
+    bool forceUpdate = false,
+  }) async {
     if (_mapboxMapController == null) return;
 
     try {
       await _routeVisualizationService.updateRouteProgress(
         route,
         currentStepIndex,
+        currentLegIndex: currentLegIndex,
         currentPosition: currentPosition,
+        forceUpdate: forceUpdate,
       );
     } catch (e) {
       debugPrint('Error updating route progress: $e');
     }
   }
-
-
 
   /// Calculate distance between two points in meters
   double _calculateDistance(PointLatLng point1, PointLatLng point2) {
@@ -842,6 +1083,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     // Get adaptive marker size
     final markerSize = await _getAdaptiveMarkerSize();
+    // Make destination marker slightly larger for better visibility
+    final destinationMarkerSize = markerSize * 1.2;
 
     // Load and add destination marker image to map style
     await _addDestinationImageToStyle();
@@ -855,6 +1098,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           points.first.latitude,
         )),
         iconSize: markerSize,
+        iconAnchor: mp.IconAnchor.BOTTOM,
       ),
     );
 
@@ -866,17 +1110,21 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           points.last.longitude,
           points.last.latitude,
         )),
-        iconSize: markerSize * 0.6, // Destination marker reduced size
+        // Slightly larger size + bottom anchor so the tip of the icon
+        // sits on the route line, similar to Waze.
+        iconSize: destinationMarkerSize,
         iconImage: 'destination-marker', // Reference the added image by ID
+        iconAnchor: mp.IconAnchor.BOTTOM,
       ),
     );
 
     // Ensure markers are on top of route line
     try {
       final layerId = pointAnnotationManager!.id;
-      await _mapboxMapController!.style.moveStyleLayer(layerId, null); // Move to top
+      await _mapboxMapController!.style
+          .moveStyleLayer(layerId, null); // Move to top
       debugPrint('✅ Moved route markers layer ($layerId) to top');
-      
+
       // Ensure navigation puck is even higher if it exists
       await _ensureNavigationPuckOnTop();
     } catch (e) {
@@ -909,19 +1157,19 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       final currentState = navigationBloc.state;
       final isNavigating = currentState is NavigationInProgress;
 
-      // Adaptive marker sizing based on actual icon dimensions
+      // Adaptive marker sizing based on actual icon dimensions (slightly larger at nav zoom 14–18)
       if (zoom >= 19) {
         // Very close zoom - 4x size (128w)
         return isNavigating ? 4.0 : 3.5;
       } else if (zoom >= 18) {
         // Close zoom - 3x size (96w)
-        return isNavigating ? 3.0 : 2.5;
+        return isNavigating ? 3.2 : 2.5;
       } else if (zoom >= 16) {
         // Medium-close zoom - 2x size (64w)
-        return isNavigating ? 2.0 : 1.8;
+        return isNavigating ? 2.2 : 1.8;
       } else if (zoom >= 14) {
         // Medium zoom - 1.5x size (between 48w and 64w)
-        return isNavigating ? 1.5 : 1.3;
+        return isNavigating ? 1.65 : 1.3;
       } else if (zoom >= 12) {
         // Medium-far zoom - 1x size (48w)
         return isNavigating ? 1.0 : 0.9;
@@ -970,7 +1218,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-
   Future<void> _fitCameraToRoute(List<PointLatLng> points) async {
     // Use camera controller for route fitting
     await _cameraController.fitToRoute(points);
@@ -998,10 +1245,22 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           'Location permissions are permanently denied, we cannot request permissions.');
     }
 
-    const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10, // Reduced frequency to stabilize ETA calculations
-    );
+    // On Android, use foreground notification so location updates continue when app is backgrounded
+    final LocationSettings locationSettings = Platform.isAndroid
+        ? AndroidSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 10,
+            foregroundNotificationConfig: const ForegroundNotificationConfig(
+              notificationTitle: 'Waze Kibris',
+              notificationText: 'Using your location for navigation',
+              notificationChannelName: 'Navigation',
+              setOngoing: true,
+            ),
+          )
+        : const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 10,
+          );
 
     _userPositionStream?.cancel();
 
@@ -1015,6 +1274,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       Position currentPosition = await Geolocator.getCurrentPosition(
           // locationSettings: locationSettings,
           );
+
+      // Cache for cases where map isn't ready yet (onMapCreated will apply it).
+      _lastKnownUserPosition = currentPosition;
 
       // Move camera to user location immediately with Waze-like zoom
       _mapboxMapController?.easeTo(
@@ -1036,13 +1298,22 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _userPositionStream =
         Geolocator.getPositionStream(locationSettings: locationSettings).listen(
       (Position position) async {
+        // Cache last known position for recenter button
+        _lastKnownUserPosition = position;
+
         // Apply snap-to-road during navigation
         final currentState = navigationBloc.state;
         Position processedPosition = position;
 
+        SnapToRoadResult? snapResultForBloc;
         if (currentState is NavigationInProgress) {
           try {
-            final snapResult = await _snapToRoadService.snapToRoad(position);
+            final snapResult = await _snapToRoadService.snapToRoad(
+              position,
+              currentLegIndex: currentState.currentLegIndex,
+              currentStepIndex: currentState.currentStepIndex,
+            );
+            snapResultForBloc = snapResult;
 
             // Create new position with snapped coordinates and route bearing
             processedPosition = Position(
@@ -1062,11 +1333,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             if (snapResult.needsReroute) {
               debugPrint(
                   '🔄 REROUTE NEEDED: ${snapResult.distanceFromRoute.toStringAsFixed(1)}m from route');
-              // Trigger rerouting in navigation bloc
-              // navigationBloc.add(TriggerReroute(
-              //   currentPosition: position,
-              //   reason: 'User deviated ${snapResult.distanceFromRoute.toStringAsFixed(1)}m from route',
-              // ));
             } else if (snapResult.isOffRoute) {
               debugPrint(
                   '⚠️ USER OFF ROUTE: ${snapResult.distanceFromRoute.toStringAsFixed(1)}m away');
@@ -1081,16 +1347,34 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           }
         }
 
-        // Send processed position to navigation bloc
-        navigationBloc
-            .add(NavigationPositionUpdated(position: processedPosition));
+        // Send processed position to navigation bloc (with optional snap/along-route data for native parity)
+        navigationBloc.add(NavigationPositionUpdated(
+          position: processedPosition,
+          distanceToManeuverAlongRouteMeters:
+              snapResultForBloc?.distanceToCurrentStepManeuverAlongRouteMeters,
+          remainingDistanceAlongRouteMeters:
+              snapResultForBloc?.remainingDistanceAlongRouteMeters,
+          isOffRouteFromSnap: snapResultForBloc?.isOffRoute,
+          needsRerouteFromSnap: snapResultForBloc?.needsReroute,
+        ));
+
+        // Reroute is triggered by bloc when it sees needsRerouteFromSnap on the event (single source of truth)
 
         // Notify implementing class of position update
         onPositionUpdate(processedPosition);
 
-        // Update map camera if following user using camera controller
-        if (_mapboxMapController != null && _cameraController.isFollowingUser) {
-          updateMapCamera(processedPosition);
+        // Update map camera when following user, or when in overview mode so overview moves with user
+        final inOverview = currentState is NavigationInProgress &&
+            currentState.isOverviewVisible;
+        if (_mapboxMapController != null &&
+            (_cameraController.isFollowingUser || inOverview)) {
+          updateMapCamera(
+            processedPosition,
+            distanceToManeuverAlongRouteMeters: snapResultForBloc
+                ?.distanceToCurrentStepManeuverAlongRouteMeters,
+            remainingDistanceAlongRouteMeters:
+                snapResultForBloc?.remainingDistanceAlongRouteMeters,
+          );
         }
 
         // Update custom navigation puck if in navigation mode
@@ -1104,17 +1388,74 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     );
   }
 
-  void updateMapCamera(Position position) {
+  /// Pause position tracking when the app goes to background.
+  void pausePositionTracking() {
+    _userPositionStream?.pause();
+  }
+
+  /// Resume tracking and immediately refresh navigation state when app resumes.
+  ///
+  /// This ensures the puck, route split, and maneuvers catch up after the app
+  /// has been in the background for a while.
+  Future<void> resumeTrackingAndRefreshNavigation(
+      NavigationBloc navigationBloc) async {
+    if (_userPositionStream == null) {
+      // Stream was never started or was cancelled; set it up again.
+      await setupPositionTracking();
+    } else if (_userPositionStream!.isPaused) {
+      _userPositionStream!.resume();
+    }
+
+    // Use the last known position if we have it; otherwise, query it.
+    Position? lastPosition = _lastKnownUserPosition;
+    if (lastPosition == null) {
+      try {
+        lastPosition = await Geolocator.getLastKnownPosition();
+      } catch (e) {
+        debugPrint('Error getting last known position on resume: $e');
+      }
+    }
+
+    if (lastPosition == null) return;
+
+    // Notify subclass and bloc of this position so any dependent UI can update.
+    onPositionUpdate(lastPosition);
+
+    final currentState = navigationBloc.state;
+    if (currentState is NavigationInProgress) {
+      await updateRouteProgress(
+        currentState.route,
+        currentState.currentStepIndex,
+        currentLegIndex: currentState.currentLegIndex,
+        currentPosition: lastPosition,
+        forceUpdate: true,
+      );
+    }
+  }
+
+  void updateMapCamera(
+    Position position, {
+    double? distanceToManeuverAlongRouteMeters,
+    double? remainingDistanceAlongRouteMeters,
+  }) {
     if (_mapboxMapController == null) return;
 
     final currentState = navigationBloc.state;
-    final isOverviewMode = currentState is NavigationInProgress && currentState.isOverviewVisible;
+    final isOverviewMode =
+        currentState is NavigationInProgress && currentState.isOverviewVisible;
 
-    // Use camera controller for all camera updates
+    // When in overview, frame remaining route (native-style overview)
+    final remainingRouteForOverview =
+        isOverviewMode ? _snapToRoadService.getRemainingRoutePoints() : null;
+
+    // Use camera controller for all camera updates (pass snap-based distances for native parity)
     _cameraController.updateCamera(
       userPosition: position,
       userBearing: position.heading >= 0 ? position.heading : null,
       isOverviewMode: isOverviewMode,
+      distanceToManeuverAlongRouteMeters: distanceToManeuverAlongRouteMeters,
+      remainingDistanceAlongRouteMeters: remainingDistanceAlongRouteMeters,
+      remainingRouteForOverview: remainingRouteForOverview,
     );
 
     // Update report icons after camera change
@@ -1128,8 +1469,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     // This is now handled by TapInteraction added in _setupReportClustering
     // Keep this method for potential future use or non-report taps
   }
-
-
 
   /// Debounced report icon size update to prevent excessive recreations
   void _debouncedUpdateReportIconSizes() {
@@ -1147,7 +1486,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   // Removed _updateReportIconSizes as layer handles sizing
   // Future<void> _updateReportIconSizes() async { ... }
-
 
   /// Update markers with adaptive sizing for current zoom level
   Future<void> _updateMarkersForZoom() async {
@@ -1191,7 +1529,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   void initializeSnapToRoad(MapboxRoute route, {PlacesService? placesService}) {
     debugPrint('Initializing snap-to-road with Mapbox route');
     _snapToRoadService.setMapboxRoute(route);
-    
+
     // Set PlacesService for Map Matching functionality
     if (placesService != null) {
       _snapToRoadService.setPlacesService(placesService);
@@ -1276,7 +1614,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         height: image.height,
         data: imageBytes,
       );
-      
+
       if (!mounted || _mapboxMapController == null) return;
 
       // 4. Add the correctly sized image to the map style
@@ -1300,12 +1638,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     try {
       final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
-      
+
       // Map of icon IDs to IconData and Color
       final icons = {
         'police-icon': (Icons.local_police, Colors.blue),
         'traffic-icon': (Icons.traffic, Colors.red),
         'accident-icon': (Icons.car_crash, Colors.orange),
+        'photo-icon': (Icons.photo_camera, Colors.purple),
+        'group-member-icon': (Icons.person_pin, Colors.green),
       };
 
       for (final entry in icons.entries) {
@@ -1316,12 +1656,13 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         try {
           // Generate icon image
           final image = await _generateReportIcon(iconData, color);
-          
+
           if (image == null) continue;
 
-          final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+          final byteData =
+              await image.toByteData(format: ui.ImageByteFormat.png);
           if (byteData == null) continue;
-          
+
           final imageBytes = byteData.buffer.asUint8List();
 
           final mbxImage = mp.MbxImage(
@@ -1352,18 +1693,19 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   /// Helper to generate report icon using Canvas
-  Future<ui.Image?> _generateReportIcon(IconData icon, Color color, {Size size = const Size(64, 64)}) async {
+  Future<ui.Image?> _generateReportIcon(IconData icon, Color color,
+      {Size size = const Size(64, 64)}) async {
     try {
       final ui.PictureRecorder recorder = ui.PictureRecorder();
       final Canvas canvas = Canvas(recorder);
       final double devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
-      
+
       final int width = (size.width * devicePixelRatio).toInt();
       final int height = (size.height * devicePixelRatio).toInt();
-      
+
       // Scale canvas
       canvas.scale(devicePixelRatio);
-      
+
       final double centerX = size.width / 2;
       final double centerY = size.height / 2;
       final double radius = size.width / 2;
@@ -1372,17 +1714,19 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       final ui.Paint paint = ui.Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill;
-      
+
       // Draw shadow
       canvas.drawCircle(
-        Offset(centerX, centerY + 2), 
-        radius - 2, 
-        ui.Paint()..color = Colors.black.withOpacity(0.2)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        Offset(centerX, centerY + 2),
+        radius - 2,
+        ui.Paint()
+          ..color = Colors.black.withOpacity(0.2)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
       );
 
       // Draw white circle
       canvas.drawCircle(Offset(centerX, centerY), radius - 4, paint);
-      
+
       // Draw colored circle
       paint.color = color.withOpacity(0.1);
       canvas.drawCircle(Offset(centerX, centerY), radius - 4, paint);
@@ -1405,12 +1749,13 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       textPainter.layout();
       textPainter.paint(
         canvas,
-        Offset(centerX - textPainter.width / 2, centerY - textPainter.height / 2),
+        Offset(
+            centerX - textPainter.width / 2, centerY - textPainter.height / 2),
       );
 
       final ui.Picture picture = recorder.endRecording();
       final ui.Image image = await picture.toImage(width, height);
-      
+
       return image;
     } catch (e) {
       debugPrint('Error generating report icon: $e');
@@ -1433,7 +1778,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           pulsingColor: 0xFF4285F4, // Blue pulsing color
         ),
       );
-      
+
       debugPrint('🎯 Location puck refreshed to stay on top of route layers');
     } catch (e) {
       debugPrint('Error refreshing location puck: $e');
@@ -1445,7 +1790,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     if (_mapboxMapController == null || !mounted) return;
     try {
       final locationPuckBytes = await _loadLocationPuckImage();
-      
+
       if (!mounted || _mapboxMapController == null) return;
 
       await _mapboxMapController?.location.updateSettings(
@@ -1462,8 +1807,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
                 ['zoom'],
                 10.0,
                 1.0,
+                16.0,
+                1.2,
                 20.0,
-                1.0
+                1.3
               ]),
             ),
           ),
@@ -1494,9 +1841,41 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _reportIconUpdateTimer?.cancel();
     reportAnnotationManager?.deleteAll();
     _cameraController.dispose(); // Clean up camera controller
-    _routeVisualizationService.dispose(); // Clean up route visualization service
+    _routeVisualizationService
+        .dispose(); // Clean up route visualization service
     // _mapboxMapController?.dispose(); // REMOVED: Managed by MapWidget
     super.dispose();
+  }
+
+  /// Display other users in the group on the map
+  Future<void> displayGroupLocationsOnMap(
+      Map<String, dynamic> groupLocations) async {
+    if (groupAnnotationManager == null || !mounted) return;
+
+    try {
+      await groupAnnotationManager!.deleteAll();
+
+      for (final entry in groupLocations.entries) {
+        final loc = entry.value as Map<String, dynamic>;
+        final lat = loc['lat'] as double?;
+        final lng = loc['lng'] as double?;
+
+        if (lat != null && lng != null) {
+          await groupAnnotationManager!.create(
+            mp.PointAnnotationOptions(
+              geometry: mp.Point(
+                coordinates: mp.Position(lng, lat),
+              ),
+              iconImage: 'group-member-icon',
+              iconSize: 0.8,
+              iconAnchor: mp.IconAnchor.BOTTOM,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error displaying group locations: $e');
+    }
   }
 }
 
@@ -1514,5 +1893,3 @@ class _ReportCluster {
     required this.offset,
   });
 }
-
-

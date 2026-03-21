@@ -33,6 +33,7 @@ class NavigationInProgress extends NavigationState {
   final double? expectedAverageSpeed; // Expected average from route (m/s)
   final List<double>?
       congestionNumericData; // congestion_numeric values (0-100) for remaining route segments
+  final String? rerouteError; // Error message when reroute fails
 
   const NavigationInProgress({
     required this.route,
@@ -55,6 +56,7 @@ class NavigationInProgress extends NavigationState {
     this.actualAverageSpeed,
     this.expectedAverageSpeed,
     this.congestionNumericData,
+    this.rerouteError,
   });
 
   @override
@@ -79,6 +81,7 @@ class NavigationInProgress extends NavigationState {
         actualAverageSpeed,
         expectedAverageSpeed,
         congestionNumericData,
+        rerouteError,
       ];
 
   NavigationInProgress copyWith({
@@ -102,6 +105,7 @@ class NavigationInProgress extends NavigationState {
     double? actualAverageSpeed,
     double? expectedAverageSpeed,
     List<double>? congestionNumericData,
+    String? rerouteError,
   }) {
     return NavigationInProgress(
       route: route ?? this.route,
@@ -126,6 +130,7 @@ class NavigationInProgress extends NavigationState {
       expectedAverageSpeed: expectedAverageSpeed ?? this.expectedAverageSpeed,
       congestionNumericData:
           congestionNumericData ?? this.congestionNumericData,
+      rerouteError: rerouteError ?? this.rerouteError,
     );
   }
 

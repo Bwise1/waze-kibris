@@ -1,3 +1,5 @@
+// dart format width=80
+
 /// GENERATED CODE - DO NOT MODIFY BY HAND
 /// *****************************************************
 ///  FlutterGen
@@ -5,7 +7,7 @@
 
 // coverage:ignore-file
 // ignore_for_file: type=lint
-// ignore_for_file: directives_ordering,unnecessary_import,implicit_dynamic_list_literal,deprecated_member_use
+// ignore_for_file: deprecated_member_use,directives_ordering,implicit_dynamic_list_literal,unnecessary_import
 
 import 'package:flutter/widgets.dart';
 
@@ -133,6 +135,21 @@ class $AssetsIconsGen {
   AssetGenImage get hospitalBg =>
       const AssetGenImage('assets/icons/hospital_bg.png');
 
+  /// File path: assets/icons/lane_left.svg
+  String get laneLeft => 'assets/icons/lane_left.svg';
+
+  /// File path: assets/icons/lane_right.svg
+  String get laneRight => 'assets/icons/lane_right.svg';
+
+  /// File path: assets/icons/lane_straight.svg
+  String get laneStraight => 'assets/icons/lane_straight.svg';
+
+  /// File path: assets/icons/lane_straight_left.svg
+  String get laneStraightLeft => 'assets/icons/lane_straight_left.svg';
+
+  /// File path: assets/icons/lane_straight_right.svg
+  String get laneStraightRight => 'assets/icons/lane_straight_right.svg';
+
   /// File path: assets/icons/light.svg
   String get light => 'assets/icons/light.svg';
 
@@ -200,6 +217,9 @@ class $AssetsIconsGen {
 
   /// Directory path: assets/icons/reports
   $AssetsIconsReportsGen get reports => const $AssetsIconsReportsGen();
+
+  /// File path: assets/icons/route_chevron.svg
+  String get routeChevron => 'assets/icons/route_chevron.svg';
 
   /// File path: assets/icons/route_logo.svg
   String get routeLogo => 'assets/icons/route_logo.svg';
@@ -290,6 +310,11 @@ class $AssetsIconsGen {
         homeSmile,
         hospital,
         hospitalBg,
+        laneLeft,
+        laneRight,
+        laneStraight,
+        laneStraightLeft,
+        laneStraightRight,
         light,
         location,
         locationPin,
@@ -310,6 +335,7 @@ class $AssetsIconsGen {
         police,
         profile,
         recentPlaces,
+        routeChevron,
         routeLogo,
         routeLogoText,
         searchGlass,
@@ -379,6 +405,59 @@ class $AssetsImagesGen {
       ];
 }
 
+class $AssetsUserProfilesGen {
+  const $AssetsUserProfilesGen();
+
+  /// File path: assets/user_profiles/buddy_buggy.png
+  AssetGenImage get buddyBuggy =>
+      const AssetGenImage('assets/user_profiles/buddy_buggy.png');
+
+  /// File path: assets/user_profiles/camper.png
+  AssetGenImage get camper =>
+      const AssetGenImage('assets/user_profiles/camper.png');
+
+  /// File path: assets/user_profiles/chill_buddy.png
+  AssetGenImage get chillBuddy =>
+      const AssetGenImage('assets/user_profiles/chill_buddy.png');
+
+  /// File path: assets/user_profiles/chill_wheels.png
+  AssetGenImage get chillWheels =>
+      const AssetGenImage('assets/user_profiles/chill_wheels.png');
+
+  /// File path: assets/user_profiles/lone_rider.png
+  AssetGenImage get loneRider =>
+      const AssetGenImage('assets/user_profiles/lone_rider.png');
+
+  /// File path: assets/user_profiles/peepers.png
+  AssetGenImage get peepers =>
+      const AssetGenImage('assets/user_profiles/peepers.png');
+
+  /// File path: assets/user_profiles/smooth_operator.png
+  AssetGenImage get smoothOperator =>
+      const AssetGenImage('assets/user_profiles/smooth_operator.png');
+
+  /// File path: assets/user_profiles/solo_driver.png
+  AssetGenImage get soloDriver =>
+      const AssetGenImage('assets/user_profiles/solo_driver.png');
+
+  /// File path: assets/user_profiles/the_roadtripper.png
+  AssetGenImage get theRoadtripper =>
+      const AssetGenImage('assets/user_profiles/the_roadtripper.png');
+
+  /// List of all assets
+  List<AssetGenImage> get values => [
+        buddyBuggy,
+        camper,
+        chillBuddy,
+        chillWheels,
+        loneRider,
+        peepers,
+        smoothOperator,
+        soloDriver,
+        theRoadtripper
+      ];
+}
+
 class $AssetsIconsReportsGen {
   const $AssetsIconsReportsGen();
 
@@ -420,10 +499,11 @@ class $AssetsIconsReportsGen {
 }
 
 class Assets {
-  Assets._();
+  const Assets._();
 
   static const $AssetsIconsGen icons = $AssetsIconsGen();
   static const $AssetsImagesGen images = $AssetsImagesGen();
+  static const $AssetsUserProfilesGen userProfiles = $AssetsUserProfilesGen();
 }
 
 class AssetGenImage {
@@ -431,12 +511,14 @@ class AssetGenImage {
     this._assetName, {
     this.size,
     this.flavors = const {},
+    this.animation,
   });
 
   final String _assetName;
 
   final Size? size;
   final Set<String> flavors;
+  final AssetGenImageAnimation? animation;
 
   Image image({
     Key? key,
@@ -459,7 +541,7 @@ class AssetGenImage {
     bool gaplessPlayback = true,
     bool isAntiAlias = false,
     String? package,
-    FilterQuality filterQuality = FilterQuality.low,
+    FilterQuality filterQuality = FilterQuality.medium,
     int? cacheWidth,
     int? cacheHeight,
   }) {
@@ -505,4 +587,16 @@ class AssetGenImage {
   String get path => _assetName;
 
   String get keyName => _assetName;
+}
+
+class AssetGenImageAnimation {
+  const AssetGenImageAnimation({
+    required this.isAnimation,
+    required this.duration,
+    required this.frames,
+  });
+
+  final bool isAnimation;
+  final Duration duration;
+  final int frames;
 }

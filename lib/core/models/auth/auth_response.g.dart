@@ -30,6 +30,7 @@ AuthData _$AuthDataFromJson(Map<String, dynamic> json) => AuthData(
           ? null
           : User.fromJson(json['user'] as Map<String, dynamic>),
       token: json['token'] as String?,
+      refreshToken: json['refresh_token'] as String?,
     );
 
 Map<String, dynamic> _$AuthDataToJson(AuthData instance) => <String, dynamic>{
@@ -37,6 +38,7 @@ Map<String, dynamic> _$AuthDataToJson(AuthData instance) => <String, dynamic>{
       'email': instance.email,
       'user': instance.user,
       'token': instance.token,
+      'refresh_token': instance.refreshToken,
     };
 
 User _$UserFromJson(Map<String, dynamic> json) => User(
@@ -45,6 +47,10 @@ User _$UserFromJson(Map<String, dynamic> json) => User(
       isVerified: json['is_verified'] as bool,
       preferredLanguage: json['preferred_language'] as String,
       authProvider: json['auth_provider'] as String? ?? 'email',
+      username: json['username'] as String?,
+      firstName: json['firstname'] as String?,
+      lastName: json['lastname'] as String?,
+      profileIcon: json['profile_icon'] as String?,
       createdAt: json['created_at'] == null
           ? null
           : DateTime.parse(json['created_at'] as String),
@@ -59,6 +65,10 @@ Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
       'is_verified': instance.isVerified,
       'preferred_language': instance.preferredLanguage,
       'auth_provider': instance.authProvider,
+      'username': instance.username,
+      'firstname': instance.firstName,
+      'lastname': instance.lastName,
+      'profile_icon': instance.profileIcon,
       'created_at': instance.createdAt?.toIso8601String(),
       'updated_at': instance.updatedAt?.toIso8601String(),
     };

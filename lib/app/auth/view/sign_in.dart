@@ -5,6 +5,7 @@ import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
+import 'package:waze_kibris/core/services/firebase_social_auth_service.dart';
 import 'package:waze_kibris/core/widgets/buttons/social_media_button.dart';
 
 class SignInScreen extends StatefulWidget {
@@ -62,6 +63,9 @@ class _SignInScreenState extends State<SignInScreen> {
           }
           if (state is OtpSent) {
             context.go(ScreenPaths.verifyEmail);
+          }
+          if (state is AuthSuccess) {
+            context.go(ScreenPaths.dashBoard);
           }
         },
         builder: (context, state) {
@@ -156,13 +160,33 @@ class _SignInScreenState extends State<SignInScreen> {
                     ),
                     Gap(styles.insets.lg),
                     SocialMediaBtn(
-                      onPressed: () {},
+                      onPressed: () async {
+                        try {
+                          final idToken =
+                              await getIt<FirebaseSocialAuthService>()
+                                  .signInWithGoogle();
+                          if (!context.mounted || idToken == null) {
+                            return;
+                          }
+                          context.read<AuthBloc>().add(
+                                AuthEvent.googleAuthRequested(token: idToken),
+                              );
+                        } catch (e) {
+                          if (context.mounted) {
+                            RSnackBar.error(e.toString()).show(context);
+                          }
+                        }
+                      },
                       title: 'Continue with Google',
                       socialIcon: Assets.icons.google,
                     ),
                     Gap(styles.insets.sm),
                     SocialMediaBtn(
-                      onPressed: () {},
+                      onPressed: () {
+                        RSnackBar.info(
+                          'Sign in with Apple — coming soon',
+                        ).show(context);
+                      },
                       title: 'Continue with Apple',
                       socialIcon: Assets.icons.apple,
                     ),

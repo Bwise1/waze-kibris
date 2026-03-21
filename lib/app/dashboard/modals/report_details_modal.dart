@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:gap/gap.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
@@ -185,6 +184,43 @@ class ReportDetailsModal extends StatelessWidget {
 
                 const SizedBox(height: 10),
 
+                // ── Photo report image ───────────────────────────────────────
+                if (report.type.toLowerCase() == 'photosharing' &&
+                    report.imageUrl != null &&
+                    report.imageUrl!.isNotEmpty) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(styles.corners.sm),
+                    child: Image.network(
+                      report.imageUrl!,
+                      width: double.infinity,
+                      height: 180,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return SizedBox(
+                          height: 180,
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              value: loadingProgress.expectedTotalBytes != null
+                                  ? loadingProgress.cumulativeBytesLoaded /
+                                      (loadingProgress.expectedTotalBytes ?? 1)
+                                  : null,
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        height: 180,
+                        color: Colors.grey[200],
+                        child: const Center(
+                          child: Icon(Icons.broken_image_outlined, size: 48),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+
                 // ── Divider ───────────────────────────────────────────────────
                 Divider(color: Colors.grey[100], height: 1),
                 const SizedBox(height: 10),
@@ -209,8 +245,8 @@ class ReportDetailsModal extends StatelessWidget {
                           .copyWith(fontStyle: FontStyle.normal),
                     ),
                     Text(
-                      report.userId.isNotEmpty
-                          ? 'User ${report.userId.substring(0, report.userId.length.clamp(0, 4))}'
+                      report.username != null && report.username!.isNotEmpty
+                          ? report.username!
                           : 'Wazer',
                       style: styles.typography.caption.bold
                           .copyWith(fontStyle: FontStyle.normal),
@@ -332,6 +368,8 @@ class ReportDetailsModal extends StatelessWidget {
         return Assets.icons.reports.trafic;
       case 'accident':
         return Assets.icons.reports.accident;
+      case 'photosharing':
+        return Assets.icons.reports.sending;
       default:
         return Assets.icons.reports.police;
     }
@@ -345,6 +383,8 @@ class ReportDetailsModal extends StatelessWidget {
         return Colors.red[600]!;
       case 'accident':
         return Colors.orange[700]!;
+      case 'photosharing':
+        return Colors.purple[700]!;
       default:
         return Colors.grey;
     }

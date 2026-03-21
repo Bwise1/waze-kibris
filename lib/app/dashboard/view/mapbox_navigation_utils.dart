@@ -24,14 +24,22 @@ class MapboxNavigationUtils {
 
   /// Format duration in user-friendly format
   static String formatDuration(double seconds) {
-    final duration = Duration(seconds: seconds.round());
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes.remainder(60);
+    // Normalize negatives / already-arrived cases
+    if (seconds <= 0) return '0m';
+
+    // For anything under 1 minute, show at least "1m"
+    // This avoids ever displaying "0m" while there is still remaining time.
+    if (seconds < 60) return '1m';
+
+    // Round up to the next full minute
+    final totalMinutes = (seconds / 60).ceil();
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
 
     if (hours > 0) {
       return '${hours}h ${minutes}m';
     } else {
-      return '${minutes}m';
+      return '${totalMinutes}m';
     }
   }
 
@@ -223,28 +231,29 @@ class MapboxNavigationUtils {
   static const double destinationReachedThreshold = 15.0; // meters
   static const double offRouteThreshold = 50.0; // meters
 
-  /// Calculate remaining distance from position along route steps
+  /// Calculate remaining distance from position along route steps.
+  /// When [remainingDistanceAlongRoute] is provided (e.g. from snap/route matching), returns it for native parity; otherwise uses straight-line for first segment.
   static double calculateRemainingDistance(
     Position position,
     MapboxStep currentStep,
     List<MapboxStep> allSteps,
-    int currentStepIndex,
-  ) {
+    int currentStepIndex, {
+    double? remainingDistanceAlongRoute,
+  }) {
+    if (remainingDistanceAlongRoute != null) {
+      return remainingDistanceAlongRoute;
+    }
     double remainingDistance = 0.0;
-
-    // Add distance to end of current step
+    // Fallback: straight-line to end of current step + remaining step distances
     remainingDistance += Geolocator.distanceBetween(
       position.latitude,
       position.longitude,
       currentStep.maneuver.location[1], // lat
       currentStep.maneuver.location[0], // lng
     );
-
-    // Add distances for remaining steps
     for (int i = currentStepIndex + 1; i < allSteps.length; i++) {
       remainingDistance += allSteps[i].distance;
     }
-
     return remainingDistance;
   }
 
@@ -312,7 +321,8 @@ class MapboxNavigationUtils {
     }
   }
 
-  /// Check if user is off the designated route
+  /// Check if user is off the designated route (straight-line to current step maneuver).
+  /// For reroute decisions use snap result (needsRerouteFromSnap) as single source of truth.
   static bool isOffRoute(Position position, MapboxStep currentStep) {
     final distanceToManeuver = Geolocator.distanceBetween(
       position.latitude,

@@ -6,6 +6,9 @@ import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/models/auth/auth_response.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
+import 'package:waze_kibris/core/res/store_keys.dart';
+
+import '../../../fake_local_storage.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
 
@@ -15,7 +18,10 @@ void main() {
 
   setUp(() {
     mockAuthRepository = MockAuthRepository();
-    authBloc = AuthBloc(authRepository: mockAuthRepository);
+    authBloc = AuthBloc(
+      authRepository: mockAuthRepository,
+      localStorage: FakeLocalStorage(),
+    );
   });
 
   tearDown(() {
@@ -95,7 +101,7 @@ void main() {
     );
 
     blocTest<AuthBloc, AuthState>(
-      'emits [AuthLoading, OtpSent] when RegisterRequested is successful',
+      'emits [AuthLoading, AuthRegisterSuccess] when RegisterRequested is successful',
       build: () {
         when(() => mockAuthRepository.register(testEmail)).thenAnswer(
           (_) async => const AuthResponse(
@@ -113,10 +119,7 @@ void main() {
       act: (bloc) => bloc.add(const RegisterRequested(email: testEmail)),
       expect: () => [
         const AuthLoading(),
-        isA<OtpSent>()
-            .having((s) => s.message, 'message', 'User created successfully')
-            .having((s) => s.userId, 'userId', 'test-id')
-            .having((s) => s.email, 'email', testEmail),
+        const AuthRegisterSuccess(message: 'User created successfully'),
       ],
     );
 
@@ -159,6 +162,22 @@ void main() {
         );
         when(() => mockAuthRepository.verifyOtp(testEmail, '1234', 'login'))
             .thenAnswer((_) async => verifyResponse);
+        when(() => mockAuthRepository.getProfile()).thenAnswer(
+          (_) async => const AuthResponse(
+            message: 'User profile retrieved successfully',
+            status: 'success',
+            statusCode: 200,
+            data: AuthData(
+              user: User(
+                id: 'test-id',
+                email: testEmail,
+                isVerified: true,
+                preferredLanguage: 'en',
+              ),
+              token: 'test-token',
+            ),
+          ),
+        );
         return authBloc;
       },
       act: (bloc) => bloc.add(
@@ -172,6 +191,15 @@ void main() {
         const AuthLoading(),
         isA<AuthSuccess>()
             .having((s) => s.message, 'message', 'Verification successful')
+            .having((s) => s.user?.email, 'user email', testEmail)
+            .having((s) => s.token, 'token', 'test-token'),
+        const AuthLoading(),
+        isA<AuthSuccess>()
+            .having(
+              (s) => s.message,
+              'message',
+              'User profile retrieved successfully',
+            )
             .having((s) => s.user?.email, 'user email', testEmail)
             .having((s) => s.token, 'token', 'test-token'),
       ],
@@ -219,6 +247,8 @@ void main() {
     blocTest<AuthBloc, AuthState>(
       'emits [AuthLoading, AuthSuccess] when GetProfileRequested is successful',
       build: () {
+        final storage = FakeLocalStorage()
+          ..seed(StoreKeys.wazeToken, 'existing-access-token');
         when(() => mockAuthRepository.getProfile()).thenAnswer(
           (_) async => AuthResponse(
             message: 'User profile retrieved successfully',
@@ -236,7 +266,10 @@ void main() {
             ),
           ),
         );
-        return authBloc;
+        return AuthBloc(
+          authRepository: mockAuthRepository,
+          localStorage: storage,
+        );
       },
       act: (bloc) => bloc.add(const GetProfileRequested()),
       expect: () => [

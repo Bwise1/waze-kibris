@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
+import 'package:waze_kibris/core/constants/navigation_camera_constants.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 
 class CameraController {
@@ -13,6 +14,7 @@ class CameraController {
   double _currentBearing = 0;
   bool _isFollowingUser = true;
   bool _isNavigationMode = false;
+  bool _isCourseUp = true;
 
   geo.Position? _lastCameraPosition;
   DateTime? _lastCameraUpdate;
@@ -20,10 +22,9 @@ class CameraController {
 
   static const double _smoothingFactor = 0.3;
   static const double _defaultZoom = 15;
-  static const double _navigationZoom = 17;
-  static const double _navigationPitch = 0; // Keep flat like Waze
   static const double _overviewPitch = 0;
   static const int _animationDuration = 1000;
+  static const double _lowSpeedBearingThresholdKmh = 5.0;
 
   void initialize(mp.MapboxMap mapboxMap) {
     _mapboxMap = mapboxMap;
@@ -34,14 +35,24 @@ class CameraController {
   double get currentBearing => _currentBearing;
   bool get isFollowingUser => _isFollowingUser;
   bool get isNavigationMode => _isNavigationMode;
+  bool get isCourseUp => _isCourseUp;
+
+  void toggleCourseUp() {
+    _isCourseUp = !_isCourseUp;
+  }
 
   Future<void> updateCamera({
     required geo.Position userPosition,
     double? userBearing,
     bool animate = true,
     bool isOverviewMode = false,
+    double? distanceToManeuverAlongRouteMeters,
+    double? remainingDistanceAlongRouteMeters,
+    List<PointLatLng>? remainingRouteForOverview,
   }) async {
-    if (_mapboxMap == null || !_isFollowingUser) return;
+    // Allow updates when following user, or when in overview mode so overview moves with user
+    if (_mapboxMap == null) return;
+    if (!_isFollowingUser && !isOverviewMode) return;
 
     if (!_isValidPosition(userPosition)) return;
 
@@ -59,7 +70,15 @@ class CameraController {
     // Debounce camera updates to prevent excessive calls
     _cameraUpdateTimer?.cancel();
     _cameraUpdateTimer = Timer(const Duration(milliseconds: 100), () {
-      _actuallyUpdateCamera(userPosition, userBearing, animate, isOverviewMode);
+      _actuallyUpdateCamera(
+        userPosition,
+        userBearing,
+        animate,
+        isOverviewMode,
+        distanceToManeuverAlongRouteMeters: distanceToManeuverAlongRouteMeters,
+        remainingDistanceAlongRouteMeters: remainingDistanceAlongRouteMeters,
+        remainingRouteForOverview: remainingRouteForOverview,
+      );
     });
   }
 
@@ -67,8 +86,11 @@ class CameraController {
     geo.Position userPosition,
     double? userBearing,
     bool animate,
-    bool isOverviewMode,
-  ) async {
+    bool isOverviewMode, {
+    double? distanceToManeuverAlongRouteMeters,
+    double? remainingDistanceAlongRouteMeters,
+    List<PointLatLng>? remainingRouteForOverview,
+  }) async {
     if (_mapboxMap == null) return;
 
     _lastCameraPosition = userPosition;
@@ -78,11 +100,14 @@ class CameraController {
         userPosition: userPosition,
         userBearing: userBearing,
         animate: animate,
+        distanceToManeuverAlongRouteMeters: distanceToManeuverAlongRouteMeters,
+        remainingDistanceAlongRouteMeters: remainingDistanceAlongRouteMeters,
       );
     } else if (_isNavigationMode && isOverviewMode) {
       await _updateOverviewCamera(
         userPosition: userPosition,
         animate: animate,
+        remainingRoutePoints: remainingRouteForOverview,
       );
     } else {
       await _updateFollowCamera(
@@ -94,6 +119,9 @@ class CameraController {
 
     _lastCameraUpdate = DateTime.now();
   }
+
+  /// Duration for recenter (my location) animation — Waze-style smooth ease.
+  static const int _recenterAnimationDurationMs = 700;
 
   Future<void> updatePosition(geo.Position position) async {
     if (_mapboxMap == null) return;
@@ -110,48 +138,76 @@ class CameraController {
       pitch: _currentPitch,
     );
 
-    await _mapboxMap!.setCamera(cameraOptions);
+    try {
+      await _mapboxMap!.easeTo(
+        cameraOptions,
+        mp.MapAnimationOptions(duration: _recenterAnimationDurationMs),
+      );
+    } catch (e) {
+      await _mapboxMap!.setCamera(cameraOptions);
+    }
   }
 
+  /// Navigation follow mode: speed-based zoom (14–17.5), bearing follows user, camera centers on position.
+  /// Zoom clamped to native range [kFollowingMinZoom, kFollowingMaxZoom]. Pitch 0° near maneuver.
+  /// When user pans away, _isFollowingUser becomes false and we skip updates until they tap recenter.
   Future<void> _updateNavigationCamera({
     required geo.Position userPosition,
     double? userBearing,
     bool animate = true,
+    double? distanceToManeuverAlongRouteMeters,
+    double? remainingDistanceAlongRouteMeters,
   }) async {
     if (!_isValidPosition(userPosition)) return;
 
     // Calculate speed in km/h (speed is in m/s)
     final speedKmh = userPosition.speed * 3.6;
 
-    // 1. Calculate Target Zoom based on Speed
-    // Slow (< 30km/h) -> Zoom 17.5 (Close detail)
-    // Fast (> 100km/h) -> Zoom 14.0 (Highway view)
+    // 1. Target zoom: arrival (19) when very close; else speed-based (14–17.5), clamped to native range
     double targetZoom;
-    if (speedKmh < 30) {
-      targetZoom = 17.5;
-    } else if (speedKmh > 100) {
-      targetZoom = 14.0;
+    if (remainingDistanceAlongRouteMeters != null &&
+        remainingDistanceAlongRouteMeters <=
+            kArrivalRemainingDistanceThresholdMeters) {
+      targetZoom = kArrivalZoom.clamp(kFollowingMinZoom, 22.0);
     } else {
-      // Linear interpolation between 30km/h and 100km/h
-      final t = (speedKmh - 30) / (100 - 30);
-      targetZoom = 17.5 - (t * (17.5 - 14.0));
+      // Speed-based: slow -> 17.5, fast -> 14.0
+      if (speedKmh < 30) {
+        targetZoom = 17.5;
+      } else if (speedKmh > 100) {
+        targetZoom = 14.0;
+      } else {
+        final t = (speedKmh - 30) / (100 - 30);
+        targetZoom = 17.5 - (t * (17.5 - 14.0));
+      }
+      targetZoom = targetZoom.clamp(kFollowingMinZoom, kFollowingMaxZoom);
     }
 
-    // 2. Calculate Bearing Smoothing based on Speed
-    // Stopped/Crawl (< 3km/h) -> Ignore bearing updates (prevent spin)
-    // Walking/Driving -> Use smart smoothing
-    final targetBearing = userBearing ?? 0;
-    
+    // 2. Pitch: 0° near maneuver (native pitch-near-maneuver); else default (2D)
+    if (distanceToManeuverAlongRouteMeters != null &&
+        distanceToManeuverAlongRouteMeters <= kPitchNearManeuverTriggerMeters) {
+      _currentPitch = 0;
+    } else {
+      _currentPitch = kFollowingDefaultPitch;
+    }
+
+    // 3. Bearing smoothing (capped at 45°)
     double smoothedBearing = _currentBearing;
-    if (speedKmh > 3.0) { // Lowered to 3 km/h to support walking
-       smoothedBearing = _smoothBearing(_currentBearing, targetBearing);
+    if (!_isCourseUp) {
+      // Force North-Up
+      smoothedBearing = 0.0;
+    } else if (userBearing != null) {
+      final targetBearing = userBearing;
+      // At very low speeds, heading may be noisy; still use route/course bearing
+      // but keep smoothing engaged so camera rotation remains stable.
+      if (speedKmh < _lowSpeedBearingThresholdKmh) {
+        smoothedBearing = _smoothBearing(_currentBearing, targetBearing);
+      } else if (speedKmh > 3.0) {
+        smoothedBearing = _smoothBearing(_currentBearing, targetBearing);
+      }
     }
-
     _currentBearing = smoothedBearing;
-    _currentPitch = _navigationPitch;
-    
+
     // Smoothly interpolate zoom
-    // We don't want the zoom to jump if speed changes rapidly
     _currentZoom = _currentZoom + (targetZoom - _currentZoom) * 0.05;
 
     final cameraOptions = mp.CameraOptions(
@@ -180,15 +236,66 @@ class CameraController {
     }
   }
 
+  /// Overview mode: center on user at fixed zoom, or frame remaining route when provided.
+  /// Zoom capped at kOverviewMaxZoom (native overview max).
   Future<void> _updateOverviewCamera({
     required geo.Position userPosition,
     bool animate = true,
+    List<PointLatLng>? remainingRoutePoints,
   }) async {
     if (!_isValidPosition(userPosition)) return;
 
     _currentBearing = 0; // North up for overview
     _currentPitch = _overviewPitch;
-    _currentZoom = 14; // Zoom out for overview
+
+    if (remainingRoutePoints != null && remainingRoutePoints.isNotEmpty) {
+      // Frame user + remaining route; clamp zoom to [kOverviewDefaultZoom, kOverviewMaxZoom]
+      double minLat = userPosition.latitude;
+      double maxLat = userPosition.latitude;
+      double minLng = userPosition.longitude;
+      double maxLng = userPosition.longitude;
+      for (final p in remainingRoutePoints) {
+        if (p.latitude < minLat) minLat = p.latitude;
+        if (p.latitude > maxLat) maxLat = p.latitude;
+        if (p.longitude < minLng) minLng = p.longitude;
+        if (p.longitude > maxLng) maxLng = p.longitude;
+      }
+      final bounds = mp.CoordinateBounds(
+        southwest: mp.Point(coordinates: mp.Position(minLng, minLat)),
+        northeast: mp.Point(coordinates: mp.Position(maxLng, maxLat)),
+        infiniteBounds: false,
+      );
+      final cameraOptions = await _mapboxMap!.cameraForCoordinateBounds(
+        bounds,
+        mp.MbxEdgeInsets(top: 150.0, left: 80.0, bottom: 200.0, right: 80.0),
+        null,
+        null,
+        null,
+        null,
+      );
+      final zoom = cameraOptions.zoom ?? kOverviewDefaultZoom;
+      _currentZoom = zoom.clamp(kOverviewDefaultZoom, kOverviewMaxZoom);
+      final options = mp.CameraOptions(
+        center: cameraOptions.center,
+        zoom: _currentZoom,
+        bearing: 0,
+        pitch: _currentPitch,
+      );
+      try {
+        await _mapboxMap!.easeTo(
+          options,
+          mp.MapAnimationOptions(duration: animate ? 1500 : 0),
+        );
+      } catch (e) {
+        try {
+          await _mapboxMap!.setCamera(options);
+        } catch (_) {}
+      }
+      return;
+    }
+
+    _currentZoom =
+        kOverviewDefaultZoom.clamp(kFollowingMinZoom, kOverviewMaxZoom);
 
     final cameraOptions = mp.CameraOptions(
       center: mp.Point(
@@ -223,12 +330,13 @@ class CameraController {
   }) async {
     if (!_isValidPosition(userPosition)) return;
 
-    final targetBearing = userBearing != null ?
-        _smoothBearing(_currentBearing, userBearing) : _currentBearing;
+    final targetBearing = userBearing != null
+        ? _smoothBearing(_currentBearing, userBearing)
+        : _currentBearing;
 
     final useSmoothing = _shouldUsePositionSmoothing(userPosition);
-    final cameraPosition = useSmoothing ?
-        _smoothPosition(userPosition) : userPosition;
+    final cameraPosition =
+        useSmoothing ? _smoothPosition(userPosition) : userPosition;
 
     _currentBearing = targetBearing;
     _currentPitch = _overviewPitch;
@@ -348,18 +456,17 @@ class CameraController {
             userPosition.latitude,
           ),
         ),
-        zoom: _navigationZoom,
+        zoom: kActiveGuidanceZoom,
         bearing: userBearing,
-        pitch: _navigationPitch,
+        pitch: kFollowingDefaultPitch,
       ),
       mp.MapAnimationOptions(duration: 2000),
     );
 
-    _currentZoom = _navigationZoom;
-    _currentPitch = _navigationPitch;
+    _currentZoom = kActiveGuidanceZoom;
+    _currentPitch = kFollowingDefaultPitch;
     _currentBearing = userBearing;
   }
-
 
   bool _shouldUsePositionSmoothing(geo.Position userPosition) {
     if (_lastCameraPosition == null) return false;
@@ -420,8 +527,13 @@ class CameraController {
       diff += 360;
     }
 
-    final smoothingFactor = diff.abs() < 30 ? 0.3 : 0.5;
-    return currentBearing + diff * smoothingFactor;
+    // Native: max bearing deviation from raw course (45°)
+    final clampedDiff = diff.clamp(
+      -kBearingSmoothingMaxAngleDegrees,
+      kBearingSmoothingMaxAngleDegrees,
+    );
+    final smoothingFactor = clampedDiff.abs() < 30 ? 0.3 : 0.5;
+    return currentBearing + clampedDiff * smoothingFactor;
   }
 
   bool _isValidPosition(geo.Position position) {
@@ -524,9 +636,9 @@ class CameraController {
               currentPosition.latitude,
             ),
           ),
-          zoom: _navigationZoom,
+          zoom: kActiveGuidanceZoom,
           bearing: currentPosition.heading >= 0 ? currentPosition.heading : 0,
-          pitch: _navigationPitch,
+          pitch: kFollowingDefaultPitch,
         ),
         mp.MapAnimationOptions(duration: 500),
       );

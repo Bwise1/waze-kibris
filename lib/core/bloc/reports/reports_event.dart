@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:waze_kibris/core/models/location/recent_location.dart';
+import 'package:waze_kibris/core/models/reports/ws_report_update.dart';
 
 abstract class ReportsEvent extends Equatable {
   const ReportsEvent();
@@ -29,11 +31,13 @@ abstract class ReportsEvent extends Equatable {
     required double longitude,
     required double latitude,
     required String type,
+    XFile? imageFile,
   }) {
     return SubmitReportRequested(
       longitude: longitude,
       latitude: latitude,
       type: type,
+      imageFile: imageFile,
     );
   }
 
@@ -89,6 +93,12 @@ abstract class ReportsEvent extends Equatable {
     return const ClearExpiredToken();
   }
 
+  factory ReportsEvent.reportUpdatedFromWs({
+    required WsReportUpdate update,
+  }) {
+    return ReportUpdatedFromWs(update: update);
+  }
+
   @override
   List<Object?> get props => [];
 }
@@ -135,17 +145,20 @@ class SubmitReportRequested extends ReportsEvent {
     required this.type,
     required this.longitude,
     required this.latitude,
+    this.imageFile,
   });
 
   final double longitude;
   final double latitude;
   final String type;
+  final XFile? imageFile;
 
   @override
   List<Object?> get props => [
         type,
         longitude,
         latitude,
+        imageFile,
       ];
 }
 
@@ -216,4 +229,13 @@ class ClearExpiredToken extends ReportsEvent {
 
   @override
   List<Object?> get props => [];
+}
+
+class ReportUpdatedFromWs extends ReportsEvent {
+  const ReportUpdatedFromWs({required this.update});
+
+  final WsReportUpdate update;
+
+  @override
+  List<Object?> get props => [update];
 }

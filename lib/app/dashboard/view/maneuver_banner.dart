@@ -34,6 +34,16 @@ class ManeuverBanner extends StatelessWidget {
         : null;
   }
 
+  /// Intersection used for lane guidance. Native shows lanes at the upcoming
+  /// turn (maneuver); the maneuver is at the end of the step, so prefer the
+  /// last intersection that has lanes, otherwise the first.
+  MapboxIntersection? get _laneGuidanceIntersection {
+    if (step.intersections.isEmpty) return null;
+    final withLanes = step.intersections.where((i) => i.lanes.isNotEmpty).toList();
+    if (withLanes.isEmpty) return null;
+    return withLanes.last;
+  }
+
   bool get _isVoiceEnabled {
     if (navigationBloc != null) return navigationBloc!.isVoiceEnabled;
     if (navigationController != null)
@@ -137,12 +147,12 @@ class ManeuverBanner extends StatelessWidget {
                 child: _buildEnhancedInfo(),
               ),
 
-            // Lane guidance
+            // Lane guidance (native: only when multiple lanes and useful)
             if (_hasLaneGuidance())
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: LaneGuidanceWidget(
-                  lanes: step.intersections.first.lanes,
+                  lanes: _laneGuidanceIntersection!.lanes,
                 ),
               ),
 
@@ -258,9 +268,10 @@ class ManeuverBanner extends StatelessWidget {
     );
   }
 
+  /// Show lane guidance when the intersection has 2+ lanes (strip visible in banner).
   bool _hasLaneGuidance() {
-    return step.intersections.isNotEmpty &&
-        step.intersections.first.lanes.isNotEmpty;
+    final intersection = _laneGuidanceIntersection;
+    return intersection != null && intersection.lanes.length >= 2;
   }
 
   Widget _buildNextStepPreview() {

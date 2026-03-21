@@ -1,0 +1,6 @@
+# Copy to android/local.properties (gitignored) or merge these keys into yours.
+# sdk.dir=...
+# flutter.sdk=...
+
+# Mapbox public token (required for native map tiles on Android)
+mapbox.access.token=PASTE_YOUR_PUBLIC_TOKEN_HERE

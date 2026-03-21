@@ -49,6 +49,7 @@ Map<String, dynamic> _$SubmitReportDataToJson(SubmitReportData instance) =>
 ReportData _$ReportDataFromJson(Map<String, dynamic> json) => ReportData(
       id: (json['id'] as num).toInt(),
       userId: json['user_id'] as String,
+      username: json['username'] as String?,
       type: json['type'] as String,
       severity: (json['severity'] as num?)?.toInt(),
       active: json['active'] as bool,
@@ -60,12 +61,16 @@ ReportData _$ReportDataFromJson(Map<String, dynamic> json) => ReportData(
       reportStatus: json['report_status'] as String,
       longitude: (json['longitude'] as num).toDouble(),
       latitude: (json['latitude'] as num).toDouble(),
+      imageUrl: json['image_url'] as String?,
+      upvotesCount: (json['upvotes_count'] as num?)?.toInt() ?? 0,
+      downvotesCount: (json['downvotes_count'] as num?)?.toInt() ?? 0,
     );
 
 Map<String, dynamic> _$ReportDataToJson(ReportData instance) =>
     <String, dynamic>{
       'id': instance.id,
       'user_id': instance.userId,
+      'username': instance.username,
       'type': instance.type,
       'latitude': instance.latitude,
       'longitude': instance.longitude,
@@ -77,6 +82,9 @@ Map<String, dynamic> _$ReportDataToJson(ReportData instance) =>
       'expires_at': instance.expiresAt,
       'report_source': instance.reportSource,
       'report_status': instance.reportStatus,
+      'image_url': instance.imageUrl,
+      'upvotes_count': instance.upvotesCount,
+      'downvotes_count': instance.downvotesCount,
     };
 
 GetReportsResponse _$GetReportsResponseFromJson(Map<String, dynamic> json) =>

@@ -6,6 +6,9 @@ import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
 import 'package:waze_kibris/core/repositories/report_repository.dart';
+import 'package:waze_kibris/core/repositories/group_repository.dart';
+import 'package:waze_kibris/core/bloc/groups/groups_bloc.dart';
+import 'package:waze_kibris/core/services/websocket_service.dart';
 import 'package:waze_kibris/l10n/l10n.dart';
 
 class App extends StatelessWidget {
@@ -18,6 +21,13 @@ class App extends StatelessWidget {
         RepositoryProvider<AuthRepository>(create: (_) => IAuthRepository()),
         RepositoryProvider<ReportRepository>(
           create: (_) => ReportRepositoryImpl(),
+        ),
+        RepositoryProvider<GroupRepository>(
+          create: (_) => GroupRepositoryImpl(),
+        ),
+        // WebSocket service (backed by DI / GetIt)
+        RepositoryProvider<WebSocketService>(
+          create: (_) => getIt<WebSocketService>(),
         ),
       ],
       child: MaterialApp.router(
@@ -38,6 +48,13 @@ class App extends StatelessWidget {
                 create: (context) => ReportsBloc(
                   reportRepository: context.read<ReportRepository>(),
                   authBloc: context.read<AuthBloc>(),
+                  webSocketService: context.read<WebSocketService>(),
+                ),
+              ),
+              BlocProvider<GroupsBloc>(
+                create: (context) => GroupsBloc(
+                  groupRepository: context.read<GroupRepository>(),
+                  webSocketService: context.read<WebSocketService>(),
                 ),
               ),
             ],

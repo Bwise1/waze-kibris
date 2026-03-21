@@ -109,6 +109,7 @@ app.*.map.json
 !/dev/ci/**/Gemfile.lock
 !.vscode/extensions.json
 !.vscode/launch.json
+.vscode/dart_defines_*.json
 !.idea/codeStyles/
 !.idea/dictionaries/
 !.idea/runConfigurations/
@@ -131,3 +132,17 @@ ios/.symlinks/
 ios/Flutter/Flutter.framework
 ios/Flutter/Flutter.podspec
 
+# Secrets & Firebase backend keys (never commit — use CI / local copies)
+**/*firebase-adminsdk*.json
+.env
+.env.local
+.env.*.local
+
+# Mapbox (local public token — not committed)
+/ios/Flutter/Secrets.xcconfig
+
+# Firebase client config (API keys / app IDs — obtain after clone; see docs/FIREBASE_SETUP.md)
+/android/app/google-services.json
+/ios/Runner/GoogleService-Info.plist
+/lib/firebase_options.dart
+/firebase.json

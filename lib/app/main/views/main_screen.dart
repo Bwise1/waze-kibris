@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/app/report/view/report_screen.dart';
 import 'package:waze_kibris/common.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -14,26 +16,34 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      backgroundColor: styles.theme.background,
+    return BlocListener<AuthBloc, AuthState>(
+      listenWhen: (prev, next) => next is LoggedOut,
+      listener: (context, authState) {
+        if (authState is LoggedOut && context.mounted) {
+          context.go(ScreenPaths.signIn);
+        }
+      },
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        backgroundColor: styles.theme.background,
 
-      // bottomNavigationBar: HomeBottomNav(
-      //   index: index,
-      //   onChanged: (int index) {
-      //     setState(() {
-      //       this.index = index;
-      //     });
-      //   },
-      // ),
-      body: LazyIndexedStack(
-        index: index,
-        children: [
-          MainDashboard(),
-          const ReportScreen(),
-          // MapPolyScreen(), //
-          const ProfileMainScreen(),
-        ],
+        // bottomNavigationBar: HomeBottomNav(
+        //   index: index,
+        //   onChanged: (int index) {
+        //     setState(() {
+        //       this.index = index;
+        //     });
+        //   },
+        // ),
+        body: LazyIndexedStack(
+          index: index,
+          children: const [
+            MainDashboard(),
+            ReportScreen(),
+            // MapPolyScreen(), //
+            ProfileMainScreen(),
+          ],
+        ),
       ),
     );
   }

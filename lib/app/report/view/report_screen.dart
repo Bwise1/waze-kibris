@@ -188,7 +188,7 @@ class _ReportScreenState extends State<ReportScreen> {
                       if (context.mounted) {
                         context.read<ReportsBloc>().add(
                               ReportsEvent.getNearByReports(
-                                radius: 5,
+                                radius: 5000,
                                 lat: position!.latitude.toString(),
                                 long: position.longitude.toString(),
                               ),
@@ -468,7 +468,9 @@ class ReportDetailScreen extends StatelessWidget {
               ),
               Gap(styles.insets.xl),
               Text(
-                'Reported by a ${report.reportSource} ',
+                report.username != null && report.username!.isNotEmpty
+                    ? 'Reported by ${report.username}'
+                    : 'Reported by Wazer',
                 style: styles.typography.f.size(20).bold,
               ),
               Gap(styles.insets.xl),

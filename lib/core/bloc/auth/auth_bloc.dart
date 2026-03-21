@@ -1,6 +1,6 @@
 import 'dart:developer';
 
-import 'package:flutter/cupertino.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
@@ -22,6 +22,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<ResendOtpRequested>(_onResendOtpRequested);
     on<GoogleAuthRequested>(_onGoogleAuthRequested);
     on<GetProfileRequested>(_onGetProfileRequested);
+    on<UpdateProfileRequested>(_onUpdateProfileRequested);
     on<LogoutRequested>(_onLogoutRequested);
     on<GetUserCoordinateRequested>(_onGetUserCoordinate);
     on<RefreshTokenRequested>(_onRefreshTokenRequested);
@@ -89,6 +90,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         event.code,
         event.type,
       );
+      await _localStorage.save(StoreKeys.wazeToken, response.data?.token ?? '');
+      await _localStorage.save(
+        StoreKeys.wazeRefreshToken,
+        response.data?.refreshToken ?? '',
+      );
+
       emit(
         AuthSuccess(
           message: response.message,
@@ -98,8 +105,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
 
       add(AuthEvent.getProfileRequested());
-
-      await _localStorage.save(StoreKeys.wazeToken, response.data?.token ?? '');
     } catch (e) {
       emit(AuthError(message: e.toString()));
     }
@@ -134,7 +139,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     try {
       emit(const AuthLoading());
-      final response = await _authRepository.googleAuth(event.token);
+      final response = await _authRepository.firebaseAuth(event.token);
+      await _localStorage.save(StoreKeys.wazeToken, response.data?.token ?? '');
+      await _localStorage.save(
+        StoreKeys.wazeRefreshToken,
+        response.data?.refreshToken ?? '',
+      );
+
       emit(
         AuthSuccess(
           message: response.message,
@@ -142,6 +153,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           token: response.data?.token,
         ),
       );
+
+      add(AuthEvent.getProfileRequested());
     } catch (e) {
       emit(AuthError(message: e.toString()));
     }
@@ -153,7 +166,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     try {
       if (isEmptyOrNull(
-        getIt<ILocalStorage>().get<String>(StoreKeys.wazeToken),
+        _localStorage.get<String>(StoreKeys.wazeToken),
       )) {
         // don't call the get profile function if theres no token in the local
         // store
@@ -174,10 +187,33 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  void _onLogoutRequested(
+  Future<void> _onUpdateProfileRequested(
+    UpdateProfileRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    try {
+      await _authRepository.updateProfile(
+        firstname: event.firstname,
+        lastname: event.lastname,
+        profileIcon: event.profileIcon,
+      );
+      add(const GetProfileRequested());
+    } catch (e) {
+      emit(AuthError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onLogoutRequested(
     LogoutRequested event,
     Emitter<AuthState> emit,
-  ) {
+  ) async {
+    await _localStorage.delete(StoreKeys.wazeToken);
+    await _localStorage.delete(StoreKeys.wazeRefreshToken);
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {
+      // Non-fatal if Firebase session was already cleared or not used.
+    }
     emit(const LoggedOut());
   }
 
@@ -208,29 +244,29 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     RefreshTokenRequested event,
     Emitter<AuthState> emit,
   ) async {
-    final context = navigatorKey.currentContext!;
+    // NOTE: Token refresh is now handled automatically by AuthInterceptor
+    // This method is kept as a manual fallback or explicit refresh trigger
+    // It does NOT navigate or show loading states to prevent reload loops
 
     try {
       if (isEmptyOrNull(
-        getIt<ILocalStorage>().get<String>(StoreKeys.wazeRefreshToken),
+        _localStorage.get<String>(StoreKeys.wazeRefreshToken),
       )) {
-        // just go back to sign in screen if no refresh token
-        context.go(ScreenPaths.signIn);
+        log('❌ No refresh token available');
+        // Only navigate if user explicitly triggered this (not from interceptor)
+        final context = navigatorKey.currentContext;
+        if (context != null && context.mounted) {
+          context.go(ScreenPaths.signIn);
+        }
+        return;
       }
 
-      emit(const AuthLoading());
-      context.go(ScreenPaths.loaderPage);
+      // Silent refresh - no AuthLoading emission, no navigation
+      log('🔄 Manual token refresh requested (silent)');
 
       final response = await _authRepository.getRefreshToken();
-      emit(
-        AuthRefreshTokenSuccess(
-          message: response.message,
-          refreshToken: response.data!.refreshToken,
-          token: response.data!.token,
-        ),
-      );
 
-      //save the refresh token and new access token
+      // Save the new tokens
       await _localStorage.save(
         StoreKeys.wazeToken,
         response.data?.token ?? '',
@@ -240,14 +276,30 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         response.data?.refreshToken ?? '',
       );
 
-      if (context.mounted) {
-        Navigator.pop(context);
-      }
-      //push screen back to the dashboard after refresh token;
-      // this happens due to the in activity of user over a period of days
+      log('✅ Token refreshed successfully (silent)');
+
+      // Only emit success state, no loading state
+      emit(
+        AuthRefreshTokenSuccess(
+          message: response.message,
+          refreshToken: response.data!.refreshToken,
+          token: response.data!.token,
+        ),
+      );
+
+      // Call the callback if provided
+      event.onTokenRefresh?.call();
     } catch (e) {
-      emit(AuthError(message: e.toString()));
-      if (context.mounted) {
+      log('❌ Token refresh failed: $e');
+
+      // Clear tokens on failure
+      await _localStorage.delete(StoreKeys.wazeToken);
+      await _localStorage.delete(StoreKeys.wazeRefreshToken);
+
+      // Only navigate to sign in on complete failure
+      final context = navigatorKey.currentContext;
+      if (context != null && context.mounted) {
+        emit(AuthError(message: e.toString()));
         context.go(ScreenPaths.signIn);
       }
     }
