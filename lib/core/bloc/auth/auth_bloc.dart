@@ -7,6 +7,7 @@ import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
 import 'package:waze_kibris/core/res/store_keys.dart';
+import 'package:waze_kibris/core/services/push_notification_service.dart';
 import 'package:waze_kibris/core/utils/user_coordinates.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
@@ -104,6 +105,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         ),
       );
 
+      await getIt<PushNotificationService>().syncTokenIfLoggedIn();
       add(AuthEvent.getProfileRequested());
     } catch (e) {
       emit(AuthError(message: e.toString()));
@@ -154,6 +156,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         ),
       );
 
+      await getIt<PushNotificationService>().syncTokenIfLoggedIn();
       add(AuthEvent.getProfileRequested());
     } catch (e) {
       emit(AuthError(message: e.toString()));
@@ -207,6 +210,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     LogoutRequested event,
     Emitter<AuthState> emit,
   ) async {
+    await getIt<PushNotificationService>().unregisterAllOnLogout();
     await _localStorage.delete(StoreKeys.wazeToken);
     await _localStorage.delete(StoreKeys.wazeRefreshToken);
     try {

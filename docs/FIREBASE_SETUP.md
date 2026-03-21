@@ -6,6 +6,8 @@ Manual steps in [Firebase Console](https://console.firebase.google.com/) and for
 
 **Mapbox** public tokens are also kept out of Git — see [MAPBOX_LOCAL.md](MAPBOX_LOCAL.md).
 
+**Push (FCM):** device token registration and server send — see [FCM_SETUP.md](FCM_SETUP.md).
+
 ## 1. Firebase project (console)
 
 1. Create or select a project.

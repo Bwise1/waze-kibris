@@ -5,6 +5,7 @@ import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
 import 'package:waze_kibris/core/services/auth_interceptor.dart';
 import 'package:waze_kibris/core/services/firebase_social_auth_service.dart';
+import 'package:waze_kibris/core/services/push_notification_service.dart';
 import 'package:waze_kibris/core/services/websocket_service.dart';
 
 final getIt = GetIt.instance;
@@ -33,6 +34,12 @@ class DI {
       ..registerLazySingleton<Dio>(() => dio)
       ..registerLazySingleton<FirebaseSocialAuthService>(
         FirebaseSocialAuthService.new,
+      )
+      ..registerLazySingleton<PushNotificationService>(
+        () => PushNotificationService(
+          dio: getIt<Dio>(),
+          storage: getIt<ILocalStorage>(),
+        ),
       );
 
     // Create and register AuthRepository (needed by interceptor)
