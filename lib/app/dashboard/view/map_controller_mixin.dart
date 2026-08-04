@@ -30,13 +30,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   mp.PointAnnotationManager? reportAnnotationManager;
   mp.PointAnnotationManager? groupAnnotationManager;
   mp.PointAnnotationManager? nearbyUsersAnnotationManager;
-  // Navigation puck layer constants
-  static const String _puckSourceId = 'navigation-puck-source';
-  static const String _puckLayerId = 'navigation-puck-layer';
-
-  // State
-  // mp.PointAnnotationManager? navigationPuckManager; // Removed
-  // mp.PointAnnotation? _navigationPuckAnnotation; // Removed // The actual puck annotation
 
   // Camera controller - replaces individual camera variables
   late final CameraController _cameraController;
@@ -120,16 +113,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     await _cameraController.updatePosition(targetPosition);
     setIsFollowingUser(true);
-  }
-
-  /// Get TickerProvider from implementing class if available
-  /// This allows the mixin to use animation controllers even though mixins can't extend TickerProviderStateMixin directly
-  TickerProvider? _getTickerProvider() {
-    // Check if the implementing class is a TickerProvider
-    if (this is TickerProvider) {
-      return this as TickerProvider;
-    }
-    return null;
   }
 
   void onMapCreated(mp.MapboxMap controller) async {
@@ -305,9 +288,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
       debugPrint(
           '✅ Displayed ${clusters.length} report annotations (${filtered.length} reports total, ${reports.length - filtered.length} expired skipped)');
-
-      // Keep user puck above report annotations so it is never covered
-      await _ensureNavigationPuckOnTop();
     } catch (e) {
       debugPrint('❌ Error displaying reports on map: $e');
     }
@@ -332,8 +312,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           ),
         );
       }
-
-      await _ensureNavigationPuckOnTop();
     } catch (e) {
       debugPrint('❌ Error displaying nearby users on map: $e');
     }
@@ -554,10 +532,18 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
+  /// Switch the map's location component into or out of navigation mode.
+  ///
+  /// Both modes now use the built-in [LocationComponent] puck rather than
+  /// a custom SymbolLayer. Mapbox internally interpolates the puck at 60fps
+  /// via CADisplayLink from the raw 1Hz GPS stream — running our own
+  /// AnimationController on top only re-broke the interpolation.
+  ///
+  /// Nav mode uses [PuckBearing.COURSE] (direction of movement) so the
+  /// puck arrow points along the route. Free-drive uses no bearing.
   void updateMapForNavigationMode(bool isNavigating) async {
     if (_mapboxMapController == null) return;
 
-    // Use camera controller for navigation mode
     if (isNavigating) {
       _cameraController.enableNavigationMode();
     } else {
@@ -566,335 +552,36 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     final locationPuckBytes = await _loadLocationPuckImage();
 
-    if (isNavigating) {
-      // Navigation mode: Disable built-in location component and use custom snapped puck
-      await _mapboxMapController?.location.updateSettings(
-        mp.LocationComponentSettings(
-          enabled: false, // Disable built-in to prevent "ghost" puck
-          puckBearingEnabled: true,
-          puckBearing: mp.PuckBearing.COURSE,
-        ),
-      );
-
-      // Ensure the puck image is in the style
-      await _ensureNavigationPuckImageLoaded();
-
-      // Create the custom puck if it doesn't exist
-      // _navigationPuckAnnotation is removed, now we check for layer existence
-      if (!await _mapboxMapController!.style.styleLayerExists(_puckLayerId)) {
-        await _createNavigationPuck();
-      }
-    } else {
-      // Normal mode: Enable built-in location component
-
-      // Remove custom puck if it exists
-      if (_mapboxMapController != null) {
-        if (await _mapboxMapController!.style.styleLayerExists(_puckLayerId)) {
-          await _mapboxMapController!.style.removeStyleLayer(_puckLayerId);
-        }
-        if (await _mapboxMapController!.style
-            .styleSourceExists(_puckSourceId)) {
-          await _mapboxMapController!.style.removeStyleSource(_puckSourceId);
-        }
-      }
-
-      await _mapboxMapController?.location.updateSettings(
-        mp.LocationComponentSettings(
-          enabled: true,
-          puckBearingEnabled: false,
-          locationPuck: mp.LocationPuck(
-            locationPuck2D: mp.LocationPuck2D(
-              topImage: locationPuckBytes,
-              scaleExpression: json.encode([
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                10.0,
-                0.85,
-                14.0,
-                1.0,
-                18.0,
-                1.15,
-                22.0,
-                1.2,
-              ]),
-            ),
-          ),
-          pulsingColor: 0xFF4285F4, // Blue for normal mode
-          pulsingEnabled: false, // No pulsing in normal mode
-          showAccuracyRing: true,
-        ),
-      );
-    }
-  }
-
-  /// Ensure navigation puck image is loaded into map style
-  Future<void> _ensureNavigationPuckImageLoaded() async {
-    if (_mapboxMapController == null) return;
-
-    try {
-      // Check if image already exists (optional, but good for performance)
-      // For now, we'll just try to add it. If it exists, it might update or throw,
-      // but addStyleImage usually handles updates fine or we can catch.
-
-      // Load the image data
-      final ByteData byteData =
-          await rootBundle.load('assets/icons/4.0x/CurrentPosition.png');
-      final Uint8List imageBytes = byteData.buffer.asUint8List();
-
-      // Get dimensions to create MbxImage
-      final codec = await ui.instantiateImageCodec(imageBytes);
-      final frameInfo = await codec.getNextFrame();
-      final ui.Image image = frameInfo.image;
-
-      final mbxImage = mp.MbxImage(
-        width: image.width,
-        height: image.height,
-        data: imageBytes,
-      );
-
-      await _mapboxMapController!.style.addStyleImage(
-        'navigation-puck',
-        4.0, // Scale factor (since we loaded 4.0x asset)
-        mbxImage,
-        false,
-        [],
-        [],
-        null,
-      );
-      debugPrint('✅ Navigation puck image added to style');
-    } catch (e) {
-      debugPrint('⚠️ Error adding navigation puck image: $e');
-    }
-  }
-
-  // Animation controller for smooth puck movement
-  AnimationController? _puckAnimationController;
-  Animation<double>? _latAnimation;
-  Animation<double>? _lngAnimation;
-  Animation<double>? _bearingAnimation;
-
-  // Track last known puck state for interpolation
-  mp.Position? _lastPuckPosition;
-  double? _lastPuckBearing;
-
-  /// Create the custom navigation puck using SymbolLayer for smooth scaling
-  Future<void> _createNavigationPuck() async {
-    if (_mapboxMapController == null) return;
-
-    try {
-      // Get current position to start
-      final position = await Geolocator.getCurrentPosition();
-      _lastPuckPosition = mp.Position(position.longitude, position.latitude);
-      _lastPuckBearing = position.heading;
-
-      // Initialize animation controller if needed
-      // Check if implementing class provides TickerProvider (e.g., MainDashboard with TickerProviderStateMixin)
-      if (_puckAnimationController == null) {
-        // Try to get TickerProvider from the implementing class
-        final tickerProvider = _getTickerProvider();
-        if (tickerProvider != null) {
-          _puckAnimationController = AnimationController(
-            vsync: tickerProvider,
-            duration:
-                const Duration(milliseconds: 1000), // Smooth 1s transition
-          );
-
-          _puckAnimationController!.addListener(() {
-            if (_latAnimation != null &&
-                _lngAnimation != null &&
-                _bearingAnimation != null) {
-              final currentLat = _latAnimation!.value;
-              final currentLng = _lngAnimation!.value;
-              final currentBearing = _bearingAnimation!.value;
-
-              // Update the GeoJSON source with interpolated position
-              _updatePuckSource(
-                  mp.Position(currentLng, currentLat), currentBearing);
-            }
-          });
-        }
-      }
-
-      // 1. Add GeoJSON Source
-      final initialGeoJson = {
-        'type': 'FeatureCollection',
-        'features': [
-          {
-            'type': 'Feature',
-            'geometry': {
-              'type': 'Point',
-              'coordinates': [position.longitude, position.latitude],
-            },
-            'properties': {
-              'bearing': position.heading,
-            },
-          }
-        ],
-      };
-
-      if (!await _mapboxMapController!.style.styleSourceExists(_puckSourceId)) {
-        await _mapboxMapController!.style.addSource(
-          mp.GeoJsonSource(
-            id: _puckSourceId,
-            data: jsonEncode(initialGeoJson),
-          ),
-        );
-      }
-
-      // 2. Add Symbol Layer with Smooth Scaling Expression
-      if (!await _mapboxMapController!.style.styleLayerExists(_puckLayerId)) {
-        await _mapboxMapController!.style.addLayer(
-          mp.SymbolLayer(
-            id: _puckLayerId,
-            sourceId: _puckSourceId,
-            iconImage: 'navigation-puck',
-            iconAllowOverlap: true,
-            iconIgnorePlacement: true,
-            iconRotationAlignment: mp.IconRotationAlignment.MAP,
-            iconPitchAlignment:
-                mp.IconPitchAlignment.MAP, // Lie flat on the road
-            iconRotateExpression: [
-              'get',
-              'bearing'
-            ], // Rotate based on bearing property
-            // Zoom-dependent size aligned with native range (10.5–16.35 follow, 19 arrival)
-            iconSizeExpression: [
+    await _mapboxMapController?.location.updateSettings(
+      mp.LocationComponentSettings(
+        enabled: true,
+        puckBearingEnabled: isNavigating,
+        puckBearing: mp.PuckBearing.COURSE,
+        locationPuck: mp.LocationPuck(
+          locationPuck2D: mp.LocationPuck2D(
+            topImage: locationPuckBytes,
+            scaleExpression: json.encode([
               'interpolate',
               ['linear'],
               ['zoom'],
-              10.5,
-              1.0,
+              10.0,
+              0.85,
               14.0,
-              1.2,
-              16.35,
-              1.35,
+              1.0,
               18.0,
-              1.5,
-              19.0,
-              1.55,
+              1.15,
               22.0,
-              1.5,
-            ],
-            symbolSortKey: 1000, // Ensure on top
+              1.2,
+            ]),
           ),
-        );
-      }
-
-      debugPrint(
-          '✅ Custom navigation puck created with SymbolLayer (smooth scaling)');
-
-      // Ensure puck is on top of route
-      await _ensureNavigationPuckOnTop();
-    } catch (e) {
-      debugPrint('❌ Error creating navigation puck: $e');
-    }
+        ),
+        pulsingColor: 0xFF4285F4,
+        pulsingEnabled: false,
+        showAccuracyRing: !isNavigating,
+      ),
+    );
   }
 
-  /// Update the puck source data
-  Future<void> _updatePuckSource(mp.Position position, double bearing) async {
-    if (_mapboxMapController == null) return;
-
-    try {
-      final geoJson = {
-        'type': 'FeatureCollection',
-        'features': [
-          {
-            'type': 'Feature',
-            'geometry': {
-              'type': 'Point',
-              'coordinates': [position.lng, position.lat],
-            },
-            'properties': {
-              'bearing': bearing,
-            },
-          }
-        ],
-      };
-
-      await _mapboxMapController!.style.setStyleSourceProperty(
-        _puckSourceId,
-        'data',
-        jsonEncode(geoJson),
-      );
-    } catch (e) {
-      // Ignore updates if source doesn't exist yet
-    }
-  }
-
-  /// Ensure the navigation puck layer is above the route layer
-  Future<void> _ensureNavigationPuckOnTop() async {
-    if (_mapboxMapController == null) return;
-
-    try {
-      if (await _mapboxMapController!.style.styleLayerExists(_puckLayerId)) {
-        await _mapboxMapController!.style
-            .moveStyleLayer(_puckLayerId, null); // Move to very top
-        debugPrint('✅ Moved navigation puck layer ($_puckLayerId) to top');
-      }
-    } catch (e) {
-      debugPrint('⚠️ Error moving navigation puck layer: $e');
-    }
-  }
-
-  /// Update the custom navigation puck position and rotation with smoothing
-  void _updateNavigationPuck(Position position) {
-    if (_mapboxMapController == null) return;
-
-    try {
-      final newLat = position.latitude;
-      final newLng = position.longitude;
-      final newBearing = position.heading;
-
-      // If we have an animation controller, animate to the new position
-      if (_puckAnimationController != null) {
-        // Use current animated value as start if animating, to prevent jumps
-        final startLat =
-            _puckAnimationController!.isAnimating && _latAnimation != null
-                ? _latAnimation!.value
-                : (_lastPuckPosition?.lat.toDouble() ?? newLat);
-
-        final startLng =
-            _puckAnimationController!.isAnimating && _lngAnimation != null
-                ? _lngAnimation!.value
-                : (_lastPuckPosition?.lng.toDouble() ?? newLng);
-
-        final startBearing =
-            _puckAnimationController!.isAnimating && _bearingAnimation != null
-                ? _bearingAnimation!.value
-                : (_lastPuckBearing ?? newBearing);
-
-        // Handle bearing wrap-around (e.g. 350 -> 10 degrees)
-        double targetBearing = newBearing;
-        if ((targetBearing - startBearing).abs() > 180) {
-          if (targetBearing > startBearing) {
-            targetBearing -= 360;
-          } else {
-            targetBearing += 360;
-          }
-        }
-
-        _latAnimation = Tween<double>(begin: startLat, end: newLat)
-            .animate(_puckAnimationController!);
-        _lngAnimation = Tween<double>(begin: startLng, end: newLng)
-            .animate(_puckAnimationController!);
-        _bearingAnimation =
-            Tween<double>(begin: startBearing, end: targetBearing)
-                .animate(_puckAnimationController!);
-
-        _puckAnimationController!.forward(from: 0.0);
-
-        // Update last known state
-        _lastPuckPosition = mp.Position(newLng, newLat);
-        _lastPuckBearing = newBearing;
-      } else {
-        // Fallback to immediate update if no animation controller
-        _updatePuckSource(mp.Position(newLng, newLat), newBearing);
-      }
-    } catch (e) {
-      debugPrint('Error updating navigation puck: $e');
-    }
-  }
 
   // Removed: Old drawPolyline method - now using professional LineLayer approach
 
@@ -1087,7 +774,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       await _mapboxMapController!.style
           .moveStyleLayer(_waypointLayerId, null); // Move to top
       debugPrint('✅ Moved waypoint layer to top (origin=${origin.latitude},${origin.longitude} dest=${destination.latitude},${destination.longitude})');
-      await _ensureNavigationPuckOnTop();
     } catch (e) {
       debugPrint('⚠️ Error moving waypoint layer: $e');
     }
@@ -1392,10 +1078,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           );
         }
 
-        // Update custom navigation puck if in navigation mode
-        if (currentState is NavigationInProgress) {
-          _updateNavigationPuck(processedPosition);
-        }
+        // Puck position is now driven by the built-in LocationComponent,
+        // which reads directly from CoreLocation / FusedLocationProvider
+        // and interpolates at 60fps. No manual per-frame update needed.
       },
       onError: (Object error) {
         debugPrint('Position stream error: $error');
@@ -1840,7 +1525,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   @override
   void dispose() {
-    _puckAnimationController?.dispose();
     _userPositionStream?.cancel();
     _bearingFusion.dispose();
     _reportIconUpdateTimer?.cancel();
