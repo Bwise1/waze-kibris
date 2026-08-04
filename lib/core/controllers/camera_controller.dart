@@ -30,7 +30,6 @@ class CameraController {
 
   geo.Position? _lastCameraPosition;
   DateTime? _lastCameraUpdate;
-  Timer? _cameraUpdateTimer;
 
   static const double _smoothingFactor = 0.3;
   static const double _defaultZoom = 15;
@@ -68,30 +67,19 @@ class CameraController {
 
     if (!_isValidPosition(userPosition)) return;
 
-    // Check if user has moved significantly to avoid unnecessary updates
-    if (_lastCameraPosition != null) {
-      final distance = geo.Geolocator.distanceBetween(
-        _lastCameraPosition!.latitude,
-        _lastCameraPosition!.longitude,
-        userPosition.latitude,
-        userPosition.longitude,
-      );
-      if (distance < 3.0) return;
-    }
-
-    // Debounce camera updates to prevent excessive calls
-    _cameraUpdateTimer?.cancel();
-    _cameraUpdateTimer = Timer(const Duration(milliseconds: 100), () {
-      _actuallyUpdateCamera(
-        userPosition,
-        userBearing,
-        animate,
-        isOverviewMode,
-        distanceToManeuverAlongRouteMeters: distanceToManeuverAlongRouteMeters,
-        remainingDistanceAlongRouteMeters: remainingDistanceAlongRouteMeters,
-        remainingRouteForOverview: remainingRouteForOverview,
-      );
-    });
+    // No distance-skip / debounce — native Mapbox drives the camera every
+    // render frame (60Hz) via ValueInterpolator. Skipping small updates or
+    // debouncing here creates the "stuttery" feel; we want every GPS event
+    // to flow into an easeTo that runs until the next one.
+    _actuallyUpdateCamera(
+      userPosition,
+      userBearing,
+      animate,
+      isOverviewMode,
+      distanceToManeuverAlongRouteMeters: distanceToManeuverAlongRouteMeters,
+      remainingDistanceAlongRouteMeters: remainingDistanceAlongRouteMeters,
+      remainingRouteForOverview: remainingRouteForOverview,
+    );
   }
 
   Future<void> _actuallyUpdateCamera(
@@ -224,8 +212,9 @@ class CameraController {
     }
     _currentBearing = smoothedBearing;
 
-    // Smoothly interpolate zoom
-    _currentZoom = _currentZoom + (targetZoom - _currentZoom) * 0.05;
+    // Smoothly interpolate zoom. Native uses ~0.15 (converges over ~4 updates
+    // instead of ~20 with 0.05) so speed-based zoom actually reacts.
+    _currentZoom = _currentZoom + (targetZoom - _currentZoom) * 0.15;
 
     final cameraOptions = mp.CameraOptions(
       center: mp.Point(
@@ -240,9 +229,12 @@ class CameraController {
     );
 
     try {
+      // 450ms roughly matches typical GPS update cadence — camera keeps
+      // animating right up until the next update arrives, giving a
+      // continuous glide instead of a start-stop-restart per ping.
       await _mapboxMap!.easeTo(
         cameraOptions,
-        mp.MapAnimationOptions(duration: animate ? 1000 : 0),
+        mp.MapAnimationOptions(duration: animate ? 450 : 0),
       );
     } catch (e) {
       try {
@@ -678,7 +670,6 @@ class CameraController {
   }
 
   void dispose() {
-    _cameraUpdateTimer?.cancel();
     _mapboxMap = null;
   }
 }

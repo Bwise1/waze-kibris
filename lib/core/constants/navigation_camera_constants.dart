@@ -5,8 +5,10 @@ library;
 // Following (active guidance) — MapboxNavigationViewportDataSourceOptions
 const double kFollowingMinZoom = 10.5;
 const double kFollowingMaxZoom = 16.35;
-/// Default pitch during follow. Use 0 for 2D (Waze-style); native uses 45.0 for 3D.
-const double kFollowingDefaultPitch = 0.0;
+/// Default pitch during follow. Native Mapbox default is 45° — gives the 3D
+/// "looking down the road" perspective that makes turn-by-turn feel like
+/// Google/Apple/Waze instead of a flat 2D map.
+const double kFollowingDefaultPitch = 45.0;
 
 // Pitch near maneuver — flatten to 0° when within this distance of next turn
 const double kPitchNearManeuverTriggerMeters = 180.0;

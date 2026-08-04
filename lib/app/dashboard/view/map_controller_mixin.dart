@@ -1237,10 +1237,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
 
     // On Android, use foreground notification so location updates continue when app is backgrounded
+    // distanceFilter: 0 → get every GPS event (typically ~1Hz on iOS/Android).
+    // With filter=10 you only get an update every 10m, which at 30km/h is
+    // 1.2s between events — long enough for the camera to visibly stall
+    // between updates. The SDK / our camera easeTo handles interpolation.
     final LocationSettings locationSettings = Platform.isAndroid
         ? AndroidSettings(
             accuracy: LocationAccuracy.high,
-            distanceFilter: 10,
+            distanceFilter: 0,
             foregroundNotificationConfig: const ForegroundNotificationConfig(
               notificationTitle: 'Waze Kibris',
               notificationText: 'Using your location for navigation',
@@ -1249,8 +1253,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             ),
           )
         : const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 10,
+            accuracy: LocationAccuracy.bestForNavigation,
+            distanceFilter: 0,
           );
 
     _userPositionStream?.cancel();
