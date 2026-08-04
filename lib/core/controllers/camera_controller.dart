@@ -63,9 +63,17 @@ class CameraController {
   }) async {
     // Allow updates when following user, or when in overview mode so overview moves with user
     if (_mapboxMap == null) return;
-    if (!_isFollowingUser && !isOverviewMode) return;
+    if (!_isFollowingUser && !isOverviewMode) {
+      // ignore: avoid_print
+      print('📷 [NAV-CAM] SKIPPED — not following, not overview');
+      return;
+    }
 
     if (!_isValidPosition(userPosition)) return;
+
+    // ignore: avoid_print
+    print('📷 [NAV-CAM] entering _actuallyUpdateCamera — '
+        'isNavigationMode=$_isNavigationMode isOverview=$isOverviewMode');
 
     // No distance-skip / debounce — native Mapbox drives the camera every
     // render frame (60Hz) via ValueInterpolator. Skipping small updates or
@@ -230,6 +238,11 @@ class CameraController {
       bearing: smoothedBearing, // Follow user's heading
       pitch: _currentPitch,
     );
+
+    // ignore: avoid_print
+    print('📷 [NAV-CAM] pitch=$_currentPitch bearing=${smoothedBearing.toStringAsFixed(1)} '
+        'zoom=${_currentZoom.toStringAsFixed(2)} userBearing=$userBearing '
+        'distToManeuver=$distanceToManeuverAlongRouteMeters');
 
     try {
       // 450ms roughly matches typical GPS update cadence — camera keeps
