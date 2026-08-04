@@ -10,8 +10,16 @@ const double kFollowingMaxZoom = 16.35;
 /// Google/Apple/Waze instead of a flat 2D map.
 const double kFollowingDefaultPitch = 45.0;
 
-// Pitch near maneuver — flatten to 0° when within this distance of next turn
-const double kPitchNearManeuverTriggerMeters = 180.0;
+// Pitch near maneuver — flatten camera when within this distance of next
+// turn so the driver can see the whole intersection top-down. 180m is far
+// too aggressive for city driving (you're within 180m of a turn ~90% of
+// the time and the camera never gets to 3D). Native uses ~30m.
+const double kPitchNearManeuverTriggerMeters = 30.0;
+
+/// Pitch value used when close to a maneuver. Not fully flat (0°) — a slight
+/// tilt keeps some 3D context so the camera transition doesn't feel like a
+/// jarring "collapse to 2D" every 30m before every turn.
+const double kPitchNearManeuverValue = 20.0;
 
 // Bearing smoothing — max deviation from raw course (degrees)
 const double kBearingSmoothingMaxAngleDegrees = 45.0;

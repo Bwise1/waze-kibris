@@ -187,30 +187,33 @@ class CameraController {
       targetZoom = targetZoom.clamp(kFollowingMinZoom, kFollowingMaxZoom);
     }
 
-    // 2. Pitch: 0° near maneuver (native pitch-near-maneuver); else default (2D)
+    // 2. Pitch: flatten near maneuver so driver sees the intersection from
+    // above; otherwise keep default 3D perspective (native ~45°).
     if (distanceToManeuverAlongRouteMeters != null &&
         distanceToManeuverAlongRouteMeters <= kPitchNearManeuverTriggerMeters) {
-      _currentPitch = 0;
+      _currentPitch = kPitchNearManeuverValue;
     } else {
       _currentPitch = kFollowingDefaultPitch;
     }
 
-    // 3. Bearing smoothing (capped at 45°)
-    double smoothedBearing = _currentBearing;
+    // 3. Bearing: apply user's course whenever we have one. Native uses the
+    // course bearing directly and lets the 450ms easeTo do the smoothing;
+    // no per-step clamps, no low-speed gates that leave the camera stuck
+    // facing north while the car drives south.
     if (!_isCourseUp) {
-      // Force North-Up
-      smoothedBearing = 0.0;
+      _currentBearing = 0.0;
     } else if (userBearing != null) {
-      final targetBearing = userBearing;
-      // At very low speeds, heading may be noisy; still use route/course bearing
-      // but keep smoothing engaged so camera rotation remains stable.
-      if (speedKmh < _lowSpeedBearingThresholdKmh) {
-        smoothedBearing = _smoothBearing(_currentBearing, targetBearing);
-      } else if (speedKmh > 3.0) {
-        smoothedBearing = _smoothBearing(_currentBearing, targetBearing);
+      if (_pendingNavBearingSnap) {
+        _currentBearing = userBearing;
+        _pendingNavBearingSnap = false;
+      } else {
+        _currentBearing = _smoothBearing(_currentBearing, userBearing);
       }
     }
-    _currentBearing = smoothedBearing;
+    // If userBearing is null (GPS heading unknown), keep _currentBearing
+    // as-is rather than snapping to 0 — that's what caused the "map not
+    // facing user heading" bug at the start of a trip.
+    final smoothedBearing = _currentBearing;
 
     // Smoothly interpolate zoom. Native uses ~0.15 (converges over ~4 updates
     // instead of ~20 with 0.05) so speed-based zoom actually reacts.
@@ -391,9 +394,15 @@ class CameraController {
     }
   }
 
+  /// Set to true when nav mode starts so the first _updateNavigationCamera
+  /// call can snap-to-course rather than interpolating from bearing 0°
+  /// (which would spin the camera at trip start).
+  bool _pendingNavBearingSnap = false;
+
   void enableNavigationMode() {
     _isNavigationMode = true;
     _isFollowingUser = true;
+    _pendingNavBearingSnap = true;
   }
 
   void disableNavigationMode() {
@@ -527,22 +536,20 @@ class CameraController {
     );
   }
 
+  /// Bearing is normalized to the shortest-path direction (so a 350°→10°
+  /// change goes +20°, not −340°) then passed through directly. The 450ms
+  /// easeTo on the map itself is what smooths it — mirroring native, where
+  /// the animation duration provides the smoothing rather than per-step
+  /// angle caps that make the camera physically unable to keep up with a
+  /// turning driver.
   double _smoothBearing(double currentBearing, double targetBearing) {
     double diff = targetBearing - currentBearing;
-
     if (diff > 180) {
       diff -= 360;
     } else if (diff < -180) {
       diff += 360;
     }
-
-    // Native: max bearing deviation from raw course (45°)
-    final clampedDiff = diff.clamp(
-      -kBearingSmoothingMaxAngleDegrees,
-      kBearingSmoothingMaxAngleDegrees,
-    );
-    final smoothingFactor = clampedDiff.abs() < 30 ? 0.3 : 0.5;
-    return currentBearing + clampedDiff * smoothingFactor;
+    return currentBearing + diff;
   }
 
   bool _isValidPosition(geo.Position position) {
