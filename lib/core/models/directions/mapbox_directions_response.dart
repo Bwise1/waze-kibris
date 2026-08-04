@@ -175,17 +175,86 @@ class MapboxLeg {
     return sum / speeds.length;
   }
 
-  /// Get average speed limit estimate (in km/h) - uses average speed as proxy
-  /// Note: This is average speed, not actual speed limit, but better than hardcoded value
-  double? get estimatedSpeedLimitKmh {
-    final avgSpeed = averageSpeed;
-    if (avgSpeed == null) return null;
-    // Convert m/s to km/h and add 20% buffer as speed limit estimate
-    return (avgSpeed * 3.6 * 1.2).roundToDouble();
-  }
-
   /// Get expected average speed from route (in m/s) - alias for averageSpeed for clarity
   double? get expectedAverageSpeed => averageSpeed;
+
+  /// Returns the posted speed limit (km/h) at the geometry coordinate whose
+  /// index in this leg is closest to the user's current position.
+  ///
+  /// [nearestPoint] is the point on the route that the user was snapped to
+  /// (from `SnapToRoadService`, or their raw GPS as a fallback). Returns
+  /// `null` when Mapbox has no speed-limit data for the segment (rural roads,
+  /// unmapped tags) or when annotations were not requested.
+  double? speedLimitKmhAt(LatLng nearestPoint) {
+    final ann = annotations?.maxspeed;
+    if (ann == null || ann.isEmpty) return null;
+
+    // Find the leg geometry index closest to the user. The leg's geometry is
+    // the concatenation of its steps' geometries; walk them in order and keep
+    // a running index that matches the annotation arrays (one entry per pair
+    // of consecutive coordinates in the leg).
+    int bestIndex = 0;
+    double bestDistSq = double.infinity;
+    int cursor = 0;
+    for (final step in steps) {
+      for (final coord in step.geometry.coordinates) {
+        final dLat = coord[1] - nearestPoint.latitude;
+        final dLng = coord[0] - nearestPoint.longitude;
+        final distSq = dLat * dLat + dLng * dLng;
+        if (distSq < bestDistSq) {
+          bestDistSq = distSq;
+          bestIndex = cursor;
+        }
+        cursor++;
+      }
+    }
+
+    // maxspeed has one entry per segment (n-1 for n coords). Clamp.
+    final segmentIndex = bestIndex.clamp(0, ann.length - 1);
+    return ann[segmentIndex].kmh;
+  }
+}
+
+/// Mapbox `maxspeed` annotation entry. Either a numeric speed + unit, or a
+/// flag: `unknown` (data missing) / `none` (no posted limit — e.g. German
+/// Autobahn).
+class MapboxMaxspeed {
+  final double? speed;
+  final String? unit; // "km/h" or "mph"
+  final bool unknown;
+  final bool none;
+
+  const MapboxMaxspeed({
+    this.speed,
+    this.unit,
+    this.unknown = false,
+    this.none = false,
+  });
+
+  factory MapboxMaxspeed.fromJson(Map<String, dynamic> json) {
+    return MapboxMaxspeed(
+      speed: (json['speed'] as num?)?.toDouble(),
+      unit: json['unit']?.toString(),
+      unknown: json['unknown'] as bool? ?? false,
+      none: json['none'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        if (speed != null) 'speed': speed,
+        if (unit != null) 'unit': unit,
+        if (unknown) 'unknown': true,
+        if (none) 'none': true,
+      };
+
+  /// Normalised speed limit in km/h, or `null` if no posted limit is known
+  /// for this segment.
+  double? get kmh {
+    final s = speed;
+    if (s == null) return null;
+    if (unit == 'mph') return s * 1.609344;
+    return s;
+  }
 }
 
 class MapboxLegAnnotations {
@@ -194,12 +263,14 @@ class MapboxLegAnnotations {
   final List<double>? duration; // Duration in seconds
   final List<double>?
       congestionNumeric; // Congestion level 0-100 for each coordinate pair (only available for driving-traffic profile)
+  final List<MapboxMaxspeed>? maxspeed; // Posted speed limit per segment
 
   MapboxLegAnnotations({
     this.speed,
     this.distance,
     this.duration,
     this.congestionNumeric,
+    this.maxspeed,
   });
 
   factory MapboxLegAnnotations.fromJson(Map<String, dynamic> json) {
@@ -224,6 +295,11 @@ class MapboxLegAnnotations {
               .map((c) => (c as num).toDouble())
               .toList()
           : null,
+      maxspeed: json['maxspeed'] != null
+          ? (json['maxspeed'] as List<dynamic>)
+              .map((m) => MapboxMaxspeed.fromJson(m as Map<String, dynamic>))
+              .toList()
+          : null,
     );
   }
 
@@ -233,6 +309,8 @@ class MapboxLegAnnotations {
       if (distance != null) 'distance': distance,
       if (duration != null) 'duration': duration,
       if (congestionNumeric != null) 'congestion_numeric': congestionNumeric,
+      if (maxspeed != null)
+        'maxspeed': maxspeed!.map((m) => m.toJson()).toList(),
     };
   }
 

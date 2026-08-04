@@ -6,17 +6,20 @@ import 'dart:ui' as ui;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart' hide TravelMode;
 import 'package:geolocator/geolocator.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
+import 'package:waze_kibris/app/dashboard/services/bearing_fusion_service.dart';
 import 'package:waze_kibris/app/dashboard/services/snap_to_road_service.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/core/controllers/camera_controller.dart';
 import 'package:waze_kibris/core/services/route_visualization_service.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
+import 'package:waze_kibris/core/utils/report_expiry.dart';
 import 'package:waze_kibris/core/models/user/nearby_user.dart';
 import 'package:waze_kibris/app/dashboard/modals/report_details_modal.dart';
 
@@ -54,20 +57,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   // Snap to road service
   final SnapToRoadService _snapToRoadService = SnapToRoadService();
 
-  // Clustering Constants
-  static const List<String> _reportTypes = [
-    'police',
-    'traffic',
-    'accident',
-    'photosharing',
-  ];
-
-  String _getReportSourceId(String type) => 'report-source-$type';
-  String _getClusterLayerId(String type) => 'report-layer-clusters-$type';
-  String _getClusterCountLayerId(String type) =>
-      'report-layer-cluster-count-$type';
-  String _getUnclusteredLayerId(String type) =>
-      'report-layer-unclustered-$type';
+  // Compass/GPS bearing fusion — GPS course is unreliable at low speeds
+  final BearingFusionService _bearingFusion = BearingFusionService();
 
   /// Minimum distance (m) from user puck for report icons; closer reports are radially offset so they don't cover the puck.
   static const double _puckMinDisplayDistanceMeters = 35.0;
@@ -169,11 +160,15 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         );
       }
 
-      // Set camera bounds to restrict zooming out too far
+      // Zoom limits: match how consumer nav apps constrain the map to
+      // "useful" ranges. Beyond zoom 20 there's no more street-level detail
+      // to reveal — Mapbox tiles just start pixelating. Below zoom 5 you're
+      // staring at a continent, which is useless for turn-by-turn.
+      //   Google Maps: 3–21   Apple Maps: 3–20   Waze: 5–19
       await controller.setBounds(
         mp.CameraBoundsOptions(
-          minZoom: 4.0, // Restrict world view
-          maxZoom: 22.0,
+          minZoom: 5.0,
+          maxZoom: 20.0,
         ),
       );
 
@@ -250,104 +245,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       ));
       _mapboxMapController?.scaleBar
           .updateSettings(mp.ScaleBarSettings(enabled: false));
-
-      // Initialize clustering
-      await _setupReportClustering();
     });
-  }
-
-  /// Setup GeoJSON source and layers for report clustering (Type-Based)
-  Future<void> _setupReportClustering() async {
-    if (_mapboxMapController == null) return;
-
-    try {
-      for (final type in _reportTypes) {
-        final sourceId = _getReportSourceId(type);
-        final clusterLayerId = _getClusterLayerId(type);
-        final clusterCountLayerId = _getClusterCountLayerId(type);
-        final unclusteredLayerId = _getUnclusteredLayerId(type);
-        final iconId = _getReportIcon(type); // e.g., 'police-icon'
-
-        // Determine offset based on type to prevent overlap
-        List<double> offset = [0.0, -5.0]; // Default (Police/Center)
-        if (type == 'traffic') {
-          offset = [20.0, -5.0]; // Right
-        } else if (type == 'accident') {
-          offset = [-20.0, -5.0]; // Left
-        }
-
-        // 1. Add GeoJSON Source with clustering enabled
-        await _mapboxMapController!.style.addSource(
-          mp.GeoJsonSource(
-            id: sourceId,
-            data: jsonEncode({'type': 'FeatureCollection', 'features': []}),
-            cluster: true,
-            clusterRadius: 50, // Radius of each cluster when clustering points
-            clusterMaxZoom: 14, // Max zoom to cluster points on
-          ),
-        );
-
-        // 2. Add Cluster Layer (Icon with Count)
-        // Instead of a circle, we use the report icon itself for the cluster
-        await _mapboxMapController!.style.addLayer(
-          mp.SymbolLayer(
-            id: clusterLayerId,
-            sourceId: sourceId,
-            filter: ['has', 'point_count'], // Only show when clustered
-            iconImage: iconId, // Use the specific report icon
-            iconSize: 0.7, // Reduced from 0.9
-            iconAllowOverlap: true,
-            iconAnchor: mp.IconAnchor.BOTTOM,
-            iconOffset: offset, // Apply offset
-          ),
-        );
-
-        // 3. Add Cluster Count Layer (Text on top of icon)
-        await _mapboxMapController!.style.addLayer(
-          mp.SymbolLayer(
-            id: clusterCountLayerId,
-            sourceId: sourceId,
-            filter: ['has', 'point_count'],
-            textField: jsonEncode(['get', 'point_count_abbreviated']),
-            textSize: 10.0, // Reduced from 12.0
-            textColor: 0xFFFFFFFF, // White text
-            textHaloColor: 0xFF000000, // Black outline for readability
-            textHaloWidth: 1.0,
-            textAnchor: mp.TextAnchor.CENTER,
-            textOffset: [
-              offset[0] / 10.0,
-              -1.5
-            ], // Adjust text position to match icon offset (approximate scale)
-          ),
-        );
-
-        // 4. Add Unclustered Layer (Individual Icons)
-        await _mapboxMapController!.style.addLayer(
-          mp.SymbolLayer(
-            id: unclusteredLayerId,
-            sourceId: sourceId,
-            filter: [
-              '!',
-              ['has', 'point_count']
-            ], // Only show when NOT clustered
-            iconImage: iconId, // Use the specific report icon
-            iconSize: 0.5, // Reduced from 0.7
-            iconAllowOverlap: true,
-            iconAnchor: mp.IconAnchor.BOTTOM,
-            iconOffset: offset, // Apply offset
-          ),
-        );
-      }
-
-      debugPrint('✅ Type-based report clustering setup completed');
-
-      // If we have pending reports that were skipped during setup, display them now
-      if (_currentReports.isNotEmpty) {
-        displayReportsOnMap(_currentReports);
-      }
-    } catch (e) {
-      debugPrint('❌ Error setting up report clustering: $e');
-    }
   }
 
   /// Initialize route visualization service asynchronously
@@ -363,7 +261,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Display reports using PointAnnotations with click handling and smart positioning
   Future<void> displayReportsOnMap(List<ReportData> reports) async {
-    _currentReports = reports;
+    final filtered = filterNonExpiredReports(reports);
+    _currentReports = filtered;
     if (reportAnnotationManager == null || !mounted) return;
 
     try {
@@ -376,7 +275,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       final zoom = cameraState?.zoom ?? 14.0;
 
       // Group reports by proximity (Waze-style clustering); optionally offset clusters near user puck
-      final clusters = _clusterReports(reports, zoom, _lastKnownUserPosition);
+      final clusters = _clusterReports(filtered, zoom, _lastKnownUserPosition);
 
       // Create annotations for each cluster
       for (final cluster in clusters) {
@@ -405,7 +304,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       }
 
       debugPrint(
-          '✅ Displayed ${clusters.length} report annotations (${reports.length} reports total)');
+          '✅ Displayed ${clusters.length} report annotations (${filtered.length} reports total, ${reports.length - filtered.length} expired skipped)');
 
       // Keep user puck above report annotations so it is never covered
       await _ensureNavigationPuckOnTop();
@@ -1000,7 +899,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   // Removed: Old drawPolyline method - now using professional LineLayer approach
 
   /// Draw route using advanced RouteVisualizationService
-  Future<void> drawMapboxPolyline(MapboxRoute route) async {
+  Future<void> drawMapboxPolyline(
+    MapboxRoute route, {
+    List<MapboxRoute>? alternativeRoutes,
+  }) async {
     await clearRoutePolyline();
 
     if (_mapboxMapController == null) {
@@ -1026,8 +928,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       // Store points for adaptive updates
       _currentPolylinePoints = routePoints;
 
-      // Use RouteVisualizationService to draw the route
-      await _routeVisualizationService.drawRoute(route);
+      // Use RouteVisualizationService to draw the route (+ optional grey alternatives)
+      await _routeVisualizationService.drawRoute(
+        route,
+        alternativeRoutes: alternativeRoutes,
+      );
 
       // Update SnapToRoadService with the new route
       _snapToRoadService.setMapboxRoute(route);
@@ -1078,57 +983,113 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     );
   }
 
+  // ── Route waypoint markers (origin + destination) ──────────────────────
+  //
+  // Ported from mapbox-navigation-android's MapboxRouteLineUtils.kt waypoint
+  // layer (lines 2011-2077). Instead of using PointAnnotationManager (which
+  // takes a fixed iconSize), we render the origin/destination pins via a
+  // proper SymbolLayer with `iconSizeExpression` — so Mapbox scales them
+  // smoothly with zoom the same way it does its own POIs and labels. That's
+  // what fixes the "giant pin at overview zoom" problem for good: no
+  // resampling, no reload, no polling.
+
+  static const String _waypointSourceId = 'route-waypoint-source';
+  static const String _waypointLayerId = 'route-waypoint-layer';
+  static const String _originImageId = 'route-origin-marker';
+  static const String _destinationImageId = 'destination-marker';
+
   Future<void> _addRouteMarkers(List<PointLatLng> points) async {
-    if (pointAnnotationManager == null || points.isEmpty) return;
+    if (_mapboxMapController == null || points.isEmpty) return;
 
-    // Get adaptive marker size
-    final markerSize = await _getAdaptiveMarkerSize();
-    // Make destination marker slightly larger for better visibility
-    final destinationMarkerSize = markerSize * 1.2;
-
-    // Load and add destination marker image to map style
+    // Make sure both images are registered with the style. `destination-
+    // marker` uses the existing high-res asset; the origin gets a small
+    // programmatic circle (matches Android's mapbox_ic_route_origin.xml).
     await _addDestinationImageToStyle();
+    await _addOriginImageToStyle();
 
-    // Add start marker (using default marker)
-    await pointAnnotationManager!.create(
-      mp.PointAnnotationOptions(
-        geometry: mp.Point(
-            coordinates: mp.Position(
-          points.first.longitude,
-          points.first.latitude,
-        )),
-        iconSize: markerSize,
-        iconAnchor: mp.IconAnchor.BOTTOM,
-      ),
-    );
+    // Build / refresh a two-feature GeoJSON: one origin, one destination,
+    // tagged with an `icon` property so a single SymbolLayer can pick the
+    // right image per feature.
+    final origin = points.first;
+    final destination = points.last;
+    final geoJson = jsonEncode({
+      'type': 'FeatureCollection',
+      'features': [
+        {
+          'type': 'Feature',
+          'geometry': {
+            'type': 'Point',
+            'coordinates': [origin.longitude, origin.latitude],
+          },
+          'properties': {'icon': _originImageId},
+        },
+        {
+          'type': 'Feature',
+          'geometry': {
+            'type': 'Point',
+            'coordinates': [destination.longitude, destination.latitude],
+          },
+          'properties': {'icon': _destinationImageId},
+        },
+      ],
+    });
 
-    // Add destination marker (using custom destination icon)
-    await pointAnnotationManager!.create(
-      mp.PointAnnotationOptions(
-        geometry: mp.Point(
-            coordinates: mp.Position(
-          points.last.longitude,
-          points.last.latitude,
-        )),
-        // Slightly larger size + bottom anchor so the tip of the icon
-        // sits on the route line, similar to Waze.
-        iconSize: destinationMarkerSize,
-        iconImage: 'destination-marker', // Reference the added image by ID
-        iconAnchor: mp.IconAnchor.BOTTOM,
-      ),
-    );
-
-    // Ensure markers are on top of route line
-    try {
-      final layerId = pointAnnotationManager!.id;
+    final sourceExists =
+        await _mapboxMapController!.style.styleSourceExists(_waypointSourceId);
+    if (sourceExists) {
       await _mapboxMapController!.style
-          .moveStyleLayer(layerId, null); // Move to top
-      debugPrint('✅ Moved route markers layer ($layerId) to top');
+          .setStyleSourceProperty(_waypointSourceId, 'data', geoJson);
+    } else {
+      await _mapboxMapController!.style.addSource(
+        mp.GeoJsonSource(id: _waypointSourceId, data: geoJson),
+      );
+    }
 
-      // Ensure navigation puck is even higher if it exists
+    final layerExists =
+        await _mapboxMapController!.style.styleLayerExists(_waypointLayerId);
+    if (!layerExists) {
+      try {
+        await _mapboxMapController!.style.addLayer(
+          mp.SymbolLayer(
+            id: _waypointLayerId,
+            sourceId: _waypointSourceId,
+            iconImageExpression: ['get', 'icon'],
+            iconAllowOverlap: true,
+            iconIgnorePlacement: true,
+            iconAnchor: mp.IconAnchor.BOTTOM,
+            // Native Mapbox waypoint curve (exp 1.5) from RouteLineUtils.kt,
+            // scaled for our 1024×1024 destination asset. Values chosen so
+            // the pin renders ~40-50px tall at street zoom and shrinks
+            // smoothly at overview without disappearing.
+            iconSizeExpression: [
+              'interpolate',
+              ['exponential', 1.5],
+              ['zoom'],
+              0.0, 0.20,
+              10.0, 0.28,
+              12.0, 0.35,  // city overview
+              14.0, 0.42,  // area view
+              16.0, 0.52,  // street level (Google-Maps-pin sized)
+              19.0, 0.68,
+              22.0, 0.90,  // max zoom
+            ],
+          ),
+        );
+        debugPrint('✅ Waypoint SymbolLayer added');
+      } catch (e) {
+        debugPrint('❌ Failed to add waypoint SymbolLayer: $e');
+      }
+    } else {
+      debugPrint('ℹ️  Waypoint layer already existed, source refreshed');
+    }
+
+    try {
+      await _mapboxMapController!.style
+          .moveStyleLayer(_waypointLayerId, null); // Move to top
+      debugPrint('✅ Moved waypoint layer to top (origin=${origin.latitude},${origin.longitude} dest=${destination.latitude},${destination.longitude})');
       await _ensureNavigationPuckOnTop();
     } catch (e) {
-      debugPrint('⚠️ Error moving marker layer: $e');
+      debugPrint('⚠️ Error moving waypoint layer: $e');
     }
   }
 
@@ -1139,50 +1100,80 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     // Clear route in SnapToRoadService
     _snapToRoadService.clearRoute();
 
-    // Clear route markers
+    // Clear route waypoint markers (SymbolLayer). Any legacy annotations
+    // from the pre-SymbolLayer era are cleaned up too, so downgrades don't
+    // leave orphan pins on the map.
+    if (_mapboxMapController != null) {
+      try {
+        if (await _mapboxMapController!.style
+            .styleLayerExists(_waypointLayerId)) {
+          await _mapboxMapController!.style.removeStyleLayer(_waypointLayerId);
+        }
+        if (await _mapboxMapController!.style
+            .styleSourceExists(_waypointSourceId)) {
+          await _mapboxMapController!.style
+              .removeStyleSource(_waypointSourceId);
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error clearing waypoint layer: $e');
+      }
+    }
     await pointAnnotationManager?.deleteAll();
 
     // Clear stored polyline data
     _currentPolylinePoints = null;
   }
 
-  /// Calculates adaptive marker size based on zoom level
-  /// Size mapping: 1x=48w, 2x=64w, 3x=96w, 4x=128w
-  Future<double> _getAdaptiveMarkerSize() async {
+  /// Registers a small circle-in-circle image (mirrors Android's
+  /// `mapbox_ic_route_origin.xml`: grey outer, white inner) as the origin pin.
+  /// Drawn programmatically so we don't have to ship yet another asset.
+  Future<void> _addOriginImageToStyle() async {
+    if (_mapboxMapController == null || !mounted) return;
     try {
-      final cameraState = await _mapboxMapController?.getCameraState();
-      if (cameraState == null) return 1.0;
+      final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+      const int pxSize = 96; // 48pt at 2× — matches native waypoint size
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
 
-      final zoom = cameraState.zoom;
-      final currentState = navigationBloc.state;
-      final isNavigating = currentState is NavigationInProgress;
+      final center = const ui.Offset(pxSize / 2, pxSize / 2);
+      // Outer ring: mid-grey, matches Android colorPrimary casing shade
+      canvas.drawCircle(
+        center,
+        pxSize * 0.42,
+        ui.Paint()
+          ..color = const ui.Color(0xFF546E7A)
+          ..style = ui.PaintingStyle.fill
+          ..isAntiAlias = true,
+      );
+      // Inner dot: white
+      canvas.drawCircle(
+        center,
+        pxSize * 0.22,
+        ui.Paint()
+          ..color = const ui.Color(0xFFFFFFFF)
+          ..style = ui.PaintingStyle.fill
+          ..isAntiAlias = true,
+      );
 
-      // Adaptive marker sizing based on actual icon dimensions (slightly larger at nav zoom 14–18)
-      if (zoom >= 19) {
-        // Very close zoom - 4x size (128w)
-        return isNavigating ? 4.0 : 3.5;
-      } else if (zoom >= 18) {
-        // Close zoom - 3x size (96w)
-        return isNavigating ? 3.2 : 2.5;
-      } else if (zoom >= 16) {
-        // Medium-close zoom - 2x size (64w)
-        return isNavigating ? 2.2 : 1.8;
-      } else if (zoom >= 14) {
-        // Medium zoom - 1.5x size (between 48w and 64w)
-        return isNavigating ? 1.65 : 1.3;
-      } else if (zoom >= 12) {
-        // Medium-far zoom - 1x size (48w)
-        return isNavigating ? 1.0 : 0.9;
-      } else if (zoom >= 10) {
-        // Far zoom - smaller than 1x
-        return isNavigating ? 0.8 : 0.7;
-      } else {
-        // Very far zoom - minimal size
-        return isNavigating ? 0.6 : 0.5;
-      }
+      final image = await recorder.endRecording().toImage(pxSize, pxSize);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return;
+
+      await _mapboxMapController!.style.addStyleImage(
+        _originImageId,
+        devicePixelRatio,
+        mp.MbxImage(
+          width: pxSize,
+          height: pxSize,
+          data: byteData.buffer.asUint8List(),
+        ),
+        false,
+        [],
+        [],
+        null,
+      );
     } catch (e) {
-      debugPrint('Error getting camera state for adaptive marker size: $e');
-      return 1.0;
+      debugPrint('Error adding origin image to style: $e');
     }
   }
 
@@ -1295,9 +1286,29 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       debugPrint('Error getting current position: $e');
     }
 
+    _bearingFusion.start();
+
     _userPositionStream =
         Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (Position position) async {
+      (Position rawPosition) async {
+        // Fuse GPS course with compass so the puck stays stable at low speed.
+        // Snap-to-road (below) can still override with the route bearing.
+        final fusedBearing = _bearingFusion.fuse(rawPosition);
+        final Position position = fusedBearing == null
+            ? rawPosition
+            : Position(
+                latitude: rawPosition.latitude,
+                longitude: rawPosition.longitude,
+                timestamp: rawPosition.timestamp,
+                accuracy: rawPosition.accuracy,
+                altitude: rawPosition.altitude,
+                altitudeAccuracy: rawPosition.altitudeAccuracy,
+                heading: fusedBearing,
+                headingAccuracy: rawPosition.headingAccuracy,
+                speed: rawPosition.speed,
+                speedAccuracy: rawPosition.speedAccuracy,
+              );
+
         // Cache last known position for recenter button
         _lastKnownUserPosition = position;
 
@@ -1466,8 +1477,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Handle map tap events - delegates to layer-specific tap interactions
   void onMapTap(mp.MapContentGestureContext context) async {
-    // This is now handled by TapInteraction added in _setupReportClustering
-    // Keep this method for potential future use or non-report taps
+    // Reserved for future map-level taps (POIs, etc.)
   }
 
   /// Debounced report icon size update to prevent excessive recreations
@@ -1487,24 +1497,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   // Removed _updateReportIconSizes as layer handles sizing
   // Future<void> _updateReportIconSizes() async { ... }
 
-  /// Update markers with adaptive sizing for current zoom level
-  Future<void> _updateMarkersForZoom() async {
-    if (pointAnnotationManager == null ||
-        _currentPolylinePoints == null ||
-        _currentPolylinePoints!.isEmpty) return;
-
-    try {
-      final markerSize = await _getAdaptiveMarkerSize();
-
-      // Clear existing markers
-      await pointAnnotationManager!.deleteAll();
-
-      // Recreate markers with adaptive sizing
-      await _addRouteMarkers(_currentPolylinePoints!);
-    } catch (e) {
-      debugPrint('Error updating markers for zoom: $e');
-    }
-  }
+  // Removed _updateMarkersForZoom — waypoint SymbolLayer now handles zoom
+  // scaling via iconSizeExpression (see _addRouteMarkers), so no per-tick
+  // repopulation is needed.
 
   // Removed: LineLayer handles zoom-based width automatically
 
@@ -1526,9 +1521,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   /// Initialize snap-to-road service with route data
-  void initializeSnapToRoad(MapboxRoute route, {PlacesService? placesService}) {
-    debugPrint('Initializing snap-to-road with Mapbox route');
+  void initializeSnapToRoad(
+    MapboxRoute route, {
+    PlacesService? placesService,
+    TravelMode mode = TravelMode.drive,
+  }) {
+    debugPrint('Initializing snap-to-road with Mapbox route (mode: $mode)');
     _snapToRoadService.setMapboxRoute(route);
+    _snapToRoadService.applyTravelMode(mode);
 
     // Set PlacesService for Map Matching functionality
     if (placesService != null) {
@@ -1838,6 +1838,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   void dispose() {
     _puckAnimationController?.dispose();
     _userPositionStream?.cancel();
+    _bearingFusion.dispose();
     _reportIconUpdateTimer?.cancel();
     reportAnnotationManager?.deleteAll();
     _cameraController.dispose(); // Clean up camera controller

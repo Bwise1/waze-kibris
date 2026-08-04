@@ -18,10 +18,31 @@ class RouteVisualizationService {
   static const String _routeBorderLayerId = 'route-layer-border';
   static const String _traveledRouteLayerId =
       'route-layer-traveled'; // New layer for traveled route
+  // Maneuver arrow — mirrors mapbox-navigation-{android,ios} which draw a
+  // single arrow at the *next* turn (shaft + head, with dark blue casings).
+  // NOT walking chevrons along the whole route — that's a Google/Waze pattern,
+  // not a Mapbox one. See RouteArrowUtils.kt / ManeuverArrowMapFeatures.swift.
+  static const String _arrowShaftSourceId =
+      'mapbox-navigation-arrow-shaft-source';
+  static const String _arrowHeadSourceId =
+      'mapbox-navigation-arrow-head-source';
+  static const String _arrowShaftLayerId =
+      'mapbox-navigation-arrow-shaft-layer';
+  static const String _arrowShaftCasingLayerId =
+      'mapbox-navigation-arrow-shaft-casing-layer';
+  static const String _arrowHeadLayerId = 'mapbox-navigation-arrow-head-layer';
+  static const String _arrowHeadCasingLayerId =
+      'mapbox-navigation-arrow-head-casing-layer';
+  // Legacy — kept only for cleanup / dispose. Not created anymore.
   static const String _arrowSourceId = 'route-arrows-source';
   static const String _arrowLayerId = 'route-arrows-layer';
   static const String _laneGuidanceSourceId = 'lane-guidance-source';
   static const String _laneGuidanceLayerId = 'lane-guidance-layer';
+
+  static const String _altSource0 = 'route-alt-src-0';
+  static const String _altLayer0 = 'route-alt-layer-0';
+  static const String _altSource1 = 'route-alt-src-1';
+  static const String _altLayer1 = 'route-alt-layer-1';
 
   MapboxMap? _mapboxMap;
   MapboxRoute? _currentRoute;
@@ -33,8 +54,23 @@ class RouteVisualizationService {
   geo.Position? _lastUpdatePosition;
   DateTime? _lastUpdateTime;
 
-  // Arrow visualization settings
-  static const String _arrowImageId = 'route-arrow-icon';
+  // Arrow visualization settings. Two images per Mapbox convention: a filled
+  // white triangle for the arrowhead, and a slightly larger dark-blue triangle
+  // sitting beneath it for the outline (casing).
+  static const String _arrowHeadImageId = 'mapbox-navigation-arrow-head';
+  static const String _arrowHeadCasingImageId =
+      'mapbox-navigation-arrow-head-casing';
+  // Mapbox reference colours (RouteLayerConstants.kt).
+  static const int _maneuverArrowColor = 0xFFFFFFFF;
+  static const int _maneuverArrowCasingColor = 0xFF054AAD;
+  // Show arrow only from this zoom up; matches Android's ARROW_HIDDEN_ZOOM_LEVEL=14.
+  // In debug builds we drop the gate to zoom 5 so the arrow is visible at
+  // route-overview zoom too — makes it easy to eyeball on a stationary
+  // simulator without having to fake GPS motion. Native behaviour returns in
+  // release builds.
+  static final double _maneuverArrowMinZoom = kDebugMode ? 5.0 : 14.0;
+  // Half-length of the shaft in meters (30m before + 30m after the maneuver).
+  static const double _shaftHalfLengthMeters = 30.0;
 
   /// Route visualization constants
   static const int routeDefaultColor = 0xFF2196F3;
@@ -91,6 +127,7 @@ class RouteVisualizationService {
     MapboxRoute route, {
     int? currentStepIndex,
     geo.Position? currentPosition,
+    List<MapboxRoute>? alternativeRoutes,
   }) async {
     print('🚀 RouteVisualizationService.drawRoute called');
     print('   - isInitialized: $_isInitialized');
@@ -127,6 +164,15 @@ class RouteVisualizationService {
         await _updateRouteLayerStyling(route);
       }
 
+      // Grey alternative routes (preview only — not while stepping through navigation)
+      if (currentStepIndex == null &&
+          alternativeRoutes != null &&
+          alternativeRoutes.isNotEmpty) {
+        await setAlternativeRoutes(alternativeRoutes);
+      } else if (currentStepIndex == null) {
+        await clearAlternativeRoutes();
+      }
+
       // Draw lane guidance on the map at the upcoming intersection (native-style)
       if (currentStepIndex != null) {
         await _drawLaneGuidanceOnMap(
@@ -134,6 +180,11 @@ class RouteVisualizationService {
       } else {
         await _clearLaneGuidanceOnMap();
       }
+
+      // Populate the maneuver arrow immediately so it's visible before the
+      // first GPS position update — otherwise a stationary tester (or the
+      // simulator with no location) never sees an arrow.
+      await _updateManeuverArrow(route, currentStepIndex ?? 0, 0);
 
       print('✅ Route drawing completed successfully');
     } catch (e) {
@@ -154,12 +205,14 @@ class RouteVisualizationService {
       if (!forceUpdate &&
           !_shouldUpdateRoute(currentStepIndex, currentPosition)) {
         await _drawLaneGuidanceOnMap(route, currentStepIndex, currentLegIndex);
+        await _updateManeuverArrow(route, currentStepIndex, currentLegIndex);
         return;
       }
 
       await _updateRouteSplit(
           route, currentStepIndex, currentLegIndex, currentPosition);
       await _drawLaneGuidanceOnMap(route, currentStepIndex, currentLegIndex);
+      await _updateManeuverArrow(route, currentStepIndex, currentLegIndex);
     } catch (e) {
       throw Exception('Failed to update route progress: $e');
     }
@@ -437,11 +490,65 @@ class RouteVisualizationService {
     return geo.Geolocator.distanceBetween(lat1, lng1, lat2, lng2);
   }
 
+  Future<void> clearAlternativeRoutes() async {
+    if (_mapboxMap == null) return;
+    try {
+      for (final entry in [
+        (_altLayer0, _altSource0),
+        (_altLayer1, _altSource1),
+      ]) {
+        if (await _mapboxMap!.style.styleLayerExists(entry.$1)) {
+          await _mapboxMap!.style.removeStyleLayer(entry.$1);
+        }
+        if (await _mapboxMap!.style.styleSourceExists(entry.$2)) {
+          await _mapboxMap!.style.removeStyleSource(entry.$2);
+        }
+      }
+    } catch (e) {
+      print('⚠️ clearAlternativeRoutes: $e');
+    }
+  }
+
+  /// Up to two non-selected routes as muted lines below the primary route.
+  Future<void> setAlternativeRoutes(List<MapboxRoute> routes) async {
+    if (!_isInitialized || _mapboxMap == null) return;
+    await clearAlternativeRoutes();
+    final take = routes.take(2).toList();
+    for (var i = 0; i < take.length; i++) {
+      final sid = i == 0 ? _altSource0 : _altSource1;
+      final lid = i == 0 ? _altLayer0 : _altLayer1;
+      try {
+        final geoJson = _createRouteGeoJson(take[i]);
+        await _mapboxMap!.style.addSource(
+          GeoJsonSource(id: sid, data: jsonEncode(geoJson)),
+        );
+        await _mapboxMap!.style.addLayer(
+          LineLayer(
+            id: lid,
+            sourceId: sid,
+            lineJoin: LineJoin.ROUND,
+            lineCap: LineCap.ROUND,
+            lineColor: 0xFF78909C,
+            lineWidth: 5,
+            lineOpacity: 0.8,
+          ),
+        );
+        await _mapboxMap!.style.moveStyleLayer(
+          lid,
+          LayerPosition(below: _routeBorderLayerId),
+        );
+      } catch (e) {
+        print('⚠️ setAlternativeRoutes[$i]: $e');
+      }
+    }
+  }
+
   /// Clear route from map
   Future<void> clearRoute() async {
     if (!_isInitialized || _mapboxMap == null) return;
 
     try {
+      await clearAlternativeRoutes();
       // Check if source exists before trying to clear it
       final sourceExists =
           await _mapboxMap!.style.styleSourceExists(_routeSourceId);
@@ -460,6 +567,7 @@ class RouteVisualizationService {
       await _mapboxMap!.style
           .setStyleSourceProperty(_routeSourceId, 'data', jsonEncode(emptyGeoJson));
       await _clearLaneGuidanceOnMap();
+      await _clearManeuverArrow();
 
       _currentRoute = null;
       print('✅ Route cleared successfully');
@@ -686,104 +794,460 @@ class RouteVisualizationService {
     if (_mapboxMap == null) return;
 
     try {
-      // Create arrow image programmatically
-      await _createChevronImage();
+      // Load the two triangle images (white head + dark blue casing).
+      await _createManeuverArrowImages();
 
-      final emptyGeoJson = <String, dynamic>{
+      // Remove any legacy layer/source from earlier attempts at this feature.
+      for (final id in [
+        _arrowLayerId,
+        _arrowShaftLayerId,
+        _arrowShaftCasingLayerId,
+        _arrowHeadLayerId,
+        _arrowHeadCasingLayerId,
+      ]) {
+        if (await _mapboxMap!.style.styleLayerExists(id)) {
+          await _mapboxMap!.style.removeStyleLayer(id);
+        }
+      }
+      for (final id in [
+        _arrowSourceId,
+        _arrowShaftSourceId,
+        _arrowHeadSourceId,
+      ]) {
+        if (await _mapboxMap!.style.styleSourceExists(id)) {
+          await _mapboxMap!.style.removeStyleSource(id);
+        }
+      }
+
+      // Two empty sources up-front; populated per maneuver by
+      // [_updateManeuverArrow] on each route-progress update.
+      final emptyGeoJson = jsonEncode({
         'type': 'FeatureCollection',
         'features': <Map<String, dynamic>>[],
-      };
+      });
+      await _mapboxMap!.style
+          .addSource(GeoJsonSource(id: _arrowShaftSourceId, data: emptyGeoJson));
+      await _mapboxMap!.style
+          .addSource(GeoJsonSource(id: _arrowHeadSourceId, data: emptyGeoJson));
 
-      if (await _mapboxMap!.style.styleLayerExists(_arrowLayerId)) {
-        await _mapboxMap!.style.removeStyleLayer(_arrowLayerId);
-      }
-      if (await _mapboxMap!.style.styleSourceExists(_arrowSourceId)) {
-        await _mapboxMap!.style.removeStyleSource(_arrowSourceId);
-      }
+      // Order (bottom → top): shaft casing → shaft → head casing → head.
+      // Mirrors RouteArrowUtils.kt's stacking so the light shape always sits
+      // on top of its darker outline.
 
-      await _mapboxMap!.style.addSource(
-        GeoJsonSource(id: _arrowSourceId, data: jsonEncode(emptyGeoJson)),
-      );
+      // Widths follow the SAME exponential curve as the route line
+      // (RouteLineUtils setup), scaled so the fill sits ~65% of the route
+      // width and the casing peeks out ~90%. This keeps the blue road
+      // visible on both sides of the arrow, which is the visual convention
+      // native Mapbox and Google Maps use — the arrow reads as a HIGHLIGHT
+      // over the road, not a replacement for it.
 
+      // 1. Shaft casing (dark blue outline underneath the white fill).
       await _mapboxMap!.style.addLayer(
-        SymbolLayer(
-          id: _arrowLayerId,
-          sourceId: _arrowSourceId,
-          iconImage: _arrowImageId,
-          iconSize: 0.8, // Good size for 64px image
-          symbolPlacement: SymbolPlacement.LINE,
-          symbolSpacing: 100.0,
-          iconAllowOverlap: true,
-          iconIgnorePlacement: true,
+        LineLayer(
+          id: _arrowShaftCasingLayerId,
+          sourceId: _arrowShaftSourceId,
+          lineJoin: LineJoin.ROUND,
+          lineCap: LineCap.ROUND,
+          lineColor: _maneuverArrowCasingColor,
+          minZoom: _maneuverArrowMinZoom,
+          lineWidthExpression: [
+            'interpolate',
+            ['exponential', 1.5],
+            ['zoom'],
+            10.0, 2.7, // route 3.0 × 0.9
+            13.0, 5.4,
+            16.0, 8.1,
+            19.0, 12.6,
+            22.0, 17.1,
+          ],
         ),
       );
 
-      // Ensure it's on top
-      try {
-        await _mapboxMap!.style.moveStyleLayer(_arrowLayerId, null);
-      } catch (e) {
-        // Ignore if already on top or fails
+      // 2. Shaft fill (white line on top of the casing).
+      await _mapboxMap!.style.addLayer(
+        LineLayer(
+          id: _arrowShaftLayerId,
+          sourceId: _arrowShaftSourceId,
+          lineJoin: LineJoin.ROUND,
+          lineCap: LineCap.ROUND,
+          lineColor: _maneuverArrowColor,
+          minZoom: _maneuverArrowMinZoom,
+          lineWidthExpression: [
+            'interpolate',
+            ['exponential', 1.5],
+            ['zoom'],
+            10.0, 2.0, // route 3.0 × 0.65
+            13.0, 3.9,
+            16.0, 5.9,
+            19.0, 9.1,
+            22.0, 12.4,
+          ],
+        ),
+      );
+
+      // 3. Arrowhead casing (larger dark blue triangle). No iconOffset —
+      // the head's anchor point IS the shaft tip (see _updateManeuverArrow,
+      // which computes the head position as the last shaft coord, not the
+      // maneuver point). Centering the icon there lets the triangle overlap
+      // the shaft's end for a seamless join.
+      await _mapboxMap!.style.addLayer(
+        SymbolLayer(
+          id: _arrowHeadCasingLayerId,
+          sourceId: _arrowHeadSourceId,
+          iconImage: _arrowHeadCasingImageId,
+          iconAllowOverlap: true,
+          iconIgnorePlacement: true,
+          iconRotationAlignment: IconRotationAlignment.MAP,
+          iconPitchAlignment: IconPitchAlignment.MAP,
+          minZoom: _maneuverArrowMinZoom,
+          iconRotateExpression: ['get', 'bearing'],
+          iconSizeExpression: [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            10.0, 0.22,
+            22.0, 0.88,
+          ],
+        ),
+      );
+
+      // 4. Arrowhead fill (smaller white triangle on top of the casing).
+      await _mapboxMap!.style.addLayer(
+        SymbolLayer(
+          id: _arrowHeadLayerId,
+          sourceId: _arrowHeadSourceId,
+          iconImage: _arrowHeadImageId,
+          iconAllowOverlap: true,
+          iconIgnorePlacement: true,
+          iconRotationAlignment: IconRotationAlignment.MAP,
+          iconPitchAlignment: IconPitchAlignment.MAP,
+          minZoom: _maneuverArrowMinZoom,
+          iconRotateExpression: ['get', 'bearing'],
+          iconSizeExpression: [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            10.0, 0.225,
+            22.0, 0.885,
+          ],
+        ),
+      );
+
+      // Move all four to the top of the style so they render above the route
+      // line but below the user puck (which is added after these).
+      for (final id in [
+        _arrowShaftCasingLayerId,
+        _arrowShaftLayerId,
+        _arrowHeadCasingLayerId,
+        _arrowHeadLayerId,
+      ]) {
+        try {
+          await _mapboxMap!.style.moveStyleLayer(id, null);
+        } catch (_) {
+          // Ignore ordering failures — a broken order still renders.
+        }
       }
 
-      print('✅ Arrow layers setup');
+      print('✅ Maneuver arrow layers setup');
     } catch (e) {
-      print('❌ Failed to setup arrow layers: $e');
+      print('❌ Failed to setup maneuver arrow layers: $e');
     }
   }
 
-  /// Create a chevron image programmatically using Canvas
-  Future<void> _createChevronImage() async {
+  /// Rebuild the shaft (LineString) and head (Point + bearing) for the *next*
+  /// maneuver. Skipped on the final "arrive" step and when indices are out of
+  /// range. Called from [updateRouteProgress] on every position tick and once
+  /// from [drawRoute] so the arrow is populated before the first GPS fix.
+  Future<void> _updateManeuverArrow(
+    MapboxRoute route,
+    int currentStepIndex,
+    int currentLegIndex,
+  ) async {
     if (_mapboxMap == null) return;
-
     try {
-      const double size = 64.0;
-      final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
-      final ui.Canvas canvas = ui.Canvas(pictureRecorder);
-
-      // Draw a white filled triangle (chevron)
-      final ui.Paint paint = ui.Paint()
-        ..color = const ui.Color(0xFFFFFFFF)
-        ..style = ui.PaintingStyle.fill;
-
-      final ui.Path path = ui.Path();
-      // Pointing right (0 degrees) to align with line direction
-      path.moveTo(size * 0.2, size * 0.2); // Top left
-      path.lineTo(size * 0.8, size * 0.5); // Middle right (tip)
-      path.lineTo(size * 0.2, size * 0.8); // Bottom left
-      path.close();
-
-      canvas.drawPath(path, paint);
-
-      // Add a black outline for better visibility on light roads
-      final ui.Paint strokePaint = ui.Paint()
-        ..color = const ui.Color(0xFF000000)
-        ..style = ui.PaintingStyle.stroke
-        ..strokeWidth = 4.0
-        ..strokeJoin = ui.StrokeJoin.round;
-
-      canvas.drawPath(path, strokePaint);
-
-      final ui.Image image = await pictureRecorder
-          .endRecording()
-          .toImage(size.toInt(), size.toInt());
-      final ByteData? byteData =
-          await image.toByteData(format: ui.ImageByteFormat.png);
-
-      if (byteData != null) {
-        final Uint8List list = byteData.buffer.asUint8List();
-        await _mapboxMap!.style.addStyleImage(
-            _arrowImageId,
-            2.0, // Scale
-            MbxImage(width: size.toInt(), height: size.toInt(), data: list),
-            false,
-            [],
-            [],
-            null);
-        print('✅ Created and loaded programmatic chevron image');
+      if (route.legs.isEmpty ||
+          currentLegIndex < 0 ||
+          currentLegIndex >= route.legs.length) {
+        print('⚠️ Maneuver arrow: invalid leg index $currentLegIndex');
+        await _clearManeuverArrow();
+        return;
       }
+      final leg = route.legs[currentLegIndex];
+      final steps = leg.steps;
+      if (steps.isEmpty ||
+          currentStepIndex < 0 ||
+          currentStepIndex >= steps.length - 1) {
+        // No upcoming maneuver (either invalid or on the arrival step).
+        print(
+            '⚠️ Maneuver arrow: no upcoming maneuver (stepIndex=$currentStepIndex, steps=${steps.length})');
+        await _clearManeuverArrow();
+        return;
+      }
+      final currentStep = steps[currentStepIndex];
+      final nextStep = steps[currentStepIndex + 1];
+      if (nextStep.maneuver.location.length < 2) {
+        print('⚠️ Maneuver arrow: next step has no location');
+        await _clearManeuverArrow();
+        return;
+      }
+
+      // Shaft = last ~30m of the current step + first ~30m of the next step.
+      // Matches Android's obtainArrowPointsFrom (TurfMisc.lineSliceAlong)
+      // and iOS's polylineAroundManeuver — the canonical native Mapbox nav
+      // rendering. Note: `_sliceLineFromStart/End` interpolate along the
+      // final segment for an exact 30m cut, so the shaft is precisely 60m
+      // even when the step's raw geometry only has 2-3 vertices.
+      final before = _sliceLineFromEnd(
+        currentStep.geometry.coordinates,
+        _shaftHalfLengthMeters,
+      );
+      final after = _sliceLineFromStart(
+        nextStep.geometry.coordinates,
+        _shaftHalfLengthMeters,
+      );
+      final shaftCoords = <List<double>>[
+        ...before,
+        // Drop `after`'s leading coord if it duplicates `before`'s trailing
+        // coord (they should — both are the maneuver point).
+        ...(after.isNotEmpty &&
+                before.isNotEmpty &&
+                after.first[0] == before.last[0] &&
+                after.first[1] == before.last[1]
+            ? after.skip(1)
+            : after),
+      ];
+      // Need at least 2 points to draw a LineString.
+      if (shaftCoords.length < 2) {
+        await _clearManeuverArrow();
+        return;
+      }
+
+      // Arrowhead bearing: direction of travel at the tip, taken from the
+      // last two shaft points. This orients the triangle to point along the
+      // turn direction.
+      final b = shaftCoords[shaftCoords.length - 2];
+      final t = shaftCoords[shaftCoords.length - 1];
+      final bearingDeg = _bearingBetween(b[1], b[0], t[1], t[0]);
+
+      final shaftFeature = {
+        'type': 'FeatureCollection',
+        'features': [
+          {
+            'type': 'Feature',
+            'geometry': {
+              'type': 'LineString',
+              'coordinates': shaftCoords,
+            },
+            'properties': <String, dynamic>{},
+          },
+        ],
+      };
+      // Anchor the head at the shaft's tip (i.e. slightly past the maneuver
+      // into the outgoing road), not at the raw maneuver point. Matches
+      // ManeuverArrowMapFeatures.swift which uses `shaftStrokeCoordinates.last`.
+      final headLng = t[0];
+      final headLat = t[1];
+      final headFeature = {
+        'type': 'FeatureCollection',
+        'features': [
+          {
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [headLng, headLat],
+            },
+            'properties': {'bearing': bearingDeg},
+          },
+        ],
+      };
+
+      await _mapboxMap!.style.setStyleSourceProperty(
+          _arrowShaftSourceId, 'data', jsonEncode(shaftFeature));
+      await _mapboxMap!.style.setStyleSourceProperty(
+          _arrowHeadSourceId, 'data', jsonEncode(headFeature));
+
+      // Length assertion — if the slicer is broken we'll see this way over
+      // the requested 60m (30 before + 30 after).
+      double actualLenM = 0;
+      for (int i = 0; i < shaftCoords.length - 1; i++) {
+        actualLenM += _calculateDistance(
+          shaftCoords[i][1],
+          shaftCoords[i][0],
+          shaftCoords[i + 1][1],
+          shaftCoords[i + 1][0],
+        );
+      }
+      final beforeLenM = _pathLengthMeters(before);
+      final afterLenM = _pathLengthMeters(after);
+      print(
+          '➡️  Maneuver arrow: shaft=${actualLenM.toStringAsFixed(1)}m (before=${beforeLenM.toStringAsFixed(1)}m + after=${afterLenM.toStringAsFixed(1)}m), pts=${shaftCoords.length}, bearing=${bearingDeg.toStringAsFixed(0)}° | currentStep pts=${currentStep.geometry.coordinates.length} dist=${currentStep.distance.toStringAsFixed(0)}m, nextStep pts=${nextStep.geometry.coordinates.length} dist=${nextStep.distance.toStringAsFixed(0)}m');
     } catch (e) {
-      print('❌ Failed to create chevron image: $e');
+      print('⚠️ Failed to update maneuver arrow: $e');
     }
+  }
+
+  Future<void> _clearManeuverArrow() async {
+    if (_mapboxMap == null) return;
+    final empty = jsonEncode({
+      'type': 'FeatureCollection',
+      'features': <Map<String, dynamic>>[],
+    });
+    try {
+      if (await _mapboxMap!.style.styleSourceExists(_arrowShaftSourceId)) {
+        await _mapboxMap!.style
+            .setStyleSourceProperty(_arrowShaftSourceId, 'data', empty);
+      }
+      if (await _mapboxMap!.style.styleSourceExists(_arrowHeadSourceId)) {
+        await _mapboxMap!.style
+            .setStyleSourceProperty(_arrowHeadSourceId, 'data', empty);
+      }
+    } catch (_) {
+      // Non-critical.
+    }
+  }
+
+  /// Return the last [meters] of a polyline, walking backwards from the end.
+  /// Result is ordered start→end (i.e. it terminates at the polyline's last
+  /// coordinate). Interpolates along the final segment for an exact length
+  /// when the tail is longer than [meters].
+  List<List<double>> _sliceLineFromEnd(
+      List<List<double>> coords, double meters) {
+    if (coords.length < 2 || meters <= 0) return const <List<double>>[];
+    final reversed = coords.reversed.toList();
+    final slice = _sliceLineFromStart(reversed, meters);
+    return slice.reversed.toList();
+  }
+
+  /// Return the first [meters] of a polyline. Interpolates along the last
+  /// segment when the head is longer than [meters].
+  List<List<double>> _sliceLineFromStart(
+      List<List<double>> coords, double meters) {
+    if (coords.length < 2 || meters <= 0) return const <List<double>>[];
+    final out = <List<double>>[coords.first];
+    double accumulated = 0;
+    for (int i = 0; i < coords.length - 1; i++) {
+      final a = coords[i];
+      final b = coords[i + 1];
+      final segLen = _calculateDistance(a[1], a[0], b[1], b[0]);
+      if (accumulated + segLen >= meters) {
+        // Interpolate the exact endpoint on this segment.
+        final remaining = meters - accumulated;
+        final t = segLen == 0 ? 0.0 : (remaining / segLen);
+        out.add([
+          a[0] + (b[0] - a[0]) * t,
+          a[1] + (b[1] - a[1]) * t,
+        ]);
+        return out;
+      }
+      out.add(b);
+      accumulated += segLen;
+    }
+    return out;
+  }
+
+  /// Total length in meters of a polyline (coords in [lng, lat] order).
+  double _pathLengthMeters(List<List<double>> coords) {
+    if (coords.length < 2) return 0;
+    double total = 0;
+    for (int i = 0; i < coords.length - 1; i++) {
+      total += _calculateDistance(
+        coords[i][1],
+        coords[i][0],
+        coords[i + 1][1],
+        coords[i + 1][0],
+      );
+    }
+    return total;
+  }
+
+  /// Initial bearing from (lat1,lon1) to (lat2,lon2), degrees clockwise from
+  /// north, normalised to [0, 360). Same formula the puck bearing code uses.
+  double _bearingBetween(
+      double lat1, double lon1, double lat2, double lon2) {
+    final phi1 = lat1 * math.pi / 180;
+    final phi2 = lat2 * math.pi / 180;
+    final deltaLambda = (lon2 - lon1) * math.pi / 180;
+    final y = math.sin(deltaLambda) * math.cos(phi2);
+    final x = math.cos(phi1) * math.sin(phi2) -
+        math.sin(phi1) * math.cos(phi2) * math.cos(deltaLambda);
+    final deg = math.atan2(y, x) * 180 / math.pi;
+    return (deg + 360) % 360;
+  }
+
+  /// Register the two triangle images used by the maneuver arrow: a filled
+  /// white triangle (head) and a slightly larger dark-blue triangle (casing).
+  /// Path spec matches mapbox_ic_arrow_head.xml so the shape is visually
+  /// identical to Android's native maneuver arrow.
+  Future<void> _createManeuverArrowImages() async {
+    if (_mapboxMap == null) return;
+    try {
+      await _addTriangleImage(
+        id: _arrowHeadImageId,
+        color: const ui.Color(_maneuverArrowColor),
+      );
+      await _addTriangleImage(
+        id: _arrowHeadCasingImageId,
+        color: const ui.Color(_maneuverArrowCasingColor),
+      );
+      print('✅ Loaded maneuver arrow images');
+    } catch (e) {
+      print('❌ Failed to load maneuver arrow images: $e');
+    }
+  }
+
+  /// Rasterise Mapbox's rounded-corner triangle at 96px and register with the
+  /// style. The path is straight from mapbox_ic_arrow_head.xml (36×36
+  /// viewport) scaled up; the base sits at the bottom and the tip points up,
+  /// so an `icon-rotate` of 0° means "aligned with the line direction" when
+  /// iconRotationAlignment=map.
+  Future<void> _addTriangleImage({
+    required String id,
+    required ui.Color color,
+  }) async {
+    const double vbSize = 36.0;
+    const int pxSize = 96;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final scale = pxSize / vbSize;
+    canvas.scale(scale);
+
+    final path = ui.Path()
+      // M3.06,32.176
+      ..moveTo(3.06, 32.176)
+      // C1.398,32.177 0.358,30.374 1.192,28.94
+      ..cubicTo(1.398, 32.177, 0.358, 30.374, 1.192, 28.94)
+      // L16.156,3.017
+      ..lineTo(16.156, 3.017)
+      // C16.988,1.573 19.066,1.572 19.895,3.015
+      ..cubicTo(16.988, 1.573, 19.066, 1.572, 19.895, 3.015)
+      // L34.859,28.933
+      ..lineTo(34.859, 28.933)
+      // C35.688,30.376 34.65,32.171 32.988,32.171
+      ..cubicTo(35.688, 30.376, 34.65, 32.171, 32.988, 32.171)
+      // C23.012,32.176 13.036,32.169 3.06,32.176
+      ..cubicTo(23.012, 32.176, 13.036, 32.169, 3.06, 32.176)
+      ..close();
+
+    final paint = ui.Paint()
+      ..color = color
+      ..style = ui.PaintingStyle.fill
+      ..isAntiAlias = true;
+    canvas.drawPath(path, paint);
+
+    final image = await recorder.endRecording().toImage(pxSize, pxSize);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (byteData == null) return;
+
+    await _mapboxMap!.style.addStyleImage(
+      id,
+      2.0, // pixel ratio
+      MbxImage(width: pxSize, height: pxSize, data: byteData.buffer.asUint8List()),
+      false,
+      [],
+      [],
+      null,
+    );
   }
 
   /// Load lane guidance SVG images

@@ -4,8 +4,6 @@ import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
-import 'package:waze_kibris/core/models/reports/report_response.dart';
-
 class ReportVotesScreen extends StatelessWidget {
   const ReportVotesScreen({super.key});
 
@@ -76,81 +74,89 @@ class ReportVotesScreen extends StatelessWidget {
                     child: BlocConsumer<ReportsBloc, ReportState>(
                       listener: (context, state) {},
                       builder: (context, state) {
-                        if ((state as GetVotesOnReportSuccess).data.isEmpty) {
-                          return Text(
-                            'No current nearby report',
-                            style: styles.typography.body,
+                        if (state is GetVotesOnReportSuccess) {
+                          final votes = state.data;
+                          if (votes.isEmpty) {
+                            return Text(
+                              'No votes for this report.',
+                              style: styles.typography.body,
+                            );
+                          }
+                          return ListView.builder(
+                            itemCount: votes.length,
+                            itemBuilder: (context, index) {
+                              final v = votes[index];
+                              return ListTile(
+                                title: Text(
+                                  v.voteType,
+                                  style: styles.typography.body.bold,
+                                ),
+                                subtitle: Text(
+                                  'User: ${v.userId}\n${v.createdAt}',
+                                  style: styles.typography.caption,
+                                ),
+                              );
+                            },
                           );
-                        } else if (state is GetReportSuccess &&
-                            (state as GetReportsResponse).data.isNotEmpty) {
+                        }
+                        if (state is GetReportSuccess &&
+                            state.data.isNotEmpty) {
                           return ListView.builder(
                             itemCount: state.data.length,
                             itemBuilder: (context, index) {
+                              final r = state.data[index];
                               return Row(
                                 children: [
                                   Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        '${state.data[index].type.toLowerCase()}'
-                                        'Report',
+                                        '${r.type.toLowerCase()} report',
                                         style: styles.typography.h3
                                             .textColor(styles.theme.text),
                                       ),
                                       Gap(16 * styles.scale),
                                       Text(
-                                        'Id: ${state.data[index].id}',
+                                        'Id: ${r.id}',
                                         style: styles.typography.h3
                                             .textColor(styles.theme.text),
                                       ),
                                     ],
                                   ),
-                                  const Icon(
-                                    Icons.arrow_forward_ios_rounded,
-                                  ),
+                                  const Spacer(),
+                                  const Icon(Icons.arrow_forward_ios_rounded),
                                 ],
                               ).clickable(() {
-                                //get the numbers of votes on a certain report
                                 context.read<ReportsBloc>().add(
                                       ReportsEvent.getVotesOnReport(
-                                        reportID: state.data[index].id,
+                                        reportID: r.id,
                                       ),
                                     );
-
-                                //open the bottom sheet for the detail screen
                                 CustomDialogRoutes.showBottomSheet<bool>(
                                   context,
-                                  ReportDetailScreen(report: state.data[index]),
+                                  ReportDetailScreen(report: r),
                                 );
                               });
                             },
                           );
-                        } else if (state is ReportLoading) {
+                        }
+                        if (state is ReportLoading) {
                           return CircularProgressIndicator(
                             color: styles.theme.primary,
                           );
-                        } else {
-                          return Column(
-                            children: [
-                              CustomClickableText(
-                                onTap: () async {
-                                  if (context.mounted) {
-                                    // context.read<ReportsBloc>().add(
-                                    //       ReportsEvent.getNearByReports(
-                                    //         radius: 5,
-                                    //         lat: position!.latitude.toString(),
-                                    //         long: position.longitude.toString(),
-                                    //       ),
-                                    //     );
-                                  }
-                                },
-                                text: 'Refresh to see new votes.',
-                                style: styles.typography.h3,
-                              ),
-                              Gap(16 * styles.scale),
-                              const SlideIndicator(),
-                            ],
-                          );
                         }
+                        return Column(
+                          children: [
+                            CustomClickableText(
+                              onTap: () {},
+                              text: 'Open a report to load votes.',
+                              style: styles.typography.h3,
+                            ),
+                            Gap(16 * styles.scale),
+                            const SlideIndicator(),
+                          ],
+                        );
                       },
                     ),
                   ),

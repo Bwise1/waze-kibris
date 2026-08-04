@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
-import 'package:waze_kibris/app/dashboard/view/lane_guidance_widget.dart';
+import 'package:waze_kibris/app/dashboard/view/lane_arrow_widget.dart';
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 
 import 'package:waze_kibris/app/dashboard/services/enhanced_navigation_controller.dart';
@@ -12,6 +13,7 @@ class ManeuverBanner extends StatelessWidget {
   final NavigationBloc? navigationBloc;
   final EnhancedNavigationController? navigationController;
   final MapboxStep? nextStep; // Next-next instruction preview
+  final TravelMode mode;
 
   const ManeuverBanner({
     super.key,
@@ -20,6 +22,7 @@ class ManeuverBanner extends StatelessWidget {
     this.navigationBloc,
     this.navigationController,
     this.nextStep,
+    this.mode = TravelMode.drive,
   });
 
   MapboxBannerInstruction? get _currentBanner {
@@ -32,16 +35,6 @@ class ManeuverBanner extends StatelessWidget {
     return step.bannerInstructions.isNotEmpty
         ? step.bannerInstructions.first
         : null;
-  }
-
-  /// Intersection used for lane guidance. Native shows lanes at the upcoming
-  /// turn (maneuver); the maneuver is at the end of the step, so prefer the
-  /// last intersection that has lanes, otherwise the first.
-  MapboxIntersection? get _laneGuidanceIntersection {
-    if (step.intersections.isEmpty) return null;
-    final withLanes = step.intersections.where((i) => i.lanes.isNotEmpty).toList();
-    if (withLanes.isEmpty) return null;
-    return withLanes.last;
   }
 
   bool get _isVoiceEnabled {
@@ -69,66 +62,52 @@ class ManeuverBanner extends StatelessWidget {
       elevation: 6,
       margin: const EdgeInsets.fromLTRB(12, 44, 12, 8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Main instruction row
+            // Main instruction row: large maneuver badge + distance + street.
             Row(
               children: [
-                // Enhanced maneuver icon
                 _buildManeuverIcon(maneuver),
-                const SizedBox(width: 12),
-
-                // Instruction details
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Distance
+                      // Distance — big and bold, the driver's primary anchor.
                       Text(
                         MapboxNavigationUtils.formatDistance(distanceRemaining),
                         style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.black,
+                          height: 1.1,
+                        ),
                       ),
-
-                      // Primary instruction
+                      const SizedBox(height: 2),
+                      // Street/instruction — the "onto East Homestead Road" bit.
                       Text(
                         currentBanner?.primary.text ?? maneuver.instruction,
-                        style:
-                            const TextStyle(fontSize: 14, color: Colors.black),
-                        maxLines: 1,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: Colors.black,
+                          height: 1.2,
+                        ),
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-
-                      // Secondary instruction OR road name (whichever exists, one line only)
-                      if (currentBanner?.secondary != null)
-                        Text(
-                          currentBanner!.secondary!.text,
-                          style:
-                              const TextStyle(fontSize: 12, color: Colors.grey),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        )
-                      else if (step.name.isNotEmpty)
-                        Text(
-                          step.name,
-                          style:
-                              const TextStyle(fontSize: 12, color: Colors.grey),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
                     ],
                   ),
                 ),
-
-                // Voice button (compact)
                 IconButton(
                   icon: Icon(
                     _isVoiceEnabled ? Icons.volume_up : Icons.volume_off,
-                    color: _isVoiceEnabled ? Colors.black : Colors.grey,
-                    size: 20,
+                    color: _isVoiceEnabled
+                        ? const Color(0xFFFF0000)
+                        : Colors.grey,
+                    size: 22,
                   ),
                   padding: EdgeInsets.zero,
                   constraints:
@@ -140,26 +119,17 @@ class ManeuverBanner extends StatelessWidget {
               ],
             ),
 
-            // Enhanced information row
+            // Enhanced info row (highway ref, exit number, destinations)
             if (_hasEnhancedInfo())
               Padding(
-                padding: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(top: 8, left: 58),
                 child: _buildEnhancedInfo(),
               ),
 
-            // Lane guidance (native: only when multiple lanes and useful)
-            if (_hasLaneGuidance())
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: LaneGuidanceWidget(
-                  lanes: _laneGuidanceIntersection!.lanes,
-                ),
-              ),
-
-            // Next-next instruction preview (compact)
+            // "Then" preview of the next-next instruction.
             if (nextStep != null)
               Padding(
-                padding: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(top: 10),
                 child: _buildNextStepPreview(),
               ),
           ],
@@ -168,41 +138,81 @@ class ManeuverBanner extends StatelessWidget {
     );
   }
 
+  /// Maneuver arrow — same native chevron shape used on the route line, but
+  /// larger and in black. Matches the reference (Google Maps / native Mapbox
+  /// nav) which shows a clean outlined black arrow with no coloured badge.
+  /// The badge/circle look was too heavy and drew attention away from the
+  /// distance and street name, which are what the driver actually needs.
   Widget _buildManeuverIcon(MapboxManeuver maneuver) {
-    final iconText =
-        MapboxNavigationUtils.getManeuverIcon(maneuver.type, maneuver.modifier);
+    final indication = _modifierToIndication(maneuver.modifier, maneuver.type);
+    final isRoundabout =
+        maneuver.type == 'roundabout' || maneuver.type == 'rotary';
 
-    // Handle roundabout with exit numbers
-    if (maneuver.type == 'roundabout' && maneuver.exit != null) {
-      return Stack(
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: Stack(
         alignment: Alignment.center,
         children: [
-          Text(iconText,
-              style: const TextStyle(fontSize: 26, color: Colors.black)),
-          Positioned(
-            bottom: 2,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              decoration: BoxDecoration(
-                color: Colors.blue,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                '${maneuver.exit}',
-                style: const TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+          LaneArrowWidget(
+            indications: [indication],
+            primaryColor: Colors.black,
+            secondaryColor: Colors.black38,
+            size: 44,
+          ),
+          if (isRoundabout && maneuver.exit != null)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF0000),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${maneuver.exit}',
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
-          ),
         ],
-      );
-    }
+      ),
+    );
+  }
 
-    return Text(iconText,
-        style: const TextStyle(fontSize: 26, color: Colors.black));
+  /// Map Mapbox's maneuver `modifier` string to the LaneArrowPainter's
+  /// indication token so we can reuse the same chevron shape.
+  String _modifierToIndication(String modifier, String type) {
+    switch (modifier.toLowerCase()) {
+      case 'left':
+        return 'left';
+      case 'right':
+        return 'right';
+      case 'sharp left':
+      case 'sharp_left':
+        return 'sharp_left';
+      case 'sharp right':
+      case 'sharp_right':
+        return 'sharp_right';
+      case 'slight left':
+      case 'slight_left':
+        return 'slight_left';
+      case 'slight right':
+      case 'slight_right':
+        return 'slight_right';
+      case 'uturn':
+      case 'u-turn':
+        return 'uturn';
+      case 'straight':
+      default:
+        return 'straight';
+    }
   }
 
   bool _hasEnhancedInfo() {
@@ -268,12 +278,6 @@ class ManeuverBanner extends StatelessWidget {
     );
   }
 
-  /// Show lane guidance when the intersection has 2+ lanes (strip visible in banner).
-  bool _hasLaneGuidance() {
-    final intersection = _laneGuidanceIntersection;
-    return intersection != null && intersection.lanes.length >= 2;
-  }
-
   Widget _buildNextStepPreview() {
     if (nextStep == null) return const SizedBox.shrink();
 
@@ -290,7 +294,7 @@ class ManeuverBanner extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
-              color: Colors.blue,
+              color: const Color(0xFFFF0000),
               borderRadius: BorderRadius.circular(6),
             ),
             child: const Text(
@@ -305,13 +309,17 @@ class ManeuverBanner extends StatelessWidget {
           ),
           const SizedBox(width: 8),
 
-          // Next maneuver icon (smaller)
-          Text(
-            MapboxNavigationUtils.getManeuverIcon(
-              nextStep!.maneuver.type,
-              nextStep!.maneuver.modifier,
-            ),
-            style: const TextStyle(fontSize: 16, color: Colors.black),
+          // Next maneuver icon — same black arrow style as the main icon
+          LaneArrowWidget(
+            indications: [
+              _modifierToIndication(
+                nextStep!.maneuver.modifier,
+                nextStep!.maneuver.type,
+              ),
+            ],
+            primaryColor: Colors.black,
+            secondaryColor: Colors.black38,
+            size: 20,
           ),
           const SizedBox(width: 6),
 

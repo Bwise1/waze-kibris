@@ -1,10 +1,11 @@
 import 'dart:async';
 
-import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart' hide TravelMode;
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/core/constants/navigation_camera_constants.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 
 class CameraController {
   mp.MapboxMap? _mapboxMap;
@@ -14,6 +15,17 @@ class CameraController {
   double _currentBearing = 0;
   bool _isFollowingUser = true;
   bool _isNavigationMode = false;
+  TravelMode _travelMode = TravelMode.drive;
+
+  /// Zoom used during active guidance; walking zooms in tighter to show side
+  /// streets and building entrances.
+  double get _activeGuidanceZoom => _travelMode.activeGuidanceZoom;
+
+  /// Update the mode driving zoom decisions. Safe to call any time; next
+  /// camera update uses the new zoom.
+  void setTravelMode(TravelMode mode) {
+    _travelMode = mode;
+  }
   bool _isCourseUp = true;
 
   geo.Position? _lastCameraPosition;
@@ -163,12 +175,17 @@ class CameraController {
     // Calculate speed in km/h (speed is in m/s)
     final speedKmh = userPosition.speed * 3.6;
 
-    // 1. Target zoom: arrival (19) when very close; else speed-based (14–17.5), clamped to native range
+    // 1. Target zoom: arrival (19) when very close; else speed-based for
+    // driving (14–17.5), or the mode's fixed active-guidance zoom for
+    // walk/cycle (drivers care about seeing highway exits ahead; pedestrians
+    // need building-scale detail regardless of pace).
     double targetZoom;
     if (remainingDistanceAlongRouteMeters != null &&
         remainingDistanceAlongRouteMeters <=
             kArrivalRemainingDistanceThresholdMeters) {
       targetZoom = kArrivalZoom.clamp(kFollowingMinZoom, 22.0);
+    } else if (!_travelMode.isVehicle) {
+      targetZoom = _activeGuidanceZoom;
     } else {
       // Speed-based: slow -> 17.5, fast -> 14.0
       if (speedKmh < 30) {
@@ -456,14 +473,14 @@ class CameraController {
             userPosition.latitude,
           ),
         ),
-        zoom: kActiveGuidanceZoom,
+        zoom: _activeGuidanceZoom,
         bearing: userBearing,
         pitch: kFollowingDefaultPitch,
       ),
       mp.MapAnimationOptions(duration: 2000),
     );
 
-    _currentZoom = kActiveGuidanceZoom;
+    _currentZoom = _activeGuidanceZoom;
     _currentPitch = kFollowingDefaultPitch;
     _currentBearing = userBearing;
   }
@@ -636,7 +653,7 @@ class CameraController {
               currentPosition.latitude,
             ),
           ),
-          zoom: kActiveGuidanceZoom,
+          zoom: _activeGuidanceZoom,
           bearing: currentPosition.heading >= 0 ? currentPosition.heading : 0,
           pitch: kFollowingDefaultPitch,
         ),

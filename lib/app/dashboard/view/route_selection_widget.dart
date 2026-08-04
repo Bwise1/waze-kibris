@@ -7,18 +7,27 @@ import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/location/recent_location.dart';
+import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
+
+/// Result returned by [onModeChanged] when the user switches travel mode.
+/// A null result keeps the previously shown routes and rolls the toggle back.
+typedef ModeChangeHandler = Future<List<MapboxRoute>?> Function(TravelMode);
 
 class RouteSelectionSheet extends StatefulWidget {
   final List<MapboxRoute> routes;
   final ValueChanged<MapboxRoute> onRouteSelected;
-  final ValueChanged<MapboxRoute>? onStartNavigation;
+  final void Function(MapboxRoute route, {TravelMode mode})? onStartNavigation;
   final GooglePlaceDetails? placeDetails; // Add place details
+  final TravelMode initialMode;
+  final ModeChangeHandler? onModeChanged;
 
   const RouteSelectionSheet({
     required this.routes,
     required this.onRouteSelected,
     this.onStartNavigation,
-    this.placeDetails, // Add this parameter
+    this.placeDetails,
+    this.initialMode = TravelMode.drive,
+    this.onModeChanged,
     super.key,
   });
 
@@ -30,31 +39,103 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
   MapboxRoute? _selectedRoute;
   bool _isStartingNavigation = false;
   List<RouteOption> _routeOptions = [];
+  List<MapboxRoute> _routes = [];
+  TravelMode _mode = TravelMode.drive;
+  bool _isReloadingForMode = false;
 
   @override
   void initState() {
     super.initState();
-    // Defensive check: ensure routes are not empty or null
+    _mode = widget.initialMode;
+    _routes = widget.routes;
     if (widget.routes.isEmpty) {
       print(
           '⚠️ [ROUTE_SHEET] RouteSelectionSheet initialized with empty routes list!');
       return;
     }
-
-    // Initially, the first route is selected (Mapbox's recommended route)
     _selectedRoute = widget.routes.first;
     _routeOptions = _createRouteOptions();
-
     print(
         '✅ [ROUTE_SHEET] RouteSelectionSheet initialized with ${widget.routes.length} routes');
   }
 
   List<RouteOption> _createRouteOptions() {
-    return widget.routes.asMap().entries.map((entry) {
+    return _routes.asMap().entries.map((entry) {
       final index = entry.key;
       final route = entry.value;
       return RouteOption.fromMapboxRoute(route, isRecommended: index == 0);
     }).toList();
+  }
+
+  Future<void> _handleModeTap(TravelMode mode) async {
+    if (mode == _mode || _isReloadingForMode || widget.onModeChanged == null) {
+      return;
+    }
+    setState(() => _isReloadingForMode = true);
+    try {
+      final newRoutes = await widget.onModeChanged!(mode);
+      if (!mounted) return;
+      if (newRoutes == null || newRoutes.isEmpty) {
+        // Refetch failed or returned nothing; keep current selection.
+        setState(() => _isReloadingForMode = false);
+        return;
+      }
+      setState(() {
+        _mode = mode;
+        _routes = newRoutes;
+        _selectedRoute = newRoutes.first;
+        _routeOptions = _createRouteOptions();
+        _isReloadingForMode = false;
+      });
+      widget.onRouteSelected(newRoutes.first);
+    } catch (_) {
+      if (mounted) setState(() => _isReloadingForMode = false);
+    }
+  }
+
+  Widget _buildModeSelector() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+      child: Row(
+        children: [
+          for (final m in TravelMode.values) ...[
+            Expanded(
+              child: InkWell(
+                onTap: () => _handleModeTap(m),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _mode == m ? Colors.red : Colors.grey[100],
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        m.icon,
+                        color: _mode == m ? Colors.white : Colors.black54,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        m.label,
+                        style: TextStyle(
+                          color: _mode == m ? Colors.white : Colors.black54,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (m != TravelMode.values.last) const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
   }
 
   String _formatDuration(double durationSeconds) {
@@ -68,9 +149,7 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
   @override
   Widget build(BuildContext context) {
     // Defensive check: if routes are empty, show error message
-    if (widget.routes.isEmpty ||
-        _routeOptions.isEmpty ||
-        _selectedRoute == null) {
+    if (_routes.isEmpty || _routeOptions.isEmpty || _selectedRoute == null) {
       print(
           '⚠️ [ROUTE_SHEET] RouteSelectionSheet build called with empty routes!');
       return Material(
@@ -153,6 +232,15 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                     ],
                   ),
                 ),
+
+                // Travel mode selector (drive / walk / cycle)
+                _buildModeSelector(),
+
+                if (_isReloadingForMode)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
 
                 // Routes list
                 Flexible(
@@ -425,7 +513,7 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
     }
 
     if (widget.onStartNavigation != null && _selectedRoute != null) {
-      widget.onStartNavigation!(_selectedRoute!);
+      widget.onStartNavigation!(_selectedRoute!, mode: _mode);
     } else {
       print(
           '⚠️ [ROUTE_SHEET] Cannot start navigation: _selectedRoute is null or onStartNavigation is null');

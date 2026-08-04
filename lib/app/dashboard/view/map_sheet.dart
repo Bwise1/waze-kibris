@@ -16,6 +16,7 @@ import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/location/recent_location.dart';
+import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/di.dart';
 
@@ -40,8 +41,11 @@ class MapSheet extends StatefulWidget {
 
   final ValueChanged<LatLng>? onSearchedDestination;
   final ValueChanged<SearchSuggestion>? onSuggestionSelected;
-  final void Function(MapboxRoute route)? onDrawMapboxPolyline;
-  final void Function(MapboxRoute route)? onStartNavigation;
+  final void Function(
+    MapboxRoute route, {
+    List<MapboxRoute>? alternativeRoutes,
+  })? onDrawMapboxPolyline;
+  final void Function(MapboxRoute route, {TravelMode mode})? onStartNavigation;
   final VoidCallback?
       onLocationSelected; // Callback to hide MapSheet when location is selected
   final VoidCallback?
@@ -53,6 +57,32 @@ class MapSheet extends StatefulWidget {
 
 class _MapSheetState extends State<MapSheet> {
   final PlacesService _placesService = getIt<PlacesService>();
+
+  /// Refetch routes for a different travel mode when the user toggles the
+  /// drive/walk/cycle chip in [RouteSelectionSheet]. Returns the new routes
+  /// (or null on failure — the sheet then rolls the toggle back).
+  Future<List<MapboxRoute>?> _refetchRoutesForMode({
+    required TravelMode mode,
+    required double destLat,
+    required double destLng,
+  }) async {
+    try {
+      final position = await Geolocator.getCurrentPosition();
+      final response = await _placesService.fetchMapboxDirections(
+        originLat: position.latitude,
+        originLng: position.longitude,
+        destinationLat: destLat,
+        destinationLng: destLng,
+        profile: mode.mapboxProfile,
+        alternatives: true,
+      );
+      if (response.routes.isEmpty) return null;
+      return response.routes;
+    } catch (e) {
+      debugPrint('⚠️ [ROUTE_SHEET] Mode-change refetch failed: $e');
+      return null;
+    }
+  }
 
   // ── Saved / recent state (mirrors SearchPage) ────────────────────────────
   List<SavedLocations> _savedLocations = [];
@@ -382,7 +412,12 @@ class _MapSheetState extends State<MapSheet> {
                   // Parent (MainDashboard) owns the map; forward even if MapSheet is offstage.
                   final firstRoute = directions.routes.first;
                   debugPrint('🟡 [ROUTE_SHEET] Drawing first route polyline');
-                  widget.onDrawMapboxPolyline?.call(firstRoute);
+                  widget.onDrawMapboxPolyline?.call(
+                    firstRoute,
+                    alternativeRoutes: directions.routes
+                        .where((r) => !identical(r, firstRoute))
+                        .toList(),
+                  );
 
                   debugPrint(
                       '🟡 [ROUTE_SHEET] Attempting to show RouteSelectionSheet');
@@ -419,13 +454,28 @@ class _MapSheetState extends State<MapSheet> {
                           onRouteSelected: (selectedRoute) {
                             debugPrint(
                                 '🟡 [ROUTE_SHEET] Route selected: ${selectedRoute.distance}m');
-                            widget.onDrawMapboxPolyline?.call(selectedRoute);
+                            widget.onDrawMapboxPolyline?.call(
+                              selectedRoute,
+                              alternativeRoutes: directions.routes
+                                  .where((r) => !identical(r, selectedRoute))
+                                  .toList(),
+                            );
                           },
-                          onStartNavigation: (selectedRoute) {
+                          onModeChanged: (mode) => _refetchRoutesForMode(
+                            mode: mode,
+                            destLat: details.lat,
+                            destLng: details.lng,
+                          ),
+                          onStartNavigation: (selectedRoute, {mode = TravelMode.drive}) {
                             debugPrint(
-                                '🟡 [ROUTE_SHEET] Navigation started with route: ${selectedRoute.distance}m');
-                            widget.onDrawMapboxPolyline?.call(selectedRoute);
-                            widget.onStartNavigation?.call(selectedRoute);
+                                '🟡 [ROUTE_SHEET] Navigation started (mode: $mode, distance: ${selectedRoute.distance}m)');
+                            widget.onDrawMapboxPolyline?.call(
+                              selectedRoute,
+                              alternativeRoutes: directions.routes
+                                  .where((r) => !identical(r, selectedRoute))
+                                  .toList(),
+                            );
+                            widget.onStartNavigation?.call(selectedRoute, mode: mode);
                           },
                         );
                       },
@@ -806,7 +856,12 @@ class _MapSheetState extends State<MapSheet> {
 
               final firstRoute = directions.routes.first;
               debugPrint('🔵 [ROUTE_SHEET] Drawing first route polyline');
-              widget.onDrawMapboxPolyline?.call(firstRoute);
+              widget.onDrawMapboxPolyline?.call(
+                firstRoute,
+                alternativeRoutes: directions.routes
+                    .where((r) => !identical(r, firstRoute))
+                    .toList(),
+              );
 
               debugPrint(
                   '🔵 [ROUTE_SHEET] Attempting to show RouteSelectionSheet');
@@ -848,13 +903,28 @@ class _MapSheetState extends State<MapSheet> {
                       onRouteSelected: (selectedRoute) {
                         debugPrint(
                             '🔵 [ROUTE_SHEET] Route selected: ${selectedRoute.distance}m');
-                        widget.onDrawMapboxPolyline?.call(selectedRoute);
+                        widget.onDrawMapboxPolyline?.call(
+                          selectedRoute,
+                          alternativeRoutes: directions.routes
+                              .where((r) => !identical(r, selectedRoute))
+                              .toList(),
+                        );
                       },
-                      onStartNavigation: (selectedRoute) {
+                      onModeChanged: (mode) => _refetchRoutesForMode(
+                        mode: mode,
+                        destLat: location.latitude,
+                        destLng: location.longitude,
+                      ),
+                      onStartNavigation: (selectedRoute, {mode = TravelMode.drive}) {
                         debugPrint(
-                            '🔵 [ROUTE_SHEET] Navigation started with route: ${selectedRoute.distance}m');
-                        widget.onDrawMapboxPolyline?.call(selectedRoute);
-                        widget.onStartNavigation?.call(selectedRoute);
+                            '🔵 [ROUTE_SHEET] Navigation started (mode: $mode, distance: ${selectedRoute.distance}m)');
+                        widget.onDrawMapboxPolyline?.call(
+                          selectedRoute,
+                          alternativeRoutes: directions.routes
+                              .where((r) => !identical(r, selectedRoute))
+                              .toList(),
+                        );
+                        widget.onStartNavigation?.call(selectedRoute, mode: mode);
                       },
                     );
                   },
@@ -1123,7 +1193,12 @@ class _MapSheetState extends State<MapSheet> {
 
               final firstRoute = directions.routes.first;
               debugPrint('🟣 [ROUTE_SHEET] Drawing first route polyline');
-              widget.onDrawMapboxPolyline?.call(firstRoute);
+              widget.onDrawMapboxPolyline?.call(
+                firstRoute,
+                alternativeRoutes: directions.routes
+                    .where((r) => !identical(r, firstRoute))
+                    .toList(),
+              );
 
               debugPrint(
                   '🟣 [ROUTE_SHEET] Attempting to show RouteSelectionSheet');
@@ -1165,13 +1240,28 @@ class _MapSheetState extends State<MapSheet> {
                       onRouteSelected: (selectedRoute) {
                         debugPrint(
                             '🟣 [ROUTE_SHEET] Route selected: ${selectedRoute.distance}m');
-                        widget.onDrawMapboxPolyline?.call(selectedRoute);
+                        widget.onDrawMapboxPolyline?.call(
+                          selectedRoute,
+                          alternativeRoutes: directions.routes
+                              .where((r) => !identical(r, selectedRoute))
+                              .toList(),
+                        );
                       },
-                      onStartNavigation: (selectedRoute) {
+                      onModeChanged: (mode) => _refetchRoutesForMode(
+                        mode: mode,
+                        destLat: location.latitude,
+                        destLng: location.longitude,
+                      ),
+                      onStartNavigation: (selectedRoute, {mode = TravelMode.drive}) {
                         debugPrint(
-                            '🟣 [ROUTE_SHEET] Navigation started with route: ${selectedRoute.distance}m');
-                        widget.onDrawMapboxPolyline?.call(selectedRoute);
-                        widget.onStartNavigation?.call(selectedRoute);
+                            '🟣 [ROUTE_SHEET] Navigation started (mode: $mode, distance: ${selectedRoute.distance}m)');
+                        widget.onDrawMapboxPolyline?.call(
+                          selectedRoute,
+                          alternativeRoutes: directions.routes
+                              .where((r) => !identical(r, selectedRoute))
+                              .toList(),
+                        );
+                        widget.onStartNavigation?.call(selectedRoute, mode: mode);
                       },
                     );
                   },

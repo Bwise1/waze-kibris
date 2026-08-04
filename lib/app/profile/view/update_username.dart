@@ -22,14 +22,13 @@ class _UpdateUsernameScreenState extends State<UpdateUsernameScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fillFromUser());
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Prefill when profile loads after we open the screen (e.g. slow network)
-    if (!_hasPrefilled) _fillFromUser();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fillFromUser();
+      // Subscribe to bloc so we catch AuthSuccess if it arrives after the screen opens
+      context.read<AuthBloc>().stream.listen((state) {
+        if (!_hasPrefilled && state is AuthSuccess) _fillFromUser();
+      });
+    });
   }
 
   void _fillFromUser() {

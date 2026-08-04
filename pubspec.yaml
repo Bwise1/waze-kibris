@@ -23,7 +23,6 @@ dependencies:
   flutter_local_notifications: ^18.0.1
   flutter_localizations:
     sdk: flutter
-  flutter_map: ^8.1.1
   flutter_polyline_points: ^2.1.0
   flutter_svg: ^2.0.16
   flutter_tts: ^4.1.0
@@ -62,6 +61,10 @@ dependencies:
   wakelock_plus: 1.2.8
   audio_session: ^0.1.21
   flutter_gen: ^5.12.0
+  flutter_compass: ^0.8.1
+  # Pinned to 8.x because 10.x uses Color.toARGB32() which requires Flutter
+  # 3.29+; we're on 3.27. 8.0.2 is the newest that works on 3.27.
+  image_cropper: 8.0.2
 
 dev_dependencies:
   bloc_test: ^9.1.7
@@ -72,6 +75,12 @@ dev_dependencies:
   json_serializable: ^6.9.4
   mocktail: ^1.0.4
   very_good_analysis: ^7.0.0
+
+# image_cropper 8.0.2 pulls in image_cropper_platform_interface 7.x, which
+# calls Color.toARGB32() — a Flutter 3.29+ API. We're on 3.27, so force the
+# platform interface down to the last version that predates that call.
+dependency_overrides:
+  image_cropper_platform_interface: 6.0.1
 
 flutter:
   uses-material-design: true

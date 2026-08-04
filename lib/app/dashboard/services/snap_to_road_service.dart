@@ -1,16 +1,20 @@
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart' as geo;
-import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart' hide TravelMode;
 import 'package:latlong2/latlong.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
+import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 
 class SnapToRoadService {
-  static const double _snapDistanceThreshold = 50.0; // meters
-  static const double _offRouteThreshold = 100.0; // meters  
-  static const double _rerouteThreshold = 150.0; // meters - when to trigger reroute
+  // Thresholds start at drive-mode defaults; [applyTravelMode] tightens them
+  // for walking/cycling since pedestrians drift further from any single OSM
+  // polyline and can't accept the 100m+ tolerance drivers get.
+  double _snapDistanceThreshold = 50; // meters
+  double _offRouteThreshold = 100; // meters
+  double _rerouteThreshold = 150; // meters - when to trigger reroute
   static const double _smoothingFactor = 0.15; // for position smoothing - reduced for more responsive snapping
   static const double _stickySnapThreshold = 5.0; // meters - force puck within this distance when on-route
 
@@ -41,6 +45,15 @@ class SnapToRoadService {
   static const Duration _mapMatchingCooldown = Duration(minutes: 2); // Minimize API usage
   static const int _maxTraceBufferSize = 10; // Max GPS points to buffer
   static const double _mapMatchingThreshold = 300.0; // meters - when to trigger map matching
+
+  /// Retune snap/off-route/reroute thresholds for the current travel mode.
+  /// Called on navigation start so a walker doesn't need to drift 150m before
+  /// we trigger a reroute (they'd already be a block away by then).
+  void applyTravelMode(TravelMode mode) {
+    _snapDistanceThreshold = mode.snapDistanceThresholdMeters;
+    _offRouteThreshold = mode.offRouteThresholdMeters;
+    _rerouteThreshold = mode.rerouteThresholdMeters;
+  }
 
   /// Initialize with current route (Google format; no along-route to maneuver)
   void setRoute(DirectionsRoute route) {

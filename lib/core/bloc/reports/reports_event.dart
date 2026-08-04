@@ -99,8 +99,17 @@ abstract class ReportsEvent extends Equatable {
     return ReportUpdatedFromWs(update: update);
   }
 
+  factory ReportsEvent.pruneExpiredReports() {
+    return const PruneExpiredReports();
+  }
+
   @override
   List<Object?> get props => [];
+}
+
+/// Periodic client-side cleanup of reports past [ReportData.expiresAt].
+class PruneExpiredReports extends ReportsEvent {
+  const PruneExpiredReports();
 }
 
 class GetReportByID extends ReportsEvent {

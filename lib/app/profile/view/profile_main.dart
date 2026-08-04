@@ -1,15 +1,51 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:waze_kibris/app/profile/modals/edit_location_modal.dart';
+import 'package:waze_kibris/app/profile/view/profile_picture_sheet.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
+import 'package:waze_kibris/core/models/auth/auth_response.dart';
 
-class ProfileMainScreen extends StatelessWidget {
+class ProfileMainScreen extends StatefulWidget {
   const ProfileMainScreen({super.key});
 
   @override
+  State<ProfileMainScreen> createState() => _ProfileMainScreenState();
+}
+
+class _ProfileMainScreenState extends State<ProfileMainScreen> {
+  // Snapshot of the latest user from the bloc. Updated via BlocListener
+  // so we always redraw even when two AuthSuccess states are Equatable-equal
+  // (same props but different data — e.g. name changed but updated_at
+  // precision didn't differ).
+  User? _user;
+  bool _isUpdating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = context.read<AuthBloc>().state;
+    if (s is AuthSuccess) _user = s.user;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    return BlocListener<AuthBloc, AuthState>(
+      listener: (context, state) {
+        if (state is AuthSuccess) {
+          setState(() {
+            _user = state.user;
+            _isUpdating = false;
+          });
+        } else if (state is ProfileUpdating) {
+          setState(() => _isUpdating = true);
+        } else if (state is ProfileUpdateFailed) {
+          setState(() => _isUpdating = false);
+        }
+      },
+      child: SafeArea(
       child: Stack(
         children: [
           const GradientBG(),
@@ -28,20 +64,47 @@ class ProfileMainScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Gap(54 * styles.scale),
-                      CircleAvatar(
-                        radius: 47,
-                        backgroundColor: styles.theme.secondary,
-                        child: ClipOval(
-                          child: Assets.images.profilePic
-                              .image(height: 88, width: 84, fit: BoxFit.cover),
-                        ),
-                      ),
-                      const Gap(1),
-                      Text(
-                        'Grace Opata',
-                        style:
-                            styles.typography.h3.textColor(styles.theme.text),
-                      ),
+                      Column(
+                            children: [
+                              _AvatarWithEdit(
+                                user: _user,
+                                isUpdating: _isUpdating,
+                                onTap: () =>
+                                    ProfilePictureSheet.show(context),
+                              ),
+                              const Gap(4),
+                              Text(
+                                _user?.displayName ?? '—',
+                                style: styles.typography.h3
+                                    .textColor(styles.theme.text),
+                              ),
+                              if (_user?.username != null) ...[
+                                const Gap(2),
+                                InkWell(
+                                  onTap: () =>
+                                      context.push(ScreenPaths.changeUsername),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        '@${_user!.username}',
+                                        style: styles.typography.body
+                                            .textColor(styles.theme.ash),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Icon(
+                                        _user!.canChangeUsername
+                                            ? Icons.edit_outlined
+                                            : Icons.lock_outline,
+                                        size: 14,
+                                        color: styles.theme.ash,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                       Gap(styles.insets.md),
                       ProfileActionItemButton(
                         icon: Assets.icons.profile,
@@ -214,6 +277,78 @@ class ProfileMainScreen extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    ),
+    );
+  }
+}
+
+/// Avatar with a tap-to-change camera badge in the corner. Handles three
+/// display sources: uploaded URL (starts with http), preset asset filename
+/// (matches one of `assets/user_profiles/`), or default profile-pic image.
+class _AvatarWithEdit extends StatelessWidget {
+  const _AvatarWithEdit({
+    required this.user,
+    required this.isUpdating,
+    required this.onTap,
+  });
+  final User? user;
+  final bool isUpdating;
+  final VoidCallback onTap;
+
+  ImageProvider _resolveAvatar() {
+    final icon = user?.profileIcon;
+    if (icon == null || icon.isEmpty) {
+      return const AssetImage('assets/images/profile_pic.png');
+    }
+    if (icon.startsWith('http')) {
+      return NetworkImage(icon);
+    }
+    // Assume preset asset filename.
+    return AssetImage('assets/user_profiles/$icon');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: isUpdating ? null : onTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          CircleAvatar(
+            radius: 47,
+            backgroundColor: styles.theme.secondary,
+            backgroundImage: _resolveAvatar(),
+          ),
+          if (isUpdating)
+            const Positioned.fill(
+              child: CircleAvatar(
+                backgroundColor: Colors.black26,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              ),
+            ),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF0000),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+              child: const Icon(
+                Icons.photo_camera,
+                size: 15,
+                color: Colors.white,
+              ),
             ),
           ),
         ],

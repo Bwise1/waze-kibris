@@ -62,6 +62,7 @@ class User extends Equatable {
     required this.preferredLanguage,
     this.authProvider = 'email',
     this.username,
+    this.usernameChangedAt,
     this.firstName,
     this.lastName,
     this.profileIcon,
@@ -79,6 +80,10 @@ class User extends Equatable {
   @JsonKey(name: 'auth_provider')
   final String authProvider;
   final String? username;
+  /// Server-side timestamp of the user's *one* username change. NULL when
+  /// they haven't used their one-shot yet — see [canChangeUsername].
+  @JsonKey(name: 'username_changed_at')
+  final DateTime? usernameChangedAt;
   @JsonKey(name: 'firstname')
   final String? firstName;
   @JsonKey(name: 'lastname')
@@ -101,6 +106,33 @@ class User extends Equatable {
     return email;
   }
 
+  /// Whether the user has any changes left. Waze convention: everyone gets
+  /// exactly one change from their auto-assigned handle.
+  bool get canChangeUsername => usernameChangedAt == null;
+
+  User copyWith({
+    String? username,
+    DateTime? usernameChangedAt,
+    String? firstName,
+    String? lastName,
+    String? profileIcon,
+  }) {
+    return User(
+      id: id,
+      email: email,
+      isVerified: isVerified,
+      preferredLanguage: preferredLanguage,
+      authProvider: authProvider,
+      username: username ?? this.username,
+      usernameChangedAt: usernameChangedAt ?? this.usernameChangedAt,
+      firstName: firstName ?? this.firstName,
+      lastName: lastName ?? this.lastName,
+      profileIcon: profileIcon ?? this.profileIcon,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
+  }
+
   @override
   List<Object?> get props => [
         id,
@@ -109,6 +141,7 @@ class User extends Equatable {
         preferredLanguage,
         authProvider,
         username,
+        usernameChangedAt,
         firstName,
         lastName,
         profileIcon,

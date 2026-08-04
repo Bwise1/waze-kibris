@@ -4,6 +4,7 @@ import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/app_router.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/app/dashboard/view/groups/group_list_screen.dart';
+import 'package:waze_kibris/core/services/trnc_offline_map_service.dart';
 
 class ProfilePanel extends StatelessWidget {
   const ProfilePanel({
@@ -125,6 +126,40 @@ class ProfilePanel extends StatelessWidget {
                       context.push(ScreenPaths.helpAndFeedback);
                     },
                   ),
+                  const _SectionHeader('Maps'),
+                  _PanelRow(
+                    icon: Icons.download_for_offline_outlined,
+                    label: 'Download TRNC offline map',
+                    onTap: () async {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Starting offline download (Wi‑Fi recommended)…',
+                          ),
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                      try {
+                        await TrncOfflineMapService.downloadTrncRegion();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Offline map download finished.'),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Offline download failed: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                  ),
                   _PanelRow(
                     icon: Icons.info_outline,
                     label: 'About',
@@ -155,9 +190,9 @@ class ProfilePanel extends StatelessWidget {
   static Widget buildProfileAvatar(
     BuildContext context,
     String? profileIcon,
-    String displayName,
-  ) {
-    const double radius = 28;
+    String displayName, {
+    double radius = 28,
+  }) {
     final theme = Theme.of(context);
     final primary = theme.colorScheme.primary;
     final letter = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';

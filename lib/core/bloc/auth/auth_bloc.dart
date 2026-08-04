@@ -27,6 +27,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<LogoutRequested>(_onLogoutRequested);
     on<GetUserCoordinateRequested>(_onGetUserCoordinate);
     on<RefreshTokenRequested>(_onRefreshTokenRequested);
+    on<UsernameChangeRequested>(_onUsernameChangeRequested);
+    on<ProfilePictureUploadRequested>(_onProfilePictureUploadRequested);
   }
   final ILocalStorage _localStorage;
 
@@ -203,6 +205,56 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       add(const GetProfileRequested());
     } catch (e) {
       emit(AuthError(message: e.toString()));
+    }
+  }
+
+  Future<void> _onUsernameChangeRequested(
+    UsernameChangeRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    // Snapshot the current AuthSuccess so we can restore it after showing
+    // ProfileUpdating (spinner) — otherwise the profile screen loses its
+    // user data mid-flight and pops out to nothing.
+    final priorAuth =
+        state is AuthSuccess ? state as AuthSuccess : null;
+    emit(const ProfileUpdating());
+    try {
+      final updatedUser = await _authRepository.changeUsername(event.newUsername);
+      emit(AuthSuccess(
+        message: 'Username updated',
+        user: updatedUser,
+        token: priorAuth?.token,
+      ));
+    } catch (e) {
+      emit(ProfileUpdateFailed(message: e.toString()));
+      if (priorAuth != null) emit(priorAuth);
+    }
+  }
+
+  Future<void> _onProfilePictureUploadRequested(
+    ProfilePictureUploadRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    log('📸 [UPLOAD-BLOC] Step 7: handler entered, path=${event.image.path}');
+    final priorAuth =
+        state is AuthSuccess ? state as AuthSuccess : null;
+    emit(const ProfileUpdating());
+    log('📸 [UPLOAD-BLOC] Step 8: emitted ProfileUpdating');
+    try {
+      log('📸 [UPLOAD-BLOC] Step 9: calling repo.uploadProfilePicture');
+      final newUrl = await _authRepository.uploadProfilePicture(event.image);
+      log('📸 [UPLOAD-BLOC] Step 12: repo returned URL: $newUrl');
+      final updatedUser = priorAuth?.user?.copyWith(profileIcon: newUrl);
+      emit(AuthSuccess(
+        message: 'Profile picture updated',
+        user: updatedUser ?? priorAuth?.user,
+        token: priorAuth?.token,
+      ));
+      log('📸 [UPLOAD-BLOC] Step 13: emitted AuthSuccess with new icon');
+    } catch (e, st) {
+      log('📸 [UPLOAD-BLOC] ❌ upload threw: $e\n$st');
+      emit(ProfileUpdateFailed(message: e.toString()));
+      if (priorAuth != null) emit(priorAuth);
     }
   }
 

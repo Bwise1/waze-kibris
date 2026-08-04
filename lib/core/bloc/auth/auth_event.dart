@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:latlong2/latlong.dart';
@@ -47,6 +49,14 @@ abstract class AuthEvent extends Equatable {
 
   factory AuthEvent.refreshTokenRequested({VoidCallback? onRefreshToken}) {
     return RefreshTokenRequested(onTokenRefresh: onRefreshToken);
+  }
+
+  factory AuthEvent.usernameChangeRequested({required String newUsername}) {
+    return UsernameChangeRequested(newUsername: newUsername);
+  }
+
+  factory AuthEvent.profilePictureUploadRequested({required File image}) {
+    return ProfilePictureUploadRequested(image: image);
   }
 
   factory AuthEvent.getUserCoordinateRequested(
@@ -151,4 +161,18 @@ class GetUserCoordinateRequested extends AuthEvent {
   final ValueChanged<LatLng>? onCallBack;
   @override
   List<Object?> get props => [context, onCallBack];
+}
+
+class UsernameChangeRequested extends AuthEvent {
+  const UsernameChangeRequested({required this.newUsername});
+  final String newUsername;
+  @override
+  List<Object?> get props => [newUsername];
+}
+
+class ProfilePictureUploadRequested extends AuthEvent {
+  const ProfilePictureUploadRequested({required this.image});
+  final File image;
+  @override
+  List<Object?> get props => [image.path];
 }

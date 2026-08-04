@@ -12,6 +12,7 @@ class NavigationInitial extends NavigationState {}
 
 class NavigationInProgress extends NavigationState {
   final MapboxRoute route;
+  final TravelMode mode;
   final MapboxStep currentStep;
   final MapboxStep? nextStep; // Added for "Then" preview
   final int currentStepIndex;
@@ -37,6 +38,7 @@ class NavigationInProgress extends NavigationState {
 
   const NavigationInProgress({
     required this.route,
+    this.mode = TravelMode.drive,
     required this.currentStep,
     this.nextStep,
     required this.currentStepIndex,
@@ -62,6 +64,7 @@ class NavigationInProgress extends NavigationState {
   @override
   List<Object?> get props => [
         route,
+        mode,
         currentStep,
         nextStep,
         currentStepIndex,
@@ -86,6 +89,7 @@ class NavigationInProgress extends NavigationState {
 
   NavigationInProgress copyWith({
     MapboxRoute? route,
+    TravelMode? mode,
     MapboxStep? currentStep,
     MapboxStep? nextStep,
     int? currentStepIndex,
@@ -109,6 +113,7 @@ class NavigationInProgress extends NavigationState {
   }) {
     return NavigationInProgress(
       route: route ?? this.route,
+      mode: mode ?? this.mode,
       currentStep: currentStep ?? this.currentStep,
       nextStep: nextStep ?? this.nextStep,
       currentStepIndex: currentStepIndex ?? this.currentStepIndex,

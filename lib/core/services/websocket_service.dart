@@ -38,6 +38,7 @@ class WebSocketService {
   String? _lastUserId;
   double? _lastLatitude;
   double? _lastLongitude;
+  double? _lastSubscribeRadiusM;
   List<String>? _lastActiveGroupIDs;
   bool _intentionalDisconnect = false;
   Timer? _reconnectTimer;
@@ -53,6 +54,7 @@ class WebSocketService {
     required double latitude,
     required double longitude,
     List<String>? activeGroupIDs,
+    double? subscribeRadiusM,
   }) async {
     _intentionalDisconnect = false;
     _reconnectTimer?.cancel();
@@ -64,8 +66,15 @@ class WebSocketService {
     _lastLatitude = latitude;
     _lastLongitude = longitude;
     _lastActiveGroupIDs = activeGroupIDs;
+    if (subscribeRadiusM != null) _lastSubscribeRadiusM = subscribeRadiusM;
 
-    await _doConnect(userId: userId, latitude: latitude, longitude: longitude, activeGroupIDs: activeGroupIDs);
+    await _doConnect(
+      userId: userId,
+      latitude: latitude,
+      longitude: longitude,
+      activeGroupIDs: activeGroupIDs,
+      subscribeRadiusM: _lastSubscribeRadiusM,
+    );
   }
 
   Future<void> _doConnect({
@@ -73,6 +82,7 @@ class WebSocketService {
     required double latitude,
     required double longitude,
     List<String>? activeGroupIDs,
+    double? subscribeRadiusM,
   }) async {
     debugPrint('🔌 WebSocket connecting... url: $_endpoint (attempt ${_reconnectAttempts + 1})');
     try {
@@ -130,8 +140,9 @@ class WebSocketService {
       'latitude': latitude,
       'longitude': longitude,
       if (activeGroupIDs != null) 'active_group_ids': activeGroupIDs,
+      if (subscribeRadiusM != null) 'subscribe_radius_m': subscribeRadiusM,
     });
-    debugPrint('🔌 WebSocket sent subscribe (lat: $latitude, lng: $longitude)');
+    debugPrint('🔌 WebSocket sent subscribe (lat: $latitude, lng: $longitude, radiusM: $subscribeRadiusM)');
     _startHeartbeat();
   }
 
@@ -170,6 +181,7 @@ class WebSocketService {
         latitude: _lastLatitude!,
         longitude: _lastLongitude!,
         activeGroupIDs: _lastActiveGroupIDs,
+        subscribeRadiusM: _lastSubscribeRadiusM,
       );
     });
   }
@@ -179,13 +191,21 @@ class WebSocketService {
     required double latitude,
     required double longitude,
     List<String>? activeGroupIDs,
+    double? subscribeRadiusM,
   }) {
+    _lastUserId = userId;
+    _lastLatitude = latitude;
+    _lastLongitude = longitude;
+    if (activeGroupIDs != null) _lastActiveGroupIDs = activeGroupIDs;
+    if (subscribeRadiusM != null) _lastSubscribeRadiusM = subscribeRadiusM;
+
     send({
       'type': 'subscribe',
       'user_id': userId,
       'latitude': latitude,
       'longitude': longitude,
       if (activeGroupIDs != null) 'active_group_ids': activeGroupIDs,
+      if (subscribeRadiusM != null) 'subscribe_radius_m': subscribeRadiusM,
     });
   }
 

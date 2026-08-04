@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/cupertino.dart';
@@ -14,6 +15,7 @@ import 'package:waze_kibris/core/res/store_keys.dart';
 import 'package:waze_kibris/core/services/recent_locations_service.dart';
 import 'package:waze_kibris/core/services/websocket_service.dart';
 import 'package:waze_kibris/core/services/local_storage.dart';
+import 'package:waze_kibris/core/utils/report_expiry.dart';
 
 class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
   ReportsBloc({
@@ -37,6 +39,11 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
     on<SubmitReportRequested>(_onSubmitReportRequested);
     on<ClearExpiredToken>(_onClearExpiredToken);
     on<ReportUpdatedFromWs>(_onReportUpdatedFromWs);
+    on<PruneExpiredReports>(_onPruneExpiredReports);
+
+    _pruneExpiredTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (!isClosed) add(const PruneExpiredReports());
+    });
 
     _webSocketService.messages.listen((msg) {
       if (msg.type == 'report_update' && msg.content != null) {
@@ -55,6 +62,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
   final RecentLocationsService _recentLocationsService;
   final AuthBloc authBloc;
   final WebSocketService _webSocketService;
+  Timer? _pruneExpiredTimer;
   // final ILocalStorage _localStorage;
   Future<void> _onRequestReportByID(
     GetReportByID event,
@@ -107,7 +115,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
       emit(
         GetReportSuccess(
           message: response.message,
-          data: response.data,
+          data: filterNonExpiredReports(response.data),
           status: response.status,
           statusCode: response.statusCode,
         ),
@@ -115,6 +123,24 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
     } catch (e) {
       emit(ReportError(message: e.toString()));
     }
+  }
+
+  Future<void> _onPruneExpiredReports(
+    PruneExpiredReports event,
+    Emitter<ReportState> emit,
+  ) async {
+    final current = state;
+    if (current is! GetReportSuccess) return;
+    final filtered = filterNonExpiredReports(current.data);
+    if (filtered.length == current.data.length) return;
+    emit(
+      GetReportSuccess(
+        message: current.message,
+        data: filtered,
+        status: current.status,
+        statusCode: current.statusCode,
+      ),
+    );
   }
 
   //
@@ -177,7 +203,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
         // New report from WebSocket – add to list so it displays on the map
         final now = DateTime.now().toUtc().toIso8601String();
         final expiresAt = DateTime.now().toUtc()
-            .add(const Duration(hours: 24))
+            .add(const Duration(hours: 6))
             .toIso8601String();
         reports.insert(
           0,
@@ -206,33 +232,11 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
       emit(
         GetReportSuccess(
           message: current.message,
-          data: reports,
+          data: filterNonExpiredReports(reports),
           status: current.status,
           statusCode: current.statusCode,
         ),
       );
-    }
-  }
-
-  Future<void> _onSaveLocation(
-    VoteOnReport event,
-    Emitter<ReportState> emit,
-  ) async {
-    try {
-      emit(const ReportLoading());
-      // final response = await _reportRepository.voteOnReport(
-      //   event.reportType,
-      //   event.reportID,
-      // );
-      // emit(
-      //   AuthSuccess(
-      //     message: response.message,
-      //     user: response.data?.user,
-      //     token: response.data?.token,
-      //   ),
-      // );
-    } catch (e) {
-      emit(ReportError(message: e.toString()));
     }
   }
 
@@ -255,7 +259,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
           message: response.message,
           statusCode: response.statusCode,
           status: response.status,
-          data: response.data,
+          data: response.votes,
         ),
       );
     } catch (e) {
@@ -500,6 +504,12 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
   // ) {
   //   emit(const LoggedOut());
   // }
+
+  @override
+  Future<void> close() {
+    _pruneExpiredTimer?.cancel();
+    return super.close();
+  }
 }
 
 enum ReportType {

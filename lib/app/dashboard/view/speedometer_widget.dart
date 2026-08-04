@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
-class SpeedometerWidget extends StatelessWidget {
+class SpeedometerWidget extends StatefulWidget {
   final double currentSpeed; // in m/s
   final double? speedLimit; // in km/h, optional
 
@@ -12,11 +12,52 @@ class SpeedometerWidget extends StatelessWidget {
   });
 
   @override
+  State<SpeedometerWidget> createState() => _SpeedometerWidgetState();
+}
+
+class _SpeedometerWidgetState extends State<SpeedometerWidget> {
+  final FlutterTts _tts = FlutterTts();
+  DateTime? _lastSpeedingSpeech;
+  bool _wasOverLimit = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tts.setSpeechRate(0.45);
+  }
+
+  @override
+  void didUpdateWidget(SpeedometerWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final speedKmH = (widget.currentSpeed * 3.6).round();
+    final limit = widget.speedLimit;
+    if (limit == null || limit <= 0) return;
+
+    final over = speedKmH > limit + 3; // small buffer against GPS jitter
+    if (over && !_wasOverLimit) {
+      final now = DateTime.now();
+      if (_lastSpeedingSpeech == null ||
+          now.difference(_lastSpeedingSpeech!) >
+              const Duration(seconds: 20)) {
+        _lastSpeedingSpeech = now;
+        _tts.speak('Slow down. Speed limit $limit kilometers per hour.');
+      }
+    }
+    _wasOverLimit = over;
+  }
+
+  @override
+  void dispose() {
+    _tts.stop();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // Convert m/s to km/h
-    final speedKmH = (currentSpeed * 3.6).round();
-    final limit = speedLimit ?? 50; // Default mock limit
-    final isOverLimit = speedKmH > limit;
+    final speedKmH = (widget.currentSpeed * 3.6).round();
+    final limit = widget.speedLimit;
+    final hasLimit = limit != null && limit! > 0;
+    final isOverLimit = hasLimit && speedKmH > limit! + 3;
 
     return Container(
       width: 64,
@@ -62,7 +103,6 @@ class SpeedometerWidget extends StatelessWidget {
               ),
             ],
           ),
-          // Speed limit badge (mocked for now)
           Positioned(
             bottom: -2,
             child: Container(
@@ -70,14 +110,17 @@ class SpeedometerWidget extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.red, width: 1),
+                border: Border.all(
+                  color: isOverLimit ? Colors.red : Colors.grey,
+                  width: 1,
+                ),
               ),
               child: Text(
-                '$limit',
-                style: const TextStyle(
+                hasLimit ? '${limit!.round()}' : '—',
+                style: TextStyle(
                   fontSize: 8,
                   fontWeight: FontWeight.bold,
-                  color: Colors.black,
+                  color: isOverLimit ? Colors.red : Colors.black,
                 ),
               ),
             ),

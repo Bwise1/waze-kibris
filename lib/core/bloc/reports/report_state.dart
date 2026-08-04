@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
+import 'package:waze_kibris/core/models/reports/report_vote_entry.dart';
 import 'package:waze_kibris/core/models/location/recent_location.dart';
 
 abstract class ReportState extends Equatable {
@@ -99,7 +100,7 @@ class GetVotesOnReportSuccess extends ReportState {
   final String status;
   final int statusCode;
 
-  final List<ReportData> data;
+  final List<ReportVoteEntry> data;
 
   @override
   List<Object?> get props => [message, data, status, statusCode];

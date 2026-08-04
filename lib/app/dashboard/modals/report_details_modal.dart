@@ -6,7 +6,9 @@ import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
+import 'package:waze_kibris/core/utils/report_expiry.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
+import 'package:waze_kibris/app/dashboard/view/report_chat_screen.dart';
 
 class ReportDetailsModal extends StatelessWidget {
   final ReportData report;
@@ -136,14 +138,37 @@ class ReportDetailsModal extends StatelessWidget {
                                 color: Colors.grey[500],
                               ),
                               const SizedBox(width: 4),
-                              Text(
-                                _formatTimestamp(report.createdAt),
-                                style: styles.typography.caption
-                                    .textColor(Colors.grey[600]!)
-                                    .copyWith(fontStyle: FontStyle.normal),
+                              Expanded(
+                                child: Text(
+                                  _formatTimestamp(report.createdAt),
+                                  style: styles.typography.caption
+                                      .textColor(Colors.grey[600]!)
+                                      .copyWith(fontStyle: FontStyle.normal),
+                                ),
                               ),
                             ],
                           ),
+                          if (formatExpiresInLabel(report.expiresAt) != null) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.timer_outlined,
+                                  size: 12,
+                                  color: Colors.orange[700],
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    formatExpiresInLabel(report.expiresAt)!,
+                                    style: styles.typography.caption
+                                        .textColor(Colors.orange[800]!)
+                                        .copyWith(fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -255,6 +280,25 @@ class ReportDetailsModal extends StatelessWidget {
                 ),
 
                 const SizedBox(height: 12),
+
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              ReportChatScreen(reportId: report.id),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.chat_bubble_outline_rounded),
+                    label: const Text('Discuss this report'),
+                  ),
+                ),
+
+                const SizedBox(height: 8),
 
                 // ── "Still there?" label ──────────────────────────────────────
                 Row(

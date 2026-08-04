@@ -8,6 +8,7 @@ import 'package:waze_kibris/app/dashboard/view/map_controller_mixin.dart';
 import 'package:waze_kibris/app/dashboard/view/map_sheet.dart';
 import 'package:waze_kibris/app/dashboard/view/navigation_overlay.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
+import 'package:waze_kibris/app/dashboard/view/arrival_summary_sheet.dart';
 import 'package:waze_kibris/app/dashboard/view/route_bar.dart';
 import 'package:waze_kibris/app/dashboard/view/route_overview.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
@@ -21,6 +22,7 @@ import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/core/bloc/groups/groups_bloc.dart';
 import 'package:waze_kibris/core/bloc/groups/groups_state.dart';
@@ -56,6 +58,15 @@ class _MainDashboardState extends State<MainDashboard>
   DateTime? _lastNearbyUsersFetch;
   static const Duration _nearbyUsersFetchInterval = Duration(seconds: 30);
 
+  // WebSocket position push: keeps the server's per-client lat/lng fresh so
+  // report_update broadcasts filter against where the user actually is now,
+  // not where they connected from.
+  DateTime? _lastWsPositionPush;
+  double? _lastWsRadiusPushed;
+  static const Duration _wsPositionPushInterval = Duration(seconds: 15);
+  static const double _wsRadiusIdleM = 5000; // matches server default floor
+  static const double _wsRadiusNavigatingM = 15000; // ~10-15 min ahead on highway
+
   @override
   NavigationBloc get navigationBloc => _navigationBloc;
 
@@ -79,6 +90,39 @@ class _MainDashboardState extends State<MainDashboard>
     } catch (e) {
       debugPrint('Nearby users fetch error: $e');
     }
+  }
+
+  /// Push the current GPS position + preferred report broadcast radius to the
+  /// backend so it can fan out new reports to us. Called on every position
+  /// tick but throttled to [_wsPositionPushInterval] to avoid spam.
+  ///
+  /// Radius bumps up to [_wsRadiusNavigatingM] while a route is active so
+  /// reports several minutes ahead on the route still push in real time. If
+  /// the radius changed (nav started/stopped) we push immediately regardless
+  /// of throttle.
+  void _pushWsPositionIfDue(Position position) {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is! AuthSuccess) return;
+    final userId = authState.user?.id;
+    if (userId == null) return;
+
+    final isNavigating = _navigationBloc.state is NavigationInProgress;
+    final radius = isNavigating ? _wsRadiusNavigatingM : _wsRadiusIdleM;
+
+    final radiusChanged = _lastWsRadiusPushed != radius;
+    final now = DateTime.now();
+    final due = _lastWsPositionPush == null ||
+        now.difference(_lastWsPositionPush!) >= _wsPositionPushInterval;
+    if (!radiusChanged && !due) return;
+
+    context.read<WebSocketService>().updateSubscription(
+          userId: userId,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          subscribeRadiusM: radius,
+        );
+    _lastWsPositionPush = now;
+    _lastWsRadiusPushed = radius;
   }
 
   void _fetchNearbyReports(Position position, {bool force = false}) {
@@ -162,6 +206,8 @@ class _MainDashboardState extends State<MainDashboard>
 
     _fetchNearbyUsersIfDue(position);
 
+    _pushWsPositionIfDue(position);
+
     final currentState = _navigationBloc.state;
     if (currentState is NavigationInProgress) {
       updateRouteProgress(
@@ -239,7 +285,10 @@ class _MainDashboardState extends State<MainDashboard>
         userId: userId,
         latitude: position.latitude,
         longitude: position.longitude,
+        subscribeRadiusM: _wsRadiusIdleM,
       );
+      _lastWsRadiusPushed = _wsRadiusIdleM;
+      _lastWsPositionPush = DateTime.now();
     } catch (e, st) {
       debugPrint('🔌 WebSocket: connect failed: $e');
       debugPrint('🔌 WebSocket: $st');
@@ -302,7 +351,8 @@ class _MainDashboardState extends State<MainDashboard>
     });
   }
 
-  void _startNavigation(MapboxRoute route) {
+  void _startNavigation(MapboxRoute route,
+      {TravelMode mode = TravelMode.drive}) {
     if (!mounted) return;
 
     if (route.distance < 50) {
@@ -331,9 +381,9 @@ class _MainDashboardState extends State<MainDashboard>
     setState(() => _lastDrawnRoute = route);
     updateMapForNavigationMode(true);
     forceNavigationZoom();
-    _navigationBloc.add(NavigationStarted(route: route));
+    _navigationBloc.add(NavigationStarted(route: route, mode: mode));
     setIsFollowingUser(true);
-    initializeSnapToRoad(route);
+    initializeSnapToRoad(route, mode: mode);
 
     // Draw lane guidance immediately for step 0 (position optional; first position update will refine)
     updateRouteProgress(route, 0, currentLegIndex: 0);
@@ -373,7 +423,7 @@ class _MainDashboardState extends State<MainDashboard>
             originLng: currentPos.longitude,
             destinationLat: destLat,
             destinationLng: destLng,
-            profile: 'driving-traffic',
+            profile: currentState.mode.mapboxProfile,
             alternatives: false,
           );
 
@@ -383,7 +433,8 @@ class _MainDashboardState extends State<MainDashboard>
                 '✅ Route refreshed! New distance: ${refreshedRoute.distance}m, duration: ${refreshedRoute.duration}s');
 
             // Update navigation with refreshed route
-            _navigationBloc.add(NavigationStarted(route: refreshedRoute));
+            _navigationBloc.add(
+                NavigationStarted(route: refreshedRoute, mode: currentState.mode));
 
             // Update polyline visualization
             drawMapboxPolyline(refreshedRoute);
@@ -676,6 +727,7 @@ class _MainDashboardState extends State<MainDashboard>
                       NavigationOverlay(
                         navigationState: state,
                         isCourseUp: cameraController.isCourseUp,
+                        isFollowingUser: isFollowingUser,
                         onEndNavigation: _endNavigation,
                         onToggleCourseUp: () {
                           setState(() {
@@ -690,6 +742,11 @@ class _MainDashboardState extends State<MainDashboard>
                             setIsFollowingUser(true);
                           }
                         },
+                        onRecenter: () async {
+                          setIsFollowingUser(true);
+                          await recenterOnUser();
+                          setState(() {});
+                        },
                       ),
                   ],
 
@@ -703,7 +760,13 @@ class _MainDashboardState extends State<MainDashboard>
                           ignoring: !_isMapSheetVisible,
                           child: MapSheet(
                             onSuggestionSelected: _onSuggestionSelected,
-                            onDrawMapboxPolyline: drawMapboxPolyline,
+                            onDrawMapboxPolyline:
+                                (route, {alternativeRoutes}) {
+                              drawMapboxPolyline(
+                                route,
+                                alternativeRoutes: alternativeRoutes,
+                              );
+                            },
                             onStartNavigation: _startNavigation,
                             onLocationSelected: () {
                               setState(() {
@@ -731,24 +794,21 @@ class _MainDashboardState extends State<MainDashboard>
   }
 
   void _showNavigationCompleteDialog() {
-    showDialog(
+    final s = _navigationBloc.state;
+    if (s is! NavigationInProgress) {
+      _endNavigation();
+      return;
+    }
+    showModalBottomSheet<void>(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('🎉 Destination Reached!'),
-          content:
-              const Text('You have successfully reached your destination.'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _endNavigation();
-              },
-              child: const Text('Done'),
-            ),
-          ],
-        );
-      },
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => ArrivalSummarySheet(
+        state: s,
+        onDone: _endNavigation,
+      ),
     );
   }
 }

@@ -37,7 +37,7 @@ class AuthSuccess extends AuthState {
   final String? token;
 
   @override
-  List<Object?> get props => [message, user, token];
+  List<Object?> get props => [user, token];
 }
 
 class AuthRefreshTokenSuccess extends AuthState {
@@ -94,4 +94,24 @@ class UserCoordinate extends AuthState {
 
   @override
   List<Object?> get props => [longitude, latitude];
+}
+
+/// Fired while a profile mutation (username change or avatar upload) is
+/// in flight. UI shows a spinner. The bloc emits this on top of the current
+/// state so listeners don't lose access to the user; the follow-up
+/// [AuthSuccess] or [ProfileUpdateFailed] tells them what happened.
+class ProfileUpdating extends AuthState {
+  const ProfileUpdating();
+}
+
+/// Terminal state for a failed profile mutation. UI shows the message as
+/// a snackbar / inline error, then the app returns to [AuthSuccess] on
+/// the next profile refresh.
+class ProfileUpdateFailed extends AuthState {
+  const ProfileUpdateFailed({required this.message});
+
+  final String message;
+
+  @override
+  List<Object?> get props => [message];
 }

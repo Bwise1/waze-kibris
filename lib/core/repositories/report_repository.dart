@@ -5,6 +5,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
+import 'package:waze_kibris/core/models/reports/report_chat_message.dart';
+import 'package:waze_kibris/core/models/reports/report_vote_entry.dart';
 // Auth header is attached by AuthInterceptor when a token exists.
 
 abstract class ReportRepository {
@@ -14,7 +16,7 @@ abstract class ReportRepository {
     String longitude,
     int radius,
   );
-  Future<GetReportsResponse> getVotesOnReport(int reportID);
+  Future<GetVotesApiResponse> getVotesOnReport(int reportID);
   Future<GetSavedLocationsResponse> getSavedLocations();
   Future<GetReportsResponse> voteOnReport(
     String voteType,
@@ -33,6 +35,10 @@ abstract class ReportRepository {
     double lng,
     String placeId,
   );
+
+  Future<List<ReportChatMessage>> getReportChatMessages(int reportId);
+
+  Future<ReportChatMessage> postReportChatMessage(int reportId, String content);
 }
 
 class ReportRepositoryImpl implements ReportRepository {
@@ -93,8 +99,15 @@ class ReportRepositoryImpl implements ReportRepository {
   }
 
   @override
-  Future<GetReportsResponse> getVotesOnReport(int id) {
-    throw UnimplementedError();
+  Future<GetVotesApiResponse> getVotesOnReport(int id) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/reports/$id/votes',
+      );
+      return GetVotesApiResponse.fromJson(response.data);
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
   }
 
   @override
@@ -167,6 +180,45 @@ class ReportRepositoryImpl implements ReportRepository {
         },
       );
       return SubmitReportResponse.fromJson(response.data!);
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  @override
+  Future<List<ReportChatMessage>> getReportChatMessages(int reportId) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/reports/$reportId/chat/messages',
+      );
+      final raw = response.data?['data'];
+      if (raw is! List<dynamic>) return [];
+      return raw
+          .map((e) => e is Map<String, dynamic>
+              ? ReportChatMessage.fromJson(e)
+              : null)
+          .whereType<ReportChatMessage>()
+          .toList();
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
+  @override
+  Future<ReportChatMessage> postReportChatMessage(
+    int reportId,
+    String content,
+  ) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/reports/$reportId/chat/messages',
+        data: {'content': content},
+      );
+      final raw = response.data?['data'];
+      if (raw is Map<String, dynamic>) {
+        return ReportChatMessage.fromJson(raw);
+      }
+      throw Exception('Invalid response');
     } on DioException catch (e) {
       throw _handleDioError(e);
     }

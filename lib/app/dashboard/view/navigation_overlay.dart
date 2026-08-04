@@ -17,7 +17,9 @@ class NavigationOverlay extends StatefulWidget {
   final VoidCallback onEndNavigation;
   final VoidCallback onToggleOverview;
   final VoidCallback onToggleCourseUp;
+  final VoidCallback onRecenter;
   final bool isCourseUp;
+  final bool isFollowingUser;
 
   const NavigationOverlay({
     Key? key,
@@ -25,7 +27,9 @@ class NavigationOverlay extends StatefulWidget {
     required this.onEndNavigation,
     required this.onToggleOverview,
     required this.onToggleCourseUp,
+    required this.onRecenter,
     required this.isCourseUp,
+    required this.isFollowingUser,
   }) : super(key: key);
 
   @override
@@ -127,19 +131,22 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                 : navigationState.currentStep.distance,
             navigationBloc: context.read<NavigationBloc>(),
             nextStep: navigationState.nextStep,
+            mode: navigationState.mode,
           ),
         ),
 
-        // Bottom Left: Speedometer — above bottom panel with clear gap
-        Positioned(
-          bottom: 192,
-          left: 16,
-          child: SpeedometerWidget(
-            currentSpeed: navigationState.currentSpeed ?? 0,
-            speedLimit: navigationState.speedLimit ??
-                90, // Use route annotations or fallback to 90
+        // Bottom Left: Speedometer — vehicle modes only. Walking with a
+        // speed sign is nonsense and takes up real estate near the puck.
+        if (navigationState.mode.isVehicle)
+          Positioned(
+            bottom: 192,
+            left: 16,
+            child: SpeedometerWidget(
+              currentSpeed: navigationState.currentSpeed ?? 0,
+              // Only enforce TTS / red border when Mapbox provides a limit
+              speedLimit: navigationState.speedLimit,
+            ),
           ),
-        ),
 
         // Bottom Right: Compass Toggle Button — above the report button
         Positioned(
@@ -156,6 +163,26 @@ class _NavigationOverlayState extends State<NavigationOverlay>
             ),
           ),
         ),
+
+        // Recenter FAB — only visible when the driver has panned away from
+        // their current position. Tap to snap the camera back and resume
+        // course-up follow. Placed just above the compass so both live in
+        // the same right-edge column.
+        if (!widget.isFollowingUser)
+          Positioned(
+            bottom: 310,
+            right: 16,
+            child: FloatingActionButton(
+              heroTag: 'recenter_fab_nav',
+              onPressed: widget.onRecenter,
+              backgroundColor: Colors.white,
+              mini: true,
+              child: const Icon(
+                Icons.gps_fixed,
+                color: Colors.blueAccent,
+              ),
+            ),
+          ),
 
         // Bottom Right: Report Button — above bottom panel with clear gap
         Positioned(

@@ -2,12 +2,14 @@ import 'dart:async';
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:waze_kibris/app/dashboard/view/mapbox_navigation_utils.dart';
 import 'package:waze_kibris/core/constants/navigation_camera_constants.dart';
 import 'package:waze_kibris/core/controllers/camera_controller.dart';
 import 'package:waze_kibris/core/controllers/navigation_controller.dart'
     as nav_controller;
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 import 'package:waze_kibris/core/models/navigation/waypoint.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:waze_kibris/app/dashboard/services/voice_instruction_service.dart';
@@ -68,26 +70,39 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
         ? event.route.legs.first.steps[1]
         : null;
 
-    // Calculate speed limit from route annotations (if available)
+    // Speed limit + congestion are only meaningful for vehicle modes. Walking
+    // in a pedestrian zone shouldn't show a "50 km/h" sign.
     double? speedLimit;
     double? expectedAverageSpeed;
     List<double>? congestionNumericData;
-    if (event.route.legs.isNotEmpty) {
-      // Try to get speed limit from first leg's annotations
+    if (event.mode.isVehicle && event.route.legs.isNotEmpty) {
       final firstLeg = event.route.legs.first;
-      speedLimit = firstLeg.estimatedSpeedLimitKmh;
+      // Look up the posted speed limit at the route origin so the sign is
+      // correct before the first GPS fix arrives.
+      final firstCoord = firstStep.geometry.coordinates.isNotEmpty
+          ? firstStep.geometry.coordinates.first
+          : null;
+      if (firstCoord != null) {
+        speedLimit = firstLeg.speedLimitKmhAt(
+          LatLng(firstCoord[1], firstCoord[0]),
+        );
+      }
       expectedAverageSpeed = firstLeg.expectedAverageSpeed;
       congestionNumericData = firstLeg.annotations?.congestionNumeric;
     }
 
-    // Enable navigation mode on camera controller
+    // Enable navigation mode on camera controller with the selected travel
+    // mode so zoom/pitch are tuned for walking vs driving from frame 1.
+    _cameraController?.setTravelMode(event.mode);
     _cameraController?.enableNavigationMode();
 
-    // Reset voice service for new navigation session
+    // Reset voice service for new navigation session and tune cadence per mode.
     _voiceService.reset();
+    _voiceService.setSpeechRate(event.mode.voiceSpeechRate);
 
     emit(NavigationInProgress(
       route: event.route,
+      mode: event.mode,
       currentStep: firstStep,
       nextStep: nextStep,
       currentStepIndex: 0,
@@ -193,6 +208,7 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     required double originLng,
     required double destLat,
     required double destLng,
+    required String profile,
     int maxRetries = 2,
   }) async {
     final placesService = getIt<PlacesService>();
@@ -206,7 +222,7 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
               originLng: originLng,
               destinationLat: destLat,
               destinationLng: destLng,
-              profile: 'driving-traffic',
+              profile: profile,
               alternatives: false,
             )
             .timeout(
@@ -330,12 +346,14 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
         print(
             '🔄 Rerouting from (${currentPos.latitude}, ${currentPos.longitude}) to ($destLat, $destLng)...');
 
-        // 2. Fetch new route with retry and timeout
+        // 2. Fetch new route with retry and timeout, using the mode the user
+        // originally started navigation in.
         final response = await _fetchRouteWithRetry(
           originLat: currentPos.latitude,
           originLng: currentPos.longitude,
           destLat: destLat,
           destLng: destLng,
+          profile: currentState.mode.mapboxProfile,
           maxRetries: 2,
         );
 
@@ -367,6 +385,7 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
 
           emit(NavigationInProgress(
             route: newRoute,
+            mode: currentState.mode,
             currentStep: firstStep,
             nextStep: nextStep,
             currentStepIndex: 0,
@@ -381,9 +400,11 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
             // Preserve progress tracking (keep start time and actual speed)
             routeStartTime: currentState.routeStartTime,
             actualAverageSpeed: currentState.actualAverageSpeed,
-            expectedAverageSpeed:
-                newExpectedSpeed ?? currentState.expectedAverageSpeed,
-            congestionNumericData: newCongestionData,
+            expectedAverageSpeed: currentState.mode.isVehicle
+                ? (newExpectedSpeed ?? currentState.expectedAverageSpeed)
+                : null,
+            congestionNumericData:
+                currentState.mode.isVehicle ? newCongestionData : null,
           ));
 
           // Reset circuit breaker on success
@@ -477,6 +498,17 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     final currentLeg = state.route.legs[state.currentLegIndex];
     final congestionData = currentLeg.annotations?.congestionNumeric;
 
+    // Look up the posted speed limit for the segment nearest the user. Keep
+    // the previous value when Mapbox has no data for this stretch so the sign
+    // doesn't flicker on/off between unmapped segments. Skipped entirely for
+    // walking/cycling — a "50 km/h" sign on foot is nonsense.
+    final speedLimit = state.mode.isVehicle
+        ? (currentLeg.speedLimitKmhAt(
+              LatLng(position.latitude, position.longitude),
+            ) ??
+            state.speedLimit)
+        : null;
+
     // Calculate expected average speed from route
     final expectedAverageSpeed =
         currentLeg.expectedAverageSpeed ?? state.expectedAverageSpeed;
@@ -536,6 +568,8 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       currentBearing: position.heading >= 0 ? position.heading : null,
       // Update current speed
       currentSpeed: position.speed,
+      // Refresh posted speed limit for the current segment
+      speedLimit: speedLimit,
       // Update progress tracking
       actualAverageSpeed: actualAverageSpeed,
       expectedAverageSpeed: expectedAverageSpeed,

@@ -48,6 +48,9 @@ User _$UserFromJson(Map<String, dynamic> json) => User(
       preferredLanguage: json['preferred_language'] as String,
       authProvider: json['auth_provider'] as String? ?? 'email',
       username: json['username'] as String?,
+      usernameChangedAt: json['username_changed_at'] == null
+          ? null
+          : DateTime.parse(json['username_changed_at'] as String),
       firstName: json['firstname'] as String?,
       lastName: json['lastname'] as String?,
       profileIcon: json['profile_icon'] as String?,
@@ -66,6 +69,7 @@ Map<String, dynamic> _$UserToJson(User instance) => <String, dynamic>{
       'preferred_language': instance.preferredLanguage,
       'auth_provider': instance.authProvider,
       'username': instance.username,
+      'username_changed_at': instance.usernameChangedAt?.toIso8601String(),
       'firstname': instance.firstName,
       'lastname': instance.lastName,
       'profile_icon': instance.profileIcon,

@@ -9,11 +9,12 @@ abstract class NavigationEvent extends Equatable {
 
 class NavigationStarted extends NavigationEvent {
   final MapboxRoute route;
+  final TravelMode mode;
 
-  const NavigationStarted({required this.route});
+  const NavigationStarted({required this.route, this.mode = TravelMode.drive});
 
   @override
-  List<Object> get props => [route];
+  List<Object> get props => [route, mode];
 }
 
 class NavigationPositionUpdated extends NavigationEvent {
