@@ -598,6 +598,9 @@ class _MainDashboardState extends State<MainDashboard>
                           key: _mapWidgetKey,
                           onMapCreated: onMapCreated,
                           onTapListener: onMapTap,
+                          // Any user pan/drag exits follow mode — the
+                          // recenter pill will swap in for the speedometer.
+                          onScrollListener: (_) => onUserMapGesture(),
                           cameraOptions: _lastReportFetchPosition != null
                               ? mp.CameraOptions(
                                   center: mp.Point(

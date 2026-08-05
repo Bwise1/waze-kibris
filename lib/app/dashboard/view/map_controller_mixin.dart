@@ -83,12 +83,17 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     } else {
       _cameraController.disableFollowUser();
     }
+    // Trigger a rebuild so widgets that read isFollowingUser (e.g. the
+    // recenter pill swap) reflect the new state.
+    if (mounted) setState(() {});
   }
 
   /// Call this from map pan/zoom/rotate gesture handlers to exit follow mode
   /// (similar to Mapbox NavigationCamera behavior).
   void onUserMapGesture() {
+    if (!_cameraController.isFollowingUser) return; // Already off; skip rebuild
     _cameraController.disableFollowUser();
+    if (mounted) setState(() {});
   }
 
   /// Recenter the map on the user's current (or last known) position
