@@ -598,9 +598,15 @@ class _MainDashboardState extends State<MainDashboard>
                           key: _mapWidgetKey,
                           onMapCreated: onMapCreated,
                           onTapListener: onMapTap,
-                          // Any user pan/drag exits follow mode — the
-                          // recenter pill will swap in for the speedometer.
+                          // Any user pan / pinch-zoom exits follow mode so
+                          // the recenter pill swaps in for the speedometer.
+                          // Rotate / tilt gestures aren't exposed by the
+                          // Flutter plugin as separate listeners — they
+                          // only surface through onCameraChangeListener,
+                          // which also fires for our own programmatic
+                          // easeTo calls and would create a feedback loop.
                           onScrollListener: (_) => onUserMapGesture(),
+                          onZoomListener: (_) => onUserMapGesture(),
                           cameraOptions: _lastReportFetchPosition != null
                               ? mp.CameraOptions(
                                   center: mp.Point(
