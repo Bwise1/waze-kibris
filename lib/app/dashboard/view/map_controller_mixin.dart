@@ -699,14 +699,17 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     await _addDestinationImageToStyle();
     await _addOriginImageToStyle();
 
-    // Build / refresh a two-feature GeoJSON: one origin, one destination,
-    // tagged with an `icon` property so a single SymbolLayer can pick the
-    // right image per feature.
+    // Build / refresh the GeoJSON. During active turn-by-turn navigation
+    // we suppress the origin marker — the built-in Mapbox puck already
+    // represents the driver's position, and a static origin pin left on
+    // the trip start becomes visual noise as soon as you drive off. Native
+    // Waze / Google Maps do the same: origin visible in route preview and
+    // overview only, hidden during follow-mode driving.
+    final isNavigating = navigationBloc.state is NavigationInProgress;
     final origin = points.first;
     final destination = points.last;
-    final geoJson = jsonEncode({
-      'type': 'FeatureCollection',
-      'features': [
+    final features = <Map<String, dynamic>>[
+      if (!isNavigating)
         {
           'type': 'Feature',
           'geometry': {
@@ -715,15 +718,18 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           },
           'properties': {'icon': _originImageId},
         },
-        {
-          'type': 'Feature',
-          'geometry': {
-            'type': 'Point',
-            'coordinates': [destination.longitude, destination.latitude],
-          },
-          'properties': {'icon': _destinationImageId},
+      {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'Point',
+          'coordinates': [destination.longitude, destination.latitude],
         },
-      ],
+        'properties': {'icon': _destinationImageId},
+      },
+    ];
+    final geoJson = jsonEncode({
+      'type': 'FeatureCollection',
+      'features': features,
     });
 
     final sourceExists =

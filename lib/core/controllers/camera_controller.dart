@@ -134,6 +134,17 @@ class CameraController {
   Future<void> updatePosition(geo.Position position) async {
     if (_mapboxMap == null) return;
 
+    // During navigation the recenter action should return the camera to
+    // the full navigation preset (3D pitch, course-up bearing, active
+    // guidance zoom) — not just re-center on the current lat/lng with
+    // whatever pitch/bearing/zoom the free-drive session was in.
+    final targetZoom = _isNavigationMode ? _activeGuidanceZoom : _currentZoom;
+    final targetPitch =
+        _isNavigationMode ? kFollowingDefaultPitch : _currentPitch;
+    final targetBearing = position.heading >= 0
+        ? position.heading
+        : (_isNavigationMode ? _currentBearing : 0.0);
+
     final cameraOptions = mp.CameraOptions(
       center: mp.Point(
         coordinates: mp.Position(
@@ -141,10 +152,19 @@ class CameraController {
           position.latitude,
         ),
       ),
-      zoom: _currentZoom,
-      bearing: position.heading >= 0 ? position.heading : _currentBearing,
-      pitch: _currentPitch,
+      zoom: targetZoom,
+      bearing: targetBearing,
+      pitch: targetPitch,
     );
+
+    // Keep internal state in sync so the next per-GPS-tick nav update
+    // doesn't unwind what recenter just set.
+    _currentZoom = targetZoom;
+    _currentPitch = targetPitch;
+    _currentBearing = targetBearing;
+    // Nav camera's first-frame snap so smoothing doesn't spin the camera
+    // from wherever it was to the course bearing over multiple updates.
+    if (_isNavigationMode) _pendingNavBearingSnap = true;
 
     try {
       await _mapboxMap!.easeTo(
