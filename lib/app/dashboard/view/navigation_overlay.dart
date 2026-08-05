@@ -135,17 +135,21 @@ class _NavigationOverlayState extends State<NavigationOverlay>
           ),
         ),
 
-        // Bottom Left: Speedometer — vehicle modes only. Walking with a
-        // speed sign is nonsense and takes up real estate near the puck.
+        // Bottom Left: contextual slot — speedometer when following, or a
+        // "Re-center" pill when the driver has panned/rotated the map away.
+        // Google Maps swaps these in the same footprint (both never visible
+        // at once) so the eye doesn't have to hunt for the recenter control.
         if (navigationState.mode.isVehicle)
           Positioned(
             bottom: 192,
             left: 16,
-            child: SpeedometerWidget(
-              currentSpeed: navigationState.currentSpeed ?? 0,
-              // Only enforce TTS / red border when Mapbox provides a limit
-              speedLimit: navigationState.speedLimit,
-            ),
+            child: widget.isFollowingUser
+                ? SpeedometerWidget(
+                    currentSpeed: navigationState.currentSpeed ?? 0,
+                    // Only enforce TTS / red border when Mapbox provides a limit
+                    speedLimit: navigationState.speedLimit,
+                  )
+                : _RecenterPill(onTap: widget.onRecenter),
           ),
 
         // Bottom Right: Compass Toggle Button — above the report button
@@ -163,26 +167,6 @@ class _NavigationOverlayState extends State<NavigationOverlay>
             ),
           ),
         ),
-
-        // Recenter FAB — only visible when the driver has panned away from
-        // their current position. Tap to snap the camera back and resume
-        // course-up follow. Placed just above the compass so both live in
-        // the same right-edge column.
-        if (!widget.isFollowingUser)
-          Positioned(
-            bottom: 310,
-            right: 16,
-            child: FloatingActionButton(
-              heroTag: 'recenter_fab_nav',
-              onPressed: widget.onRecenter,
-              backgroundColor: Colors.white,
-              mini: true,
-              child: const Icon(
-                Icons.gps_fixed,
-                color: Colors.blueAccent,
-              ),
-            ),
-          ),
 
         // Bottom Right: Report Button — above bottom panel with clear gap
         Positioned(
@@ -500,5 +484,44 @@ class _NavigationOverlayState extends State<NavigationOverlay>
         );
       }
     }
+  }
+}
+
+/// Pill-shaped "Re-center" button that replaces the speedometer in its slot
+/// while the map has been panned/rotated away from the puck. Tapping it
+/// resumes course-up follow. Google Maps uses the same shape/placement.
+class _RecenterPill extends StatelessWidget {
+  const _RecenterPill({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      elevation: 4,
+      borderRadius: BorderRadius.circular(24),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(Icons.gps_fixed, color: Colors.blueAccent, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Re-center',
+                style: TextStyle(
+                  color: Colors.blueAccent,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
