@@ -130,27 +130,33 @@ class _NavigationOverlayState extends State<NavigationOverlay>
         ),
 
         // Bottom Left: contextual slot — speedometer when following, or a
-        // "Re-center" pill when the driver has panned/rotated the map away.
+        // "Re-center" pill when the user has panned/rotated the map away.
         // Google Maps swaps these in the same footprint (both never visible
         // at once) so the eye doesn't have to hunt for the recenter control.
-        if (navigationState.mode.isVehicle)
-          Positioned(
-            bottom: 192,
-            left: 16,
-            child: widget.isFollowingUser
-                ? ValueListenableBuilder<bool>(
-                    valueListenable: NavSettings.showSpeedometer,
-                    builder: (context, show, _) => show
-                        ? SpeedometerWidget(
-                            currentSpeed: navigationState.currentSpeed ?? 0,
-                            // Only enforce TTS / red border when Mapbox
-                            // provides a limit
-                            speedLimit: navigationState.speedLimit,
-                          )
-                        : const SizedBox.shrink(),
-                  )
-                : _RecenterPill(onTap: widget.onRecenter),
-          ),
+        //
+        // The speedometer is vehicle-only (a walking pace readout is
+        // pointless), but recentering is needed in every mode — gating the
+        // whole slot on isVehicle left walkers and cyclists with no way
+        // back to their position after panning.
+        Positioned(
+          bottom: 192,
+          left: 16,
+          child: widget.isFollowingUser
+              ? (navigationState.mode.isVehicle
+                  ? ValueListenableBuilder<bool>(
+                      valueListenable: NavSettings.showSpeedometer,
+                      builder: (context, show, _) => show
+                          ? SpeedometerWidget(
+                              currentSpeed: navigationState.currentSpeed ?? 0,
+                              // Only enforce TTS / red border when Mapbox
+                              // provides a limit
+                              speedLimit: navigationState.speedLimit,
+                            )
+                          : const SizedBox.shrink(),
+                    )
+                  : const SizedBox.shrink())
+              : _RecenterPill(onTap: widget.onRecenter),
+        ),
 
         // Bottom Right: Compass Toggle Button — above the report button
         Positioned(
