@@ -29,7 +29,13 @@ class ReportDetailsModal extends StatelessWidget {
   const ReportDetailsModal({
     super.key,
     required this.report,
+    this.currentUserId,
   });
+
+  /// Passed in rather than read from context: this modal is shown via
+  /// showGeneralDialog, whose route context sits above the BlocProviders,
+  /// so a context.read here finds no AuthBloc.
+  final String? currentUserId;
 
   // ── Exact timestamp with smart fallback ───────────────────────────────────
 
@@ -70,10 +76,19 @@ class ReportDetailsModal extends StatelessWidget {
         report.imageUrl != null &&
         report.imageUrl!.isNotEmpty;
 
-    final authState = context.read<AuthBloc>().state;
-    final currentUserId =
-        authState is AuthSuccess ? authState.user?.id : null;
-    final isMine = currentUserId != null && report.userId == currentUserId;
+    // Fall back to context only if a caller didn't supply the id (e.g. a
+    // future call site that sits inside the provider tree).
+    String? resolvedUserId = currentUserId;
+    if (resolvedUserId == null) {
+      try {
+        final authState = context.read<AuthBloc>().state;
+        resolvedUserId =
+            authState is AuthSuccess ? authState.user?.id : null;
+      } catch (_) {
+        // No AuthBloc in scope — leave null and show the vote prompt.
+      }
+    }
+    final isMine = resolvedUserId != null && report.userId == resolvedUserId;
 
     return Container(
       decoration: BoxDecoration(

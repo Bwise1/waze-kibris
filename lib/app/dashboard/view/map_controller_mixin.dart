@@ -14,6 +14,9 @@ import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
 import 'package:waze_kibris/app/dashboard/services/bearing_fusion_service.dart';
 import 'package:waze_kibris/app/dashboard/services/route_replay_service.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/app/dashboard/services/snap_to_road_service.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/core/constants/navigation_camera_constants.dart';
@@ -748,13 +751,16 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
       // Show details modal from TOP (Waze-style)
       if (mounted) {
+        final authState = context.read<AuthBloc>().state;
+        final currentUserId =
+            authState is AuthSuccess ? authState.user?.id : null;
         showGeneralDialog(
           context: context,
           barrierDismissible: true,
           barrierLabel: 'Dismiss',
           barrierColor: Colors.black.withOpacity(0.3),
           transitionDuration: const Duration(milliseconds: 350),
-          pageBuilder: (context, animation, secondaryAnimation) {
+          pageBuilder: (dialogContext, animation, secondaryAnimation) {
             // The Material ancestor is required: without it every Text in the
             // sheet falls back to Flutter's debug style (yellow double
             // underlines) because there is no default text style in scope.
@@ -762,7 +768,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
               alignment: Alignment.topCenter,
               child: Material(
                 type: MaterialType.transparency,
-                child: ReportDetailsModal(report: report),
+                child: ReportDetailsModal(
+                  report: report,
+                  // Resolved here, from the screen's context: the dialog's
+                  // own context sits above the BlocProviders, so a
+                  // context.read inside the modal finds no AuthBloc and the
+                  // owner check silently fails.
+                  currentUserId: currentUserId,
+                ),
               ),
             );
           },
