@@ -430,6 +430,7 @@ class CameraController {
     );
 
     try {
+      _markProgrammaticMove(animate ? 1500 : 0);
       await _mapboxMap!.easeTo(
         cameraOptions,
         mp.MapAnimationOptions(duration: animate ? 1500 : 0),
@@ -476,6 +477,7 @@ class CameraController {
 
     try {
       if (animate && useSmoothing) {
+        _markProgrammaticMove(100);
         await _mapboxMap!.flyTo(
           cameraOptions,
           mp.MapAnimationOptions(duration: 100),
@@ -512,6 +514,12 @@ class CameraController {
     _isNavigationMode = true;
     _isFollowingUser = true;
     _pendingNavBearingSnap = true;
+    // Starting navigation triggers a burst of camera work we don't own —
+    // drawing the route, fitting waypoints, dismissing the route sheet. Those
+    // surface as scroll callbacks and would switch following straight back
+    // off, leaving the map north-up for the whole trip. Ignore gesture
+    // callbacks until that burst settles; a real pan after this still works.
+    _markProgrammaticMove(1500);
   }
 
   void disableNavigationMode() {
@@ -534,6 +542,7 @@ class CameraController {
 
     try {
       if (animate) {
+        _markProgrammaticMove(_animationDuration);
         await _mapboxMap!.flyTo(
           cameraOptions,
           mp.MapAnimationOptions(duration: _animationDuration),
@@ -554,6 +563,7 @@ class CameraController {
 
     try {
       if (animate) {
+        _markProgrammaticMove(_animationDuration);
         await _mapboxMap!.flyTo(
           cameraOptions,
           mp.MapAnimationOptions(duration: _animationDuration),
@@ -575,6 +585,7 @@ class CameraController {
     _isNavigationMode = true;
     _isFollowingUser = true;
 
+    _markProgrammaticMove(2000);
     await _mapboxMap!.flyTo(
       mp.CameraOptions(
         center: mp.Point(
@@ -589,6 +600,13 @@ class CameraController {
       ),
       mp.MapAnimationOptions(duration: 2000),
     );
+
+    // Re-assert following *after* the flyTo. Drawing the route and dismissing
+    // the sheet move the camera too, and any stray scroll callback from that
+    // would otherwise leave navigation starting with following already off —
+    // a north-up map that never rotates.
+    _isFollowingUser = true;
+    _pendingNavBearingSnap = true;
 
     _currentZoom = _activeGuidanceZoom;
     _currentPitch = kFollowingDefaultPitch;
@@ -727,6 +745,7 @@ class CameraController {
       null,
     );
 
+    _markProgrammaticMove(1500);
     await _mapboxMap!.flyTo(
       cameraOptions,
       mp.MapAnimationOptions(duration: 1500),
@@ -775,6 +794,7 @@ class CameraController {
     _pendingNavBearingSnap = false;
 
     try {
+      _markProgrammaticMove(900);
       await _mapboxMap!.easeTo(
         mp.CameraOptions(
           center: mp.Point(
