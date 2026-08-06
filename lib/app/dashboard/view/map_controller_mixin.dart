@@ -1137,16 +1137,19 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             // _addSavedPinImageToStyle), so these factors put the pin at
             // ~48 pt tall at street zoom — a comfortable touch target —
             // shrinking to ~29 pt at city overview.
+            // Pin is 56pt tall at scale 1.0, so these keep it around 56pt
+            // at street zoom — matching the chunky Waze pin — and never
+            // below ~34pt when zoomed right out.
             iconSizeExpression: [
               'interpolate',
               ['exponential', 1.5],
               ['zoom'],
-              0.0, 0.45,
-              12.0, 0.62,
-              14.0, 0.72,
-              16.0, 0.80,
-              19.0, 0.92,
-              22.0, 1.05,
+              0.0, 0.60,
+              12.0, 0.85,
+              14.0, 0.95,
+              16.0, 1.00,
+              19.0, 1.10,
+              22.0, 1.20,
             ],
           ),
         );
@@ -1173,7 +1176,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       // Generous box: pins are small targets on a moving map, and the pin
       // is bottom-anchored so the visual sits *above* the tap point —
       // hence the asymmetric vertical padding.
-      const double pad = 34;
+      const double pad = 40;
       final box = mp.RenderedQueryGeometry.fromScreenBox(
         mp.ScreenBox(
           min: mp.ScreenCoordinate(
@@ -1236,8 +1239,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
         // Drawn at 4× so it stays crisp when the zoom curve scales it up.
         const double scale = 4;
-        const double ptW = 44; // logical size once registered at `scale`
-        const double ptH = 56;
+        const double ptW = 52; // logical size once registered at `scale`
+        const double ptH = 66;
         final w = (ptW * scale).round();
         final h = (ptH * scale).round();
 
@@ -1245,7 +1248,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         final canvas = Canvas(recorder)..scale(scale);
 
         const centre = Offset(ptW / 2, ptW / 2);
-        const radius = 20.0;
+        const radius = 24.0;
 
         // Soft drop shadow so the pin lifts off the map.
         canvas.drawCircle(
@@ -1259,9 +1262,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         // White teardrop: circle head + tapered tail, as in Waze.
         final pin = Paint()..color = Colors.white;
         final tail = Path()
-          ..moveTo(ptW / 2 - 7.5, ptW / 2 + 14)
-          ..quadraticBezierTo(ptW / 2, ptH - 8, ptW / 2, ptH - 1)
-          ..quadraticBezierTo(ptW / 2, ptH - 8, ptW / 2 + 7.5, ptW / 2 + 14)
+          ..moveTo(ptW / 2 - 9, ptW / 2 + 17)
+          ..quadraticBezierTo(ptW / 2, ptH - 9, ptW / 2, ptH - 1)
+          ..quadraticBezierTo(ptW / 2, ptH - 9, ptW / 2 + 9, ptW / 2 + 17)
           ..close();
         canvas.drawPath(tail, pin);
         canvas.drawCircle(centre, radius, pin);
@@ -1270,7 +1273,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         final (iconData, colour) = entry.value;
         canvas.drawCircle(
           centre,
-          radius - 3,
+          radius - 3.5,
           Paint()..color = colour.withValues(alpha: 0.16),
         );
 
@@ -1278,7 +1281,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           ..text = TextSpan(
             text: String.fromCharCode(iconData.codePoint),
             style: TextStyle(
-              fontSize: 22,
+              fontSize: 27,
               fontFamily: iconData.fontFamily,
               package: iconData.fontPackage,
               color: colour,
