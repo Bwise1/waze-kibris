@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// The native Mapbox SDKs ship only the blue chevron ("arrow") — vehicle
 /// pucks are an app-level feature (Waze draws its own), so the car/bus/truck
 /// icons are rendered by [PuckIconFactory] rather than copied from the SDK.
-enum NavPuckStyle { arrow, car, bus, truck }
+enum NavPuckStyle { arrow, car, bike, bus, truck }
 
 /// Puck shown while walking or cycling. These aren't user-selectable: the
 /// vehicle preference above describes how you drive, and showing a car

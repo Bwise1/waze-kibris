@@ -495,6 +495,7 @@ class _PuckStylePicker extends StatelessWidget {
   static const _labels = {
     NavPuckStyle.arrow: 'Arrow',
     NavPuckStyle.car: 'Car',
+    NavPuckStyle.bike: 'Bike',
     NavPuckStyle.bus: 'Bus',
     NavPuckStyle.truck: 'Truck',
   };
@@ -531,8 +532,11 @@ class _PuckStylePicker extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         SizedBox(
-                          width: 44,
-                          height: 44,
+                          // Five options share the row, so the preview is
+                          // sized to keep the labels readable on narrow
+                          // phones rather than filling the card.
+                          width: 38,
+                          height: 38,
                           child: style == NavPuckStyle.arrow
                               ? Image.asset(
                                   'assets/icons/4.0x/CurrentPosition.png',
@@ -556,7 +560,7 @@ class _PuckStylePicker extends StatelessWidget {
                   ),
                 ),
               ),
-              if (style != NavPuckStyle.values.last) const SizedBox(width: 8),
+              if (style != NavPuckStyle.values.last) const SizedBox(width: 6),
             ],
           ],
         );

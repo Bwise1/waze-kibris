@@ -16,10 +16,11 @@ class PuckIconFactory {
   static final Map<NavPuckStyle, Uint8List> _cache = {};
   static final Map<NavPuckMode, Uint8List> _modeCache = {};
 
-  /// Puck for walking/cycling: a brand-coloured disc with the mode's glyph
-  /// and a white ring, plus a small nose so heading still reads. Vehicles
-  /// get a top-down silhouette; a pedestrian doesn't have one, so this
-  /// follows the Google/Apple convention of a marker with an icon instead.
+  /// Puck for walking/cycling.
+  ///
+  /// Cycling gets proper top-down artwork like the vehicles — a bike has a
+  /// real overhead silhouette. Walking doesn't, so it follows the
+  /// Google/Apple convention of a marker with an icon.
   static Future<Uint8List?> renderMode(NavPuckMode mode,
       {double size = 128}) async {
     if (mode == NavPuckMode.vehicle) return null;
@@ -28,15 +29,27 @@ class PuckIconFactory {
 
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
+
+    if (mode == NavPuckMode.cycle) {
+      _paintBike(canvas, size);
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(size.toInt(), size.toInt());
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      if (data == null) return null;
+      final bytes = data.buffer.asUint8List();
+      _modeCache[mode] = bytes;
+      return bytes;
+    }
+
     final k = size / 128;
     canvas.scale(k);
 
+    // Walking only — cycling returned above with its own artwork.
     const cx = 64.0;
     const centre = Offset(cx, cx);
     const radius = 34.0;
-    final colour = mode == NavPuckMode.walk
-        ? const Color(0xFF2E7D32) // walking green
-        : const Color(0xFF1565C0); // cycling blue
+    const colour = Color(0xFF2E7D32); // walking green
 
     // Heading nose, so the puck still shows which way you're facing.
     final nose = Path()
@@ -56,8 +69,7 @@ class PuckIconFactory {
     canvas.drawCircle(centre, radius, Paint()..color = Colors.white);
     canvas.drawCircle(centre, radius - 4, Paint()..color = colour);
 
-    final icon =
-        mode == NavPuckMode.walk ? Icons.directions_walk : Icons.pedal_bike;
+    const icon = Icons.directions_walk;
     final painter = TextPainter(textDirection: TextDirection.ltr)
       ..text = TextSpan(
         text: String.fromCharCode(icon.codePoint),
@@ -102,6 +114,8 @@ class PuckIconFactory {
         break;
       case NavPuckStyle.car:
         _paintCar(canvas, size);
+      case NavPuckStyle.bike:
+        _paintBike(canvas, size);
       case NavPuckStyle.bus:
         _paintBus(canvas, size);
       case NavPuckStyle.truck:
@@ -162,6 +176,58 @@ class PuckIconFactory {
   }
 
   // ---- vehicles (canvas is size×size, vehicle centered, nose up) ----------
+
+  /// Top-down cyclist: two wheels, frame, and the rider's shoulders and
+  /// helmet seen from above. A bike has a real overhead silhouette, so it
+  /// gets proper artwork rather than a disc-with-glyph.
+  static void _paintBike(Canvas canvas, double s) {
+    final k = s / 128;
+    canvas.scale(k);
+    const cx = 64.0;
+    _shadow(canvas, cx, 26, 104, 15);
+
+    const tyre = Color(0xFF2B3440);
+    final tyrePaint = Paint()..color = tyre;
+
+    // Front and rear wheels (narrow from overhead).
+    canvas.drawRRect(
+      RRect.fromLTRBR(cx - 4, 24, cx + 4, 52, const Radius.circular(4)),
+      tyrePaint,
+    );
+    canvas.drawRRect(
+      RRect.fromLTRBR(cx - 4, 78, cx + 4, 106, const Radius.circular(4)),
+      tyrePaint,
+    );
+
+    // Frame connecting the wheels.
+    canvas.drawRRect(
+      RRect.fromLTRBR(cx - 2.5, 46, cx + 2.5, 84, const Radius.circular(2)),
+      Paint()..color = const Color(0xFF7A8797),
+    );
+
+    // Handlebars.
+    canvas.drawRRect(
+      RRect.fromLTRBR(cx - 20, 48, cx + 20, 55, const Radius.circular(3.5)),
+      Paint()..color = const Color(0xFF44505F),
+    );
+
+    // Rider: shoulders then helmet, both outlined in white so the shape
+    // stays legible on any map style.
+    const rider = Color(0xFF1565C0);
+    final shoulders = RRect.fromLTRBR(
+        cx - 15, 54, cx + 15, 82, const Radius.circular(13));
+    canvas.drawRRect(shoulders.inflate(3.5), Paint()..color = Colors.white);
+    canvas.drawRRect(shoulders, Paint()..color = rider);
+
+    canvas.drawCircle(const Offset(cx, 62), 13.5, Paint()..color = Colors.white);
+    canvas.drawCircle(const Offset(cx, 62), 10.5, Paint()..color = rider);
+    // Helmet highlight, so the front of the rider is readable.
+    canvas.drawCircle(
+      const Offset(cx, 58.5),
+      6,
+      Paint()..color = Colors.white.withValues(alpha: 0.35),
+    );
+  }
 
   static void _paintCar(Canvas canvas, double s) {
     final k = s / 128; // all coordinates below are in 128-space
@@ -261,6 +327,8 @@ class PuckPreviewPainter extends CustomPainter {
         break; // previewed with the bundled asset image instead
       case NavPuckStyle.car:
         PuckIconFactory._paintCar(canvas, s);
+      case NavPuckStyle.bike:
+        PuckIconFactory._paintBike(canvas, s);
       case NavPuckStyle.bus:
         PuckIconFactory._paintBus(canvas, s);
       case NavPuckStyle.truck:
