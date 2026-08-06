@@ -19,6 +19,29 @@ class CameraController {
   bool _isNavigationMode = false;
   TravelMode _travelMode = TravelMode.drive;
 
+  /// When our own camera animation is expected to finish.
+  ///
+  /// Mapbox reports programmatic camera moves through the same
+  /// scroll/zoom listeners as finger gestures, so without this the
+  /// follow-camera's own easeTo reads as "the user panned" and switches
+  /// following off. Anything arriving before this instant is ours.
+  DateTime? _programmaticMoveUntil;
+
+  /// True while a camera move we initiated is still settling.
+  bool get isAnimatingProgrammatically {
+    final until = _programmaticMoveUntil;
+    if (until == null) return false;
+    return DateTime.now().isBefore(until);
+  }
+
+  /// Mark that we are about to drive the camera for [durationMs].
+  /// A small grace period covers the listener firing just after the
+  /// animation completes.
+  void _markProgrammaticMove(int durationMs) {
+    _programmaticMoveUntil = DateTime.now()
+        .add(Duration(milliseconds: durationMs + 250));
+  }
+
   /// Zoom used during active guidance; walking zooms in tighter to show side
   /// streets and building entrances.
   double get _activeGuidanceZoom => _travelMode.activeGuidanceZoom;
@@ -198,6 +221,7 @@ class CameraController {
     if (_isNavigationMode) _pendingNavBearingSnap = true;
 
     try {
+      _markProgrammaticMove(_recenterAnimationDurationMs);
       await _mapboxMap!.easeTo(
         cameraOptions,
         mp.MapAnimationOptions(duration: _recenterAnimationDurationMs),
@@ -315,6 +339,7 @@ class CameraController {
     _lastNavCameraUpdate = now;
 
     try {
+      _markProgrammaticMove(animate ? _navEaseDurationMs : 0);
       await _mapboxMap!.easeTo(
         cameraOptions,
         mp.MapAnimationOptions(duration: animate ? _navEaseDurationMs : 0),
@@ -375,6 +400,7 @@ class CameraController {
         pitch: _currentPitch,
       );
       try {
+        _markProgrammaticMove(animate ? 1500 : 0);
         await _mapboxMap!.easeTo(
           options,
           mp.MapAnimationOptions(duration: animate ? 1500 : 0),

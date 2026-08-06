@@ -292,6 +292,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   /// (similar to Mapbox NavigationCamera behavior).
   void onUserMapGesture() {
     if (!_cameraController.isFollowingUser) return; // Already off; skip rebuild
+    // Mapbox fires onScrollListener for *programmatic* camera moves too, not
+    // just finger drags. Our own follow-camera easeTo therefore looked like
+    // a user pan and switched following off on the first fix — after which
+    // the map only rotated and never re-centred. Ignore callbacks that land
+    // while (or just after) we drove the camera ourselves.
+    if (_cameraController.isAnimatingProgrammatically) return;
     debugPrint('🖐️ Follow mode OFF (map gesture)');
     _cameraController.disableFollowUser();
     if (mounted) setState(() {});
