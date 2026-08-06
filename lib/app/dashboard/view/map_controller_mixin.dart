@@ -1026,20 +1026,20 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             iconAnchor: mp.IconAnchor.BOTTOM,
             // Native Mapbox waypoint curve (exp 1.5) from RouteLineUtils.kt.
             // The image registers at 48×54 pt logical (4.0x asset at its own
-            // density), so these factors put the pin at ~43 pt tall at
-            // street zoom — Google-Maps-pin sized — shrinking smoothly at
-            // overview without disappearing.
+            // density). The destination is the single most important marker
+            // on the map, so it sits a little larger than the saved-place
+            // pins rather than competing with them at the same size.
             iconSizeExpression: [
               'interpolate',
               ['exponential', 1.5],
               ['zoom'],
-              0.0, 0.30,
-              10.0, 0.42,
-              12.0, 0.52,  // city overview (~28 pt)
-              14.0, 0.65,  // area view (~35 pt)
-              16.0, 0.80,  // street level (~43 pt)
-              19.0, 0.95,
-              22.0, 1.15,  // max zoom (~62 pt)
+              0.0, 0.42,
+              10.0, 0.60,
+              12.0, 0.75,  // city overview (~40 pt)
+              14.0, 0.92,  // area view (~50 pt)
+              16.0, 1.05,  // street level (~57 pt)
+              19.0, 1.20,
+              22.0, 1.40,  // max zoom (~76 pt)
             ],
           ),
         );
