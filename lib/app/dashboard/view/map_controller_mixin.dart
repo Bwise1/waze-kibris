@@ -292,6 +292,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   /// (similar to Mapbox NavigationCamera behavior).
   void onUserMapGesture() {
     if (!_cameraController.isFollowingUser) return; // Already off; skip rebuild
+    debugPrint('🖐️ Follow mode OFF (map gesture)');
     _cameraController.disableFollowUser();
     if (mounted) setState(() {});
   }
@@ -1748,6 +1749,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         final inOverview = isNavigating && currentState.isOverviewVisible;
         final nativeViewportDrives =
             useNativeNavViewport && isNavigating && !inOverview;
+        if (isNavigating && !_cameraController.isFollowingUser && !inOverview) {
+          debugPrint('📷 Camera skipped: follow mode is OFF while navigating');
+        }
         if (_mapboxMapController != null &&
             (_cameraController.isFollowingUser || inOverview)) {
           if (nativeViewportDrives) {
@@ -1821,6 +1825,13 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   /// every one makes the map creep and the puck appear to drift. Once
   /// actually moving we follow every fix, so responsiveness is unaffected.
   bool _shouldMoveCameraFor(Position position) {
+    // Never throttle during navigation: the position here is snapped to the
+    // route, so it isn't jittering, and skipping updates makes the camera
+    // fall behind the driver.
+    if (navigationBloc.state is NavigationInProgress) {
+      _lastCameraPosition = position;
+      return true;
+    }
     final last = _lastCameraPosition;
     final moving = _bearingFusion.isMoving(position);
     if (moving || last == null) {
@@ -1856,11 +1867,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     // Use camera controller for all camera updates (pass snap-based distances for native parity)
     _cameraController.updateCamera(
       userPosition: position,
-      // Deliberately NOT position.heading: that carries the compass value
-      // while stationary, so rotating the parked phone would spin the whole
-      // map. _cameraBearing is null when stopped, which the camera reads as
-      // "hold the current heading" — the puck turns, the map doesn't.
-      userBearing: _cameraBearing,
+      // During navigation `position` is the snapped position and its heading
+      // is the route bearing — exactly what the camera should follow, so use
+      // it directly. Outside navigation fall back to _cameraBearing, which
+      // is null when stationary so a parked phone's compass can't spin the
+      // whole map (the puck still turns).
+      userBearing: navigationBloc.state is NavigationInProgress
+          ? (position.heading >= 0 ? position.heading : null)
+          : _cameraBearing,
       isOverviewMode: isOverviewMode,
       distanceToManeuverAlongRouteMeters: distanceToManeuverAlongRouteMeters,
       remainingDistanceAlongRouteMeters: remainingDistanceAlongRouteMeters,

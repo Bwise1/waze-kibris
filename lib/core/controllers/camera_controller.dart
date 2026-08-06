@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
+
 import 'package:flutter_polyline_points/flutter_polyline_points.dart' hide TravelMode;
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
@@ -288,6 +290,15 @@ class CameraController {
       bearing: smoothedBearing, // Follow user's heading
       pitch: _currentPitch,
     );
+
+    if (kDebugMode) {
+      debugPrint('📷 nav camera → '
+          'lat=${userPosition.latitude.toStringAsFixed(5)} '
+          'lng=${userPosition.longitude.toStringAsFixed(5)} '
+          'bearing=${smoothedBearing.toStringAsFixed(0)} '
+          'zoom=${_currentZoom.toStringAsFixed(1)} '
+          'speed=${(userPosition.speed * 3.6).toStringAsFixed(0)}km/h');
+    }
 
     // The ease must span the whole gap until the next GPS fix, or the
     // camera glides then freezes (animation done, no new target yet).
