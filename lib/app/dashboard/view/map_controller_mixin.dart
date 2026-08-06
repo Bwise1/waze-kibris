@@ -1073,6 +1073,212 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     _currentPolylinePoints = null;
   }
 
+  // ── Saved places (Home / Work / …) ────────────────────────────────────
+  //
+  // Rendered as a SymbolLayer rather than annotations so the pins scale
+  // smoothly with zoom and carry their name as a map label, the same way
+  // Mapbox draws its own POIs. Tapping one starts navigation there.
+
+  static const String _savedSourceId = 'saved-places-source';
+  static const String _savedLayerId = 'saved-places-layer';
+  static const String _savedPinImageId = 'saved-place-pin';
+
+  List<SavedLocations> _savedPlaces = const [];
+
+  /// Callback invoked when a saved-place pin is tapped. Set by the host
+  /// screen so it can open the route sheet for that destination.
+  void Function(SavedLocations place)? onSavedPlaceTapped;
+
+  /// Draw (or refresh) the saved-place pins. Safe to call repeatedly; a
+  /// style reload re-runs it via [refreshSavedPlaces].
+  Future<void> displaySavedPlacesOnMap(List<SavedLocations> places) async {
+    _savedPlaces = places;
+    final map = _mapboxMapController;
+    if (map == null || !mounted) return;
+
+    try {
+      await _addSavedPinImageToStyle();
+
+      final features = places
+          .map((p) => {
+                'type': 'Feature',
+                'geometry': {
+                  'type': 'Point',
+                  'coordinates': [p.longitude, p.latitude],
+                },
+                'properties': {
+                  'id': p.id,
+                  'name': p.name,
+                },
+              })
+          .toList();
+      final geoJson =
+          jsonEncode({'type': 'FeatureCollection', 'features': features});
+
+      if (await map.style.styleSourceExists(_savedSourceId)) {
+        await map.style.setStyleSourceProperty(_savedSourceId, 'data', geoJson);
+      } else {
+        await map.style
+            .addSource(mp.GeoJsonSource(id: _savedSourceId, data: geoJson));
+      }
+
+      if (!await map.style.styleLayerExists(_savedLayerId)) {
+        await map.style.addLayer(
+          mp.SymbolLayer(
+            id: _savedLayerId,
+            sourceId: _savedSourceId,
+            iconImage: _savedPinImageId,
+            iconAnchor: mp.IconAnchor.BOTTOM,
+            iconAllowOverlap: true,
+            iconIgnorePlacement: true,
+            // Name under the pin, like Mapbox's own place labels. Hidden
+            // when zoomed out so the map doesn't turn into a wall of text.
+            textField: '{name}',
+            textAnchor: mp.TextAnchor.TOP,
+            textOffset: [0, 0.6],
+            textSize: 12,
+            textColor: const Color(0xFF1E1B18).value,
+            textHaloColor: Colors.white.value,
+            textHaloWidth: 1.4,
+            textOptional: true,
+            textSizeExpression: [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              11.0, 0.0, // no label at city overview
+              12.5, 11.0,
+              16.0, 13.0,
+            ],
+            iconSizeExpression: [
+              'interpolate',
+              ['exponential', 1.5],
+              ['zoom'],
+              0.0, 0.22,
+              12.0, 0.38,
+              16.0, 0.5,
+              22.0, 0.7,
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error drawing saved places: $e');
+    }
+  }
+
+  /// Re-draw saved places after a style reload wiped the runtime layers.
+  Future<void> refreshSavedPlaces() async {
+    if (_savedPlaces.isNotEmpty) {
+      await displaySavedPlacesOnMap(_savedPlaces);
+    }
+  }
+
+  /// Hit-test a tap against the saved-place layer, returning the place that
+  /// was tapped (if any).
+  Future<SavedLocations?> _savedPlaceAt(mp.MapContentGestureContext ctx) async {
+    final map = _mapboxMapController;
+    if (map == null || _savedPlaces.isEmpty) return null;
+    try {
+      if (!await map.style.styleLayerExists(_savedLayerId)) return null;
+      // Generous box: pins are small targets on a moving map.
+      final box = mp.RenderedQueryGeometry.fromScreenBox(
+        mp.ScreenBox(
+          min: mp.ScreenCoordinate(
+            x: ctx.touchPosition.x - 22,
+            y: ctx.touchPosition.y - 22,
+          ),
+          max: mp.ScreenCoordinate(
+            x: ctx.touchPosition.x + 22,
+            y: ctx.touchPosition.y + 22,
+          ),
+        ),
+      );
+      final hits = await map.queryRenderedFeatures(
+        box,
+        mp.RenderedQueryOptions(layerIds: [_savedLayerId], filter: null),
+      );
+      for (final hit in hits) {
+        final props = hit?.queriedFeature.feature['properties'];
+        if (props is Map && props['id'] != null) {
+          final id = (props['id'] as num).toInt();
+          for (final place in _savedPlaces) {
+            if (place.id == id) return place;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Saved place hit-test failed: $e');
+    }
+    return null;
+  }
+
+  /// Home/Work/other pin: a rounded brand-red teardrop with a white glyph,
+  /// drawn programmatically so no new asset is needed.
+  Future<void> _addSavedPinImageToStyle() async {
+    final map = _mapboxMapController;
+    if (map == null || !mounted) return;
+    try {
+      if (await map.style.hasStyleImage(_savedPinImageId)) return;
+
+      const int w = 96;
+      const int h = 120;
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+
+      const centre = Offset(w / 2, w / 2);
+      const radius = 40.0;
+
+      // Drop shadow
+      canvas.drawCircle(
+        centre.translate(0, 5),
+        radius,
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.25)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+      );
+
+      // Teardrop tail
+      final tail = Path()
+        ..moveTo(w / 2 - 15, w / 2 + 30)
+        ..lineTo(w / 2, h.toDouble() - 4)
+        ..lineTo(w / 2 + 15, w / 2 + 30)
+        ..close();
+      canvas.drawPath(tail, Paint()..color = const Color(0xFFFF0000));
+
+      // Body + white ring
+      canvas.drawCircle(centre, radius, Paint()..color = Colors.white);
+      canvas.drawCircle(
+          centre, radius - 5, Paint()..color = const Color(0xFFFF0000));
+
+      // Bookmark glyph
+      final glyph = Path()
+        ..moveTo(w / 2 - 11, w / 2 - 15)
+        ..lineTo(w / 2 + 11, w / 2 - 15)
+        ..lineTo(w / 2 + 11, w / 2 + 16)
+        ..lineTo(w / 2, w / 2 + 6)
+        ..lineTo(w / 2 - 11, w / 2 + 16)
+        ..close();
+      canvas.drawPath(glyph, Paint()..color = Colors.white);
+
+      final image = await recorder.endRecording().toImage(w, h);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      if (bytes == null || !mounted || _mapboxMapController == null) return;
+
+      await _mapboxMapController!.style.addStyleImage(
+        _savedPinImageId,
+        3.0, // asset density: 96px wide renders at 32pt
+        mp.MbxImage(width: w, height: h, data: bytes.buffer.asUint8List()),
+        false,
+        [],
+        [],
+        null,
+      );
+    } catch (e) {
+      debugPrint('⚠️ Error creating saved place pin: $e');
+    }
+  }
+
   /// Registers a small circle-in-circle image (mirrors Android's
   /// `mapbox_ic_route_origin.xml`: grey outer, white inner) as the origin pin.
   /// Drawn programmatically so we don't have to ship yet another asset.
@@ -1444,7 +1650,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Handle map tap events - delegates to layer-specific tap interactions
   void onMapTap(mp.MapContentGestureContext context) async {
-    // Reserved for future map-level taps (POIs, etc.)
+    // Saved places are the only tappable map content besides reports (which
+    // have their own annotation tap handler).
+    final place = await _savedPlaceAt(context);
+    if (place != null) {
+      onSavedPlaceTapped?.call(place);
+    }
   }
 
   /// Debounced report icon size update to prevent excessive recreations

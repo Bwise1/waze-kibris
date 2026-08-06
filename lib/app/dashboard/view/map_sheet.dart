@@ -54,10 +54,16 @@ class MapSheet extends StatefulWidget {
       onRouteSelectionDismissed; // Callback to restore MapSheet when route selection is dismissed
 
   @override
-  State<MapSheet> createState() => _MapSheetState();
+  State<MapSheet> createState() => MapSheetState();
 }
 
-class _MapSheetState extends State<MapSheet> {
+class MapSheetState extends State<MapSheet> {
+  /// Open the place/route flow for a saved location. Public so the map can
+  /// trigger the exact same flow when one of its saved-place pins is
+  /// tapped — no duplicated routing logic.
+  Future<void> openSavedLocation(SavedLocations location) =>
+      _onSavedLocationTap(location);
+
   final PlacesService _placesService = getIt<PlacesService>();
 
   /// Refetch routes for a different travel mode when the user toggles the

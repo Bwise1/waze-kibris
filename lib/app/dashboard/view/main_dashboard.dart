@@ -72,6 +72,9 @@ class _MainDashboardState extends State<MainDashboard>
       _lastDrawnRoute; // Track last drawn route for reroute/refresh redraw
   StreamSubscription<WsMessage>? _groupLocationSub;
   final Map<String, dynamic> _groupMemberLocations = {};
+
+  /// Lets a saved-place pin tap reuse the sheet's existing route flow.
+  final GlobalKey<MapSheetState> _mapSheetKey = GlobalKey<MapSheetState>();
   DateTime? _lastNearbyUsersFetch;
   static const Duration _nearbyUsersFetchInterval = Duration(seconds: 30);
 
@@ -261,6 +264,13 @@ class _MainDashboardState extends State<MainDashboard>
     });
     NavPuckPreference.style.addListener(_onPuckStyleChanged);
 
+    // Tapping a saved-place pin on the map opens the same place/route sheet
+    // the Home/Work cards use.
+    onSavedPlaceTapped = (place) {
+      if (!mounted) return;
+      _mapSheetKey.currentState?.openSavedLocation(place);
+    };
+
     // Driving preferences (voice, units, avoid rules, report alerts…).
     NavSettings.load();
     // Hiding/showing a report type takes effect on the map immediately.
@@ -382,6 +392,8 @@ class _MainDashboardState extends State<MainDashboard>
     if (route != null) {
       drawMapboxPolyline(route, fitCamera: false);
     }
+    // Saved-place pins live in runtime layers, which the reload also wiped.
+    refreshSavedPlaces();
   }
 
   Future<void> _connectWebSocketIfPossible() async {
@@ -763,6 +775,9 @@ class _MainDashboardState extends State<MainDashboard>
                 if (state is GetReportSuccess) {
                   _lastReportsWereEmpty = state.data.isEmpty;
                   _onReportsReceived(state.data);
+                } else if (state is GetSavedLocationsSuccess) {
+                  // Home/Work/etc. as pins on the map, tappable to navigate.
+                  displaySavedPlacesOnMap(state.data);
                 } else if (state is ReportError) {
                   debugPrint('🚨 Report fetch error: ${state.message}');
                 }
@@ -1007,6 +1022,7 @@ class _MainDashboardState extends State<MainDashboard>
                               return false;
                             },
                             child: MapSheet(
+                            key: _mapSheetKey,
                             onSuggestionSelected: _onSuggestionSelected,
                             onDrawMapboxPolyline:
                                 (route, {alternativeRoutes}) {
