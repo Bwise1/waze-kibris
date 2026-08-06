@@ -33,7 +33,7 @@ class ReportChatScreen extends StatelessWidget {
     return BlocProvider<ReportChatBloc>(
       create: (context) => ReportChatBloc(
         reportId: reportId,
-        reportRepository: getIt<ReportRepository>(),
+        reportRepository: context.read<ReportRepository>(),
         webSocketService: context.read<WebSocketService>(),
         currentUserId: currentUserId,
       )..add(const ReportChatStarted()),

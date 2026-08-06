@@ -484,7 +484,8 @@ class _DiscussButtonState extends State<_DiscussButton> {
 
   Future<void> _loadCount() async {
     try {
-      final messages = await getIt<ReportRepository>()
+      final messages = await context
+          .read<ReportRepository>()
           .getReportChatMessages(widget.reportId);
       if (mounted) setState(() => _count = messages.length);
     } catch (_) {
