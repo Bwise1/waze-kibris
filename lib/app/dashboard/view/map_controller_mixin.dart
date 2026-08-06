@@ -372,29 +372,34 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           .updateSettings(mp.LogoSettings(enabled: false));
       _mapboxMapController?.attribution
           .updateSettings(mp.AttributionSettings(enabled: false));
-      // Compass sits top-right, vertically centred on the same line as the
-      // top-left menu button. The button is 42pt tall (22pt icon + 10pt
-      // padding each side) at safeTop; the Mapbox compass ornament is 40pt,
-      // so nudge it down by half the difference to align their centres
-      // rather than their top edges. Android ornament margins are physical
-      // pixels, hence the DPR scaling.
-      const double menuButtonSize = 42;
-      const double compassOrnamentSize = 40;
-      final safeTop = MediaQuery.of(context).padding.top + 12.0;
-      final compassTop =
-          safeTop + (menuButtonSize - compassOrnamentSize) / 2;
-      final ornamentScale =
-          Platform.isAndroid ? MediaQuery.of(context).devicePixelRatio : 1.0;
-      _mapboxMapController?.compass.updateSettings(mp.CompassSettings(
-        enabled: true,
-        position: mp.OrnamentPosition.TOP_RIGHT,
-        marginTop: compassTop * ornamentScale,
-        // Match the menu button's 16pt inset from the opposite edge.
-        marginRight: 16.0 * ornamentScale,
-      ));
+      // The built-in compass ornament is hidden: its size isn't exposed by
+      // the plugin, so aligning it with our own 42pt buttons meant guessing
+      // an offset — and it always landed visibly off the menu button's
+      // line. We draw our own compass in the Flutter layer instead (see
+      // _MapCompassButton), where it shares the exact geometry of the
+      // other floating controls.
+      _mapboxMapController?.compass
+          .updateSettings(mp.CompassSettings(enabled: false));
       _mapboxMapController?.scaleBar
           .updateSettings(mp.ScaleBarSettings(enabled: false));
     });
+  }
+
+  /// Snap the map back to north-up, as tapping the compass does in Google
+  /// Maps. During navigation the camera is course-up by design, so this
+  /// only applies when the user is free-panning.
+  Future<void> resetMapBearingToNorth() async {
+    final map = _mapboxMapController;
+    if (map == null) return;
+    if (navigationBloc.state is NavigationInProgress) return;
+    try {
+      await map.easeTo(
+        mp.CameraOptions(bearing: 0),
+        mp.MapAnimationOptions(duration: 300),
+      );
+    } catch (e) {
+      debugPrint('⚠️ Reset bearing failed: $e');
+    }
   }
 
   /// The style URI currently applied to the map (set at creation via

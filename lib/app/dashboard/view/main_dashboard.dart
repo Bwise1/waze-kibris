@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -70,6 +71,9 @@ class _MainDashboardState extends State<MainDashboard>
   /// Drives the floating buttons so they ride on top of the sheet,
   /// Waze-style, without rebuilding the whole screen per frame.
   final ValueNotifier<double> _sheetHeightPx = ValueNotifier(-1);
+
+  /// Live map bearing in degrees, driving our own compass button.
+  final ValueNotifier<double> _mapBearing = ValueNotifier(0);
   MapboxRoute?
       _lastDrawnRoute; // Track last drawn route for reroute/refresh redraw
   StreamSubscription<WsMessage>? _groupLocationSub;
@@ -497,6 +501,7 @@ class _MainDashboardState extends State<MainDashboard>
     getIt<PushNotificationService>().setReportChatTapHandler(null);
     _groupLocationSub?.cancel();
     _sheetHeightPx.dispose();
+    _mapBearing.dispose();
     _initialReportFetchFallbackTimer?.cancel();
     _routeRefreshTimer?.cancel();
     _navigationBloc.close();
@@ -842,6 +847,12 @@ class _MainDashboardState extends State<MainDashboard>
                           // easeTo calls and would create a feedback loop.
                           onScrollListener: (_) => onUserMapGesture(),
                           onZoomListener: (_) => onUserMapGesture(),
+                          // Drives our own compass. Only the notifier
+                          // updates, so this doesn't rebuild the screen.
+                          onCameraChangeListener: (data) {
+                            _mapBearing.value =
+                                data.cameraState.bearing;
+                          },
                           cameraOptions: _lastReportFetchPosition != null
                               ? mp.CameraOptions(
                                   center: mp.Point(
@@ -878,38 +889,42 @@ class _MainDashboardState extends State<MainDashboard>
                   Positioned(
                     top: MediaQuery.of(context).padding.top + 12,
                     left: 16,
-                    child: Material(
-                      color: Colors.white,
-                      shape: const CircleBorder(),
-                      elevation: 4,
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: () {
-                          final authState = context.read<AuthBloc>().state;
-                          if (authState is AuthSuccess &&
-                              authState.user != null) {
-                            final user = authState.user!;
-                            showProfilePanel(
-                              context,
-                              userDisplayName: user.displayName,
-                              userEmail: user.email,
-                              userProfileIcon: user.profileIcon,
-                            );
-                          } else {
-                            showProfilePanel(context);
-                          }
-                        },
-                        child: const Padding(
-                          padding: EdgeInsets.all(10),
-                          child: Icon(
-                            Icons.menu,
-                            color: Colors.black87,
-                            size: 22,
-                          ),
+                    child: _MapCircleButton(
+                      icon: Icons.menu,
+                      onTap: () {
+                        final authState = context.read<AuthBloc>().state;
+                        if (authState is AuthSuccess &&
+                            authState.user != null) {
+                          final user = authState.user!;
+                          showProfilePanel(
+                            context,
+                            userDisplayName: user.displayName,
+                            userEmail: user.email,
+                            userProfileIcon: user.profileIcon,
+                          );
+                        } else {
+                          showProfilePanel(context);
+                        }
+                      },
+                    ),
+                  ),
+
+                  // Compass, exactly opposite the menu button — same 42pt
+                  // circle, same safe-area offset, so the two align.
+                  // Hidden during navigation, where the course-up toggle
+                  // in the nav overlay owns this job instead.
+                  if (state is! NavigationInProgress)
+                    Positioned(
+                      top: MediaQuery.of(context).padding.top + 12,
+                      right: 16,
+                      child: ValueListenableBuilder<double>(
+                        valueListenable: _mapBearing,
+                        builder: (context, bearing, _) => _MapCompassButton(
+                          bearing: bearing,
+                          onTap: resetMapBearingToNorth,
                         ),
                       ),
                     ),
-                  ),
 
                   // Chats: one tap from the map, since it's a daily
                   // destination rather than a setting. Hidden while
@@ -927,25 +942,12 @@ class _MainDashboardState extends State<MainDashboard>
                           return Stack(
                             clipBehavior: Clip.none,
                             children: [
-                              Material(
-                                color: Colors.white,
-                                shape: const CircleBorder(),
-                                elevation: 4,
-                                child: InkWell(
-                                  customBorder: const CircleBorder(),
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => const GroupListScreen(),
-                                    ),
-                                  ),
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(10),
-                                    child: Icon(
-                                      Icons.forum_outlined,
-                                      color: Colors.black87,
-                                      size: 22,
-                                    ),
+                              _MapCircleButton(
+                                icon: Icons.forum_outlined,
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => const GroupListScreen(),
                                   ),
                                 ),
                               ),
@@ -1004,23 +1006,22 @@ class _MainDashboardState extends State<MainDashboard>
                           child: buttons!,
                         );
                       },
+                      // Same 42pt circle as the menu/chat buttons opposite,
+                      // so every floating map control reads as one family.
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          FloatingActionButton(
-                            heroTag: 'recenter_fab',
-                            onPressed: recenterOnUser,
-                            backgroundColor: Colors.white,
-                            child: const Icon(
-                              Icons.gps_fixed,
-                              color: Colors.blueAccent,
-                            ),
+                          _MapCircleButton(
+                            icon: Icons.gps_fixed,
+                            iconColor: Colors.blueAccent,
+                            onTap: recenterOnUser,
                           ),
                           const SizedBox(height: 12),
-                          FloatingActionButton(
-                            heroTag: 'global_report_fab',
+                          _MapCircleButton(
+                            icon: Icons.report_problem,
+                            iconColor: Colors.white,
                             backgroundColor: Colors.orange,
-                            onPressed: () async {
+                            onTap: () {
                               showModalBottomSheet<void>(
                                 context: context,
                                 isScrollControlled: true,
@@ -1029,10 +1030,6 @@ class _MainDashboardState extends State<MainDashboard>
                                     const ReportEventModal(),
                               );
                             },
-                            child: const Icon(
-                              Icons.report_problem,
-                              color: Colors.white,
-                            ),
                           ),
                         ],
                       ),
@@ -1149,6 +1146,85 @@ class _MainDashboardState extends State<MainDashboard>
       builder: (ctx) => ArrivalSummarySheet(
         state: s,
         onDone: _endNavigation,
+      ),
+    );
+  }
+}
+
+/// Circular floating control on the map — menu, chat, recenter, report.
+///
+/// All four share one size and shape so they read as a single family; the
+/// default FloatingActionButton is 56pt with a squircle shape, which made
+/// the recenter/report pair noticeably larger than the menu and chat
+/// buttons opposite them.
+class _MapCircleButton extends StatelessWidget {
+  const _MapCircleButton({
+    required this.icon,
+    required this.onTap,
+    this.iconColor = Colors.black87,
+    this.backgroundColor = Colors.white,
+  });
+
+  /// Matches the menu button: 22pt icon + 10pt padding = 42pt.
+  static const double diameter = 42;
+  static const double iconSize = 22;
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final Color iconColor;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: backgroundColor,
+      shape: const CircleBorder(),
+      elevation: 4,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all((diameter - iconSize) / 2),
+          child: Icon(icon, color: iconColor, size: iconSize),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compass matching the other floating map controls. Rotates with the map
+/// and snaps the map back to north when tapped, like Google Maps.
+class _MapCompassButton extends StatelessWidget {
+  const _MapCompassButton({required this.bearing, required this.onTap});
+
+  final double bearing;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 4,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox(
+          width: _MapCircleButton.diameter,
+          height: _MapCircleButton.diameter,
+          child: Center(
+            child: Transform.rotate(
+              // Map bearing is clockwise; the needle turns the other way to
+              // keep pointing at true north.
+              angle: -bearing * math.pi / 180,
+              child: Icon(
+                Icons.navigation,
+                size: _MapCircleButton.iconSize,
+                color: styles.theme.primary,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
