@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:waze_kibris/core/services/nav_settings.dart';
 
 class SpeedometerWidget extends StatefulWidget {
   final double currentSpeed; // in m/s
@@ -58,6 +59,13 @@ class _SpeedometerWidgetState extends State<SpeedometerWidget> {
     final limit = widget.speedLimit;
     final hasLimit = limit != null && limit! > 0;
     final isOverLimit = hasLimit && speedKmH > limit! + 3;
+    // Speed limits arrive from Mapbox in km/h; convert both readouts
+    // together so the dial and the limit badge never mix units.
+    final imperial = NavSettings.units.value == DistanceUnit.imperial;
+    final displaySpeed = imperial ? (speedKmH * 0.621371).round() : speedKmH;
+    final displayLimit =
+        hasLimit ? (imperial ? (limit! * 0.621371).round() : limit!.round()) : 0;
+    final unitLabel = imperial ? 'mph' : 'km/h';
 
     return Container(
       width: 64,
@@ -84,7 +92,7 @@ class _SpeedometerWidgetState extends State<SpeedometerWidget> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                '$speedKmH',
+                '$displaySpeed',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
@@ -92,9 +100,9 @@ class _SpeedometerWidgetState extends State<SpeedometerWidget> {
                   height: 1.0,
                 ),
               ),
-              const Text(
-                'km/h',
-                style: TextStyle(
+              Text(
+                unitLabel,
+                style: const TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
                   color: Colors.grey,
@@ -116,7 +124,7 @@ class _SpeedometerWidgetState extends State<SpeedometerWidget> {
                 ),
               ),
               child: Text(
-                hasLimit ? '${limit!.round()}' : '—',
+                hasLimit ? '$displayLimit' : '—',
                 style: TextStyle(
                   fontSize: 8,
                   fontWeight: FontWeight.bold,

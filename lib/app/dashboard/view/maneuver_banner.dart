@@ -14,6 +14,7 @@ class ManeuverBanner extends StatelessWidget {
   final EnhancedNavigationController? navigationController;
   final MapboxStep? nextStep; // Next-next instruction preview
   final TravelMode mode;
+  final double? currentSpeedMps;
 
   const ManeuverBanner({
     super.key,
@@ -23,18 +24,39 @@ class ManeuverBanner extends StatelessWidget {
     this.navigationController,
     this.nextStep,
     this.mode = TravelMode.drive,
+    this.currentSpeedMps,
   });
 
   MapboxBannerInstruction? get _currentBanner {
-    // Find the appropriate banner based on distance remaining
+    // A banner becomes active once distanceRemaining drops to its
+    // distanceAlongGeometry. Mapbox orders them farthest-first, so among
+    // the active ones we want the MOST SPECIFIC (smallest trigger
+    // distance) — that's the close-in banner with the exit/lane detail.
+    if (step.bannerInstructions.isEmpty) return null;
+    MapboxBannerInstruction? best;
     for (final banner in step.bannerInstructions) {
-      if (distanceRemaining >= banner.distanceAlongGeometry) {
-        return banner;
+      if (distanceRemaining <= banner.distanceAlongGeometry) {
+        if (best == null ||
+            banner.distanceAlongGeometry < best.distanceAlongGeometry) {
+          best = banner;
+        }
       }
     }
-    return step.bannerInstructions.isNotEmpty
-        ? step.bannerInstructions.first
-        : null;
+    return best ?? step.bannerInstructions.first;
+  }
+
+  /// Native "then" gate: 18s = RouteControllerHighAlertInterval(15) × 1.2.
+  /// Time to the upcoming maneuver is estimated from live speed (floored at
+  /// walking pace so a car stopped right before the turn still qualifies);
+  /// the gap to the maneuver after it is the current step's duration.
+  bool get _shouldShowThenPreview {
+    const linkedThresholdSeconds = 18.0;
+    final speed = (currentSpeedMps != null && currentSpeedMps! > 4.0)
+        ? currentSpeedMps!
+        : 4.0;
+    final secondsToManeuver = distanceRemaining / speed;
+    return secondsToManeuver <= linkedThresholdSeconds &&
+        step.duration <= linkedThresholdSeconds;
   }
 
   bool get _isVoiceEnabled {
@@ -101,20 +123,32 @@ class ManeuverBanner extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: Icon(
-                    _isVoiceEnabled ? Icons.volume_up : Icons.volume_off,
-                    color: _isVoiceEnabled
-                        ? const Color(0xFFFF0000)
-                        : Colors.grey,
-                    size: 22,
+                // Tap = mute/unmute (what a speaker icon means everywhere).
+                // Long-press = replay the current instruction.
+                GestureDetector(
+                  onLongPress: _isVoiceEnabled
+                      ? () async => _speakCurrentInstruction()
+                      : null,
+                  child: IconButton(
+                    icon: Icon(
+                      _isVoiceEnabled ? Icons.volume_up : Icons.volume_off,
+                      color: _isVoiceEnabled
+                          ? const Color(0xFFFF0000)
+                          : Colors.grey,
+                      size: 22,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 36, minHeight: 36),
+                    onPressed: () {
+                      if (navigationBloc != null) {
+                        navigationBloc!.toggleVoice();
+                      } else if (navigationController != null) {
+                        navigationController!.isVoiceEnabled =
+                            !navigationController!.isVoiceEnabled;
+                      }
+                    },
                   ),
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 36, minHeight: 36),
-                  onPressed: () async {
-                    await _speakCurrentInstruction();
-                  },
                 ),
               ],
             ),
@@ -126,8 +160,10 @@ class ManeuverBanner extends StatelessWidget {
                 child: _buildEnhancedInfo(),
               ),
 
-            // "Then" preview of the next-next instruction.
-            if (nextStep != null)
+            // "Then" preview — native gate is TIME-based (NextBannerView.swift:
+            // 156-169): show only when we're within ~18s of the upcoming
+            // maneuver AND the following maneuver comes within ~18s after it.
+            if (nextStep != null && _shouldShowThenPreview)
               Padding(
                 padding: const EdgeInsets.only(top: 10),
                 child: _buildNextStepPreview(),

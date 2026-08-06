@@ -14,7 +14,11 @@ import 'package:waze_kibris/gen/assets.gen.dart';
 import 'package:waze_kibris/app/dashboard/services/bearing_fusion_service.dart';
 import 'package:waze_kibris/app/dashboard/services/snap_to_road_service.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
+import 'package:waze_kibris/core/constants/navigation_camera_constants.dart';
 import 'package:waze_kibris/core/controllers/camera_controller.dart';
+import 'package:waze_kibris/core/services/nav_puck_preference.dart';
+import 'package:waze_kibris/core/services/nav_settings.dart';
+import 'package:waze_kibris/core/services/puck_icon_factory.dart';
 import 'package:waze_kibris/core/services/route_visualization_service.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
@@ -52,6 +56,182 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   // Compass/GPS bearing fusion — GPS course is unreliable at low speeds
   final BearingFusionService _bearingFusion = BearingFusionService();
+
+  // ---------------------------------------------------------------------
+  // Native viewport (iOS): during navigation the camera is driven by the
+  // SDK's FollowPuckViewportState — it consumes the puck's 60fps
+  // interpolated position on the render thread, so camera and puck move
+  // in perfect lockstep with zero platform-channel latency. This is the
+  // same architecture as the native Mapbox Navigation SDK / Google Maps.
+  // The Dart CameraController remains the driver on Android (where the
+  // course bearing mode isn't available) and for overview/free-drive.
+  // ---------------------------------------------------------------------
+  mp.ViewportState? _navViewport;
+
+  /// Current viewport for the MapWidget. Null until navigation uses it.
+  mp.ViewportState? get navViewport => _navViewport;
+
+  /// FollowPuckViewportStateBearingCourse is iOS-only, so the native
+  /// viewport path is too. Android keeps the Dart-driven camera.
+  bool get useNativeNavViewport => Platform.isIOS;
+
+  double _nativeViewportZoom = kFollowingMaxZoom;
+  double _nativeViewportPitch = kFollowingDefaultPitch;
+  bool _nativeBearingIsCourse = false;
+
+  /// Enter (or retune) the native follow-puck viewport. Padding is set
+  /// separately on the map camera and is deliberately NOT part of the
+  /// state — native leaves it untouched, so the lower-third puck framing
+  /// persists. [constantBearing] pins the camera bearing (used at trip
+  /// start when GPS course is invalid); when null, the camera follows the
+  /// device course.
+  void enterNativeFollowViewport({
+    double? zoom,
+    double? pitch,
+    double? constantBearing,
+    int maxDurationMs = 2000,
+  }) {
+    if (!useNativeNavViewport || !mounted) return;
+    _nativeViewportZoom = zoom ?? _nativeViewportZoom;
+    _nativeViewportPitch = pitch ?? _nativeViewportPitch;
+    _nativeBearingIsCourse = constantBearing == null;
+    setStateWithViewportAnimation(
+      () {
+        _navViewport = mp.FollowPuckViewportState(
+          zoom: _nativeViewportZoom,
+          pitch: _nativeViewportPitch,
+          bearing: constantBearing != null
+              ? mp.FollowPuckViewportStateBearingConstant(constantBearing)
+              : const mp.FollowPuckViewportStateBearingCourse(),
+        );
+      },
+      transition: mp.DefaultViewportTransition(
+        maxDuration: Duration(milliseconds: maxDurationMs),
+      ),
+    );
+  }
+
+  /// Reset dynamics and enter the native follow viewport for a new trip.
+  /// Initial zoom = native zoomRange upper bound (16.35), which is also
+  /// what the native SDK uses as the trip-start zoom.
+  void startNativeNavViewport({double? initialBearing}) {
+    _cameraController.applyNavigationPaddingNow(_mapboxMapController);
+    enterNativeFollowViewport(
+      zoom: kFollowingMaxZoom,
+      pitch: kFollowingDefaultPitch,
+      constantBearing: initialBearing ?? 0,
+      maxDurationMs: 1800,
+    );
+  }
+
+  /// Hand the camera back to Dart control (nav end, overview mode).
+  void exitNativeViewport() {
+    if (!useNativeNavViewport || !mounted) return;
+    if (_navViewport == null || _navViewport is mp.IdleViewportState) return;
+    setState(() {
+      _navViewport = const mp.IdleViewportState();
+    });
+  }
+
+  /// Maneuver types that do NOT flatten the camera on approach, per the
+  /// native SDK (PitchNearManeuvers.excludedManeuvers).
+  static const Set<String> _pitchExcludedManeuvers = {
+    'continue',
+    'merge',
+    'on ramp',
+    'off ramp',
+    'fork',
+  };
+
+  bool _viewportDynamicsBusy = false;
+
+  /// Per-fix retune of the native viewport, mirroring the native
+  /// MapboxNavigationViewportDataSource:
+  ///  - PITCH ramps linearly 45° → 0° over the last 180m before a maneuver
+  ///    (skipped for continue/merge/ramp/fork and the final step).
+  ///  - ZOOM frames the road ahead: look-ahead = avg intersection spacing
+  ///    × 7, fitted into the padded viewport, clamped to [10.5, 16.35].
+  ///    Zoom is NOT speed-based — dense streets zoom in, open roads out.
+  ///  - Bearing switches from the pinned departure bearing to live course
+  ///    once actually moving.
+  /// Values are quantized so a viewport transition only fires on a real
+  /// change.
+  Future<void> _updateNativeViewportDynamics(
+      Position position, SnapToRoadResult? snap) async {
+    if (_viewportDynamicsBusy || _mapboxMapController == null) return;
+    final navState = navigationBloc.state;
+    if (navState is! NavigationInProgress) return;
+    _viewportDynamicsBusy = true;
+    try {
+      // ---- Pitch: native 180m linear ramp ----
+      final d = snap?.distanceToCurrentStepManeuverAlongRouteMeters;
+      final maneuverType =
+          navState.currentStep.maneuver.type.toLowerCase().trim();
+      final legSteps = navState.currentLegIndex < navState.route.legs.length
+          ? navState.route.legs[navState.currentLegIndex].steps
+          : const <MapboxStep>[];
+      final isFinalStep = legSteps.isNotEmpty &&
+          navState.currentStepIndex >= legSteps.length - 1;
+
+      var targetPitch = kFollowingDefaultPitch;
+      if (d != null &&
+          d >= 0 &&
+          d <= 180 &&
+          !isFinalStep &&
+          !_pitchExcludedManeuvers.contains(maneuverType)) {
+        targetPitch = kFollowingDefaultPitch * (d / 180).clamp(0.0, 1.0);
+      }
+      targetPitch = (targetPitch / 5).roundToDouble() * 5; // 5° steps
+
+      // ---- Zoom: frame the look-ahead geometry ----
+      var targetZoom = _nativeViewportZoom;
+      final lookahead = _snapToRoadService.lookaheadDistanceFor(
+          navState.currentLegIndex, navState.currentStepIndex);
+      final framingPoints =
+          _snapToRoadService.getFramingPointsAhead(lookahead);
+      if (framingPoints.length >= 2) {
+        try {
+          final coords = framingPoints
+              .map((p) =>
+                  mp.Point(coordinates: mp.Position(p.longitude, p.latitude)))
+              .toList();
+          final fitted = await _mapboxMapController!.cameraForCoordinatesPadding(
+            coords,
+            mp.CameraOptions(
+              bearing: position.heading >= 0 ? position.heading : null,
+              pitch: targetPitch,
+            ),
+            _cameraController.navigationPadding,
+            null,
+            null,
+          );
+          final zoom = fitted.zoom;
+          if (zoom != null && zoom.isFinite) {
+            targetZoom =
+                zoom.clamp(kFollowingMinZoom, kFollowingMaxZoom).toDouble();
+            targetZoom = (targetZoom * 4).roundToDouble() / 4; // 0.25 steps
+          }
+        } catch (e) {
+          debugPrint('viewport framing zoom failed: $e');
+        }
+      }
+
+      final speedKmh = position.speed >= 0 ? position.speed * 3.6 : 0.0;
+      final needsCourseSwitch = !_nativeBearingIsCourse && speedKmh > 10;
+
+      if (needsCourseSwitch ||
+          targetZoom != _nativeViewportZoom ||
+          targetPitch != _nativeViewportPitch) {
+        enterNativeFollowViewport(
+          zoom: targetZoom,
+          pitch: targetPitch,
+          maxDurationMs: 1200,
+        );
+      }
+    } finally {
+      _viewportDynamicsBusy = false;
+    }
+  }
 
   /// Minimum distance (m) from user puck for report icons; closer reports are radially offset so they don't cover the puck.
   static const double _puckMinDisplayDistanceMeters = 35.0;
@@ -100,6 +280,18 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   /// and re-enable follow mode, similar to Waze/Google Maps.
   Future<void> recenterOnUser() async {
     if (_mapboxMapController == null) return;
+
+    // Native nav viewport: recentering is just re-attaching the native
+    // follow state — instant, no GPS fix needed, padding persists.
+    final navState = navigationBloc.state;
+    if (useNativeNavViewport &&
+        navState is NavigationInProgress &&
+        !navState.isOverviewVisible &&
+        _cameraController.isNavigationMode) {
+      enterNativeFollowViewport(maxDurationMs: 1500);
+      setIsFollowingUser(true);
+      return;
+    }
 
     Position? targetPosition;
 
@@ -170,52 +362,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       await _addReportIconsToStyle();
 
       // Setup annotation managers
-      _mapboxMapController?.annotations
-          .createPointAnnotationManager()
-          .then((manager) {
-        if (!mounted) return;
-        setState(() {
-          pointAnnotationManager = manager;
-        });
-      });
-
-      // Setup report annotation manager
-      _mapboxMapController?.annotations
-          .createPointAnnotationManager()
-          .then((manager) {
-        if (!mounted) return;
-        setState(() {
-          reportAnnotationManager = manager;
-        });
-
-        // Add tap listener for report annotations
-        manager.tapEvents(onTap: _onReportAnnotationTap);
-
-        // Display any reports that arrived before the manager was ready
-        if (mounted && _currentReports.isNotEmpty) {
-          displayReportsOnMap(_currentReports);
-        }
-      });
-
-      // Setup group annotation manager
-      _mapboxMapController?.annotations
-          .createPointAnnotationManager()
-          .then((manager) {
-        if (!mounted) return;
-        setState(() {
-          groupAnnotationManager = manager;
-        });
-      });
-
-      // Setup nearby users annotation manager
-      _mapboxMapController?.annotations
-          .createPointAnnotationManager()
-          .then((manager) {
-        if (!mounted) return;
-        setState(() {
-          nearbyUsersAnnotationManager = manager;
-        });
-      });
+      await _setupAnnotationManagers();
 
       // Setup location component with custom CurrentPosition.png
       await _setupLocationPuck();
@@ -225,15 +372,101 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           .updateSettings(mp.LogoSettings(enabled: false));
       _mapboxMapController?.attribution
           .updateSettings(mp.AttributionSettings(enabled: false));
+      // Compass sits in the top-right, on the same row as the top-left
+      // menu button. Android ornament margins are physical pixels.
+      final safeTop = MediaQuery.of(context).padding.top + 12.0;
+      final ornamentScale =
+          Platform.isAndroid ? MediaQuery.of(context).devicePixelRatio : 1.0;
       _mapboxMapController?.compass.updateSettings(mp.CompassSettings(
         enabled: true,
         position: mp.OrnamentPosition.TOP_RIGHT,
-        marginTop: 180.0, // Space below the top bar
-        marginRight: 16.0,
+        marginTop: safeTop * ornamentScale,
+        marginRight: 16.0 * ornamentScale,
       ));
       _mapboxMapController?.scaleBar
           .updateSettings(mp.ScaleBarSettings(enabled: false));
     });
+  }
+
+  /// The style URI currently applied to the map (set at creation via
+  /// MapWidget.styleUri, updated by [applyMapStyleUri]).
+  String? _appliedStyleUri;
+
+  /// Record the style the MapWidget was created with, so runtime switches
+  /// can no-op when nothing changed.
+  void markInitialStyleApplied(String uri) {
+    _appliedStyleUri ??= uri;
+  }
+
+  /// Switch the map style at runtime (day/night). A style reload wipes every
+  /// runtime source, layer, and image, so everything is rebuilt afterwards.
+  Future<void> applyMapStyleUri(String uri) async {
+    final map = _mapboxMapController;
+    if (map == null) return;
+    if (uri == _appliedStyleUri) return;
+    _appliedStyleUri = uri;
+
+    try {
+      await map.loadStyleURI(uri);
+
+      // Rebuild everything the reload destroyed.
+      await _routeVisualizationService.initialize(map);
+      await _addReportIconsToStyle();
+      await _setupAnnotationManagers();
+      await _setupLocationPuck();
+
+      // Let the host screen restore route drawing etc.
+      onMapStyleReloaded();
+
+      debugPrint('🎨 Map style switched to $uri');
+    } catch (e) {
+      debugPrint('❌ Failed to switch map style: $e');
+    }
+  }
+
+  /// Hook for the host screen to restore state after a style reload
+  /// (e.g. redraw the active route). Override in the implementing class.
+  void onMapStyleReloaded() {}
+
+  /// Create (or re-create) the point annotation managers. Re-runnable: a
+  /// style reload wipes the layers the managers own, so callers can invoke
+  /// this again after switching map styles.
+  Future<void> _setupAnnotationManagers() async {
+    final map = _mapboxMapController;
+    if (map == null) return;
+
+    // Best-effort removal of stale managers from a previous style.
+    for (final manager in [
+      pointAnnotationManager,
+      reportAnnotationManager,
+      groupAnnotationManager,
+      nearbyUsersAnnotationManager,
+    ]) {
+      if (manager != null) {
+        try {
+          await map.annotations.removeAnnotationManager(manager);
+        } catch (_) {
+          // Manager may already be gone with the old style.
+        }
+      }
+    }
+
+    pointAnnotationManager = await map.annotations.createPointAnnotationManager();
+
+    final reportManager = await map.annotations.createPointAnnotationManager();
+    reportManager.tapEvents(onTap: _onReportAnnotationTap);
+    reportAnnotationManager = reportManager;
+
+    groupAnnotationManager = await map.annotations.createPointAnnotationManager();
+    nearbyUsersAnnotationManager =
+        await map.annotations.createPointAnnotationManager();
+
+    if (mounted) setState(() {});
+
+    // Display any reports that arrived before the managers were ready.
+    if (mounted && _currentReports.isNotEmpty) {
+      await displayReportsOnMap(_currentReports);
+    }
   }
 
   /// Initialize route visualization service asynchronously
@@ -249,7 +482,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Display reports using PointAnnotations with click handling and smart positioning
   Future<void> displayReportsOnMap(List<ReportData> reports) async {
-    final filtered = filterNonExpiredReports(reports);
+    // Expired reports never show; muted types are hidden per the user's
+    // Alerts & reports settings (also suppresses their proximity alerts,
+    // since those read from _currentReports).
+    final filtered = filterNonExpiredReports(reports)
+        .where((r) => NavSettings.isReportTypeEnabled(r.type))
+        .toList();
     _currentReports = filtered;
     if (reportAnnotationManager == null || !mounted) return;
 
@@ -496,9 +734,15 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           barrierColor: Colors.black.withOpacity(0.3),
           transitionDuration: const Duration(milliseconds: 350),
           pageBuilder: (context, animation, secondaryAnimation) {
+            // The Material ancestor is required: without it every Text in the
+            // sheet falls back to Flutter's debug style (yellow double
+            // underlines) because there is no default text style in scope.
             return Align(
               alignment: Alignment.topCenter,
-              child: ReportDetailsModal(report: report),
+              child: Material(
+                type: MaterialType.transparency,
+                child: ReportDetailsModal(report: report),
+              ),
             );
           },
           transitionBuilder: (context, animation, secondaryAnimation, child) {
@@ -553,6 +797,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       _cameraController.enableNavigationMode();
     } else {
       _cameraController.disableNavigationMode();
+      // Return camera control to Dart (free-drive follow / idle).
+      exitNativeViewport();
     }
 
     final locationPuckBytes = await _loadLocationPuckImage();
@@ -594,6 +840,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   Future<void> drawMapboxPolyline(
     MapboxRoute route, {
     List<MapboxRoute>? alternativeRoutes,
+    bool fitCamera = true,
   }) async {
     await clearRoutePolyline();
 
@@ -632,8 +879,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       // Add route markers using existing functionality
       await _addRouteMarkers(routePoints);
 
-      // Fit camera to route bounds
-      await _fitCameraToRoute(routePoints);
+      // Fit camera to route bounds — only for route preview. During active
+      // navigation (start + reroute redraws) the nav camera owns the
+      // viewport; fitting here would yank it out to overview.
+      if (fitCamera) {
+        await _fitCameraToRoute(routePoints);
+      }
 
       debugPrint('Advanced route visualization created successfully');
     } catch (e) {
@@ -755,21 +1006,22 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             iconAllowOverlap: true,
             iconIgnorePlacement: true,
             iconAnchor: mp.IconAnchor.BOTTOM,
-            // Native Mapbox waypoint curve (exp 1.5) from RouteLineUtils.kt,
-            // scaled for our 1024×1024 destination asset. Values chosen so
-            // the pin renders ~40-50px tall at street zoom and shrinks
-            // smoothly at overview without disappearing.
+            // Native Mapbox waypoint curve (exp 1.5) from RouteLineUtils.kt.
+            // The image registers at 48×54 pt logical (4.0x asset at its own
+            // density), so these factors put the pin at ~43 pt tall at
+            // street zoom — Google-Maps-pin sized — shrinking smoothly at
+            // overview without disappearing.
             iconSizeExpression: [
               'interpolate',
               ['exponential', 1.5],
               ['zoom'],
-              0.0, 0.20,
-              10.0, 0.28,
-              12.0, 0.35,  // city overview
-              14.0, 0.42,  // area view
-              16.0, 0.52,  // street level (Google-Maps-pin sized)
-              19.0, 0.68,
-              22.0, 0.90,  // max zoom
+              0.0, 0.30,
+              10.0, 0.42,
+              12.0, 0.52,  // city overview (~28 pt)
+              14.0, 0.65,  // area view (~35 pt)
+              16.0, 0.80,  // street level (~43 pt)
+              19.0, 0.95,
+              22.0, 1.15,  // max zoom (~62 pt)
             ],
           ),
         );
@@ -949,9 +1201,16 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
               setOngoing: true,
             ),
           )
-        : const LocationSettings(
+        : AppleSettings(
             accuracy: LocationAccuracy.bestForNavigation,
+            // CoreLocation's own driving model (road-aware filtering) only
+            // kicks in with the automotive activity type.
+            activityType: ActivityType.automotiveNavigation,
             distanceFilter: 0,
+            // iOS defaults to auto-pausing updates when it thinks you've
+            // stopped — which freezes navigation at a long red light.
+            pauseLocationUpdatesAutomatically: false,
+            showBackgroundLocationIndicator: true,
           );
 
     _userPositionStream?.cancel();
@@ -1076,17 +1335,25 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         onPositionUpdate(processedPosition);
 
         // Update map camera when following user, or when in overview mode so overview moves with user
-        final inOverview = currentState is NavigationInProgress &&
-            currentState.isOverviewVisible;
+        final isNavigating = currentState is NavigationInProgress;
+        final inOverview = isNavigating && currentState.isOverviewVisible;
+        final nativeViewportDrives =
+            useNativeNavViewport && isNavigating && !inOverview;
         if (_mapboxMapController != null &&
             (_cameraController.isFollowingUser || inOverview)) {
-          updateMapCamera(
-            processedPosition,
-            distanceToManeuverAlongRouteMeters: snapResultForBloc
-                ?.distanceToCurrentStepManeuverAlongRouteMeters,
-            remainingDistanceAlongRouteMeters:
-                snapResultForBloc?.remainingDistanceAlongRouteMeters,
-          );
+          if (nativeViewportDrives) {
+            // Camera is driven natively by FollowPuckViewportState; Dart
+            // only retunes zoom/pitch/bearing-mode when targets change.
+            _updateNativeViewportDynamics(processedPosition, snapResultForBloc);
+          } else {
+            updateMapCamera(
+              processedPosition,
+              distanceToManeuverAlongRouteMeters: snapResultForBloc
+                  ?.distanceToCurrentStepManeuverAlongRouteMeters,
+              remainingDistanceAlongRouteMeters:
+                  snapResultForBloc?.remainingDistanceAlongRouteMeters,
+            );
+          }
         }
 
         // Puck position is now driven by the built-in LocationComponent,
@@ -1203,21 +1470,45 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   // Removed: LineLayer handles zoom-based width automatically
 
-  /// Force immediate navigation zoom without delays
-  void forceNavigationZoom() async {
+  /// Force immediate navigation zoom without delays.
+  ///
+  /// [initialBearing] is the route's departure bearing so the map rotates
+  /// course-up right away even when the car hasn't moved yet (GPS course
+  /// is invalid at a standstill).
+  void forceNavigationZoom({double? initialBearing}) async {
     if (_mapboxMapController == null) return;
 
     try {
-      // Get current position immediately
-      final currentPosition = await Geolocator.getCurrentPosition();
+      // Use the cached position so the camera responds instantly; only
+      // block on a fresh fix when we have nothing at all.
+      final currentPosition =
+          _lastKnownUserPosition ?? await Geolocator.getCurrentPosition();
 
-      // Use camera controller for navigation zoom
-      await _cameraController.forceNavigationZoom(currentPosition);
-
-      // No need to update polyline width - RouteVisualizationService handles this automatically
+      await _cameraController.forceNavigationZoom(
+        currentPosition,
+        initialBearing: initialBearing,
+      );
     } catch (e) {
       debugPrint('Error forcing navigation zoom: $e');
     }
+  }
+
+  /// Compute and apply the nav-mode viewport padding from the map's laid-out
+  /// size. Top padding pushes the camera center down so the puck sits at
+  /// ~70% of screen height and the viewport shows road ahead, matching
+  /// Waze/Google framing. Mapbox expects physical pixels on Android and
+  /// logical points on iOS.
+  void updateNavigationViewportPadding(
+      double mapHeightLogical, double devicePixelRatio) {
+    final scale = Platform.isAndroid ? devicePixelRatio : 1.0;
+    _cameraController.setNavigationPadding(
+      mp.MbxEdgeInsets(
+        top: mapHeightLogical * 0.4 * scale,
+        left: 0,
+        bottom: 0,
+        right: 0,
+      ),
+    );
   }
 
   /// Initialize snap-to-road service with route data
@@ -1245,11 +1536,22 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Load location puck image from assets with proper resolution handling
   Future<Uint8List> _loadLocationPuckImage() async {
-    // Force load the 4.0x resolution for maximum sharpness
+    // Vehicle pucks (car/bus/truck) are rendered at runtime — the native
+    // SDKs only ship the chevron, so these are ours (PuckIconFactory).
+    final style = NavPuckPreference.style.value;
+    if (style != NavPuckStyle.arrow) {
+      final bytes = await PuckIconFactory.render(style);
+      if (bytes != null) return bytes;
+    }
+    // Default arrow: force the 4.0x resolution for maximum sharpness.
     final ByteData byteData =
         await rootBundle.load('assets/icons/4.0x/CurrentPosition.png');
     return byteData.buffer.asUint8List();
   }
+
+  /// Re-apply the location puck (e.g. after the user picks a different
+  /// vehicle icon in settings).
+  Future<void> refreshLocationPuck() => _setupLocationPuck();
 
   // /// Load destination marker image from assets with proper resolution handling
   // Future<Uint8List> _loadDestinationImage() async {
@@ -1292,23 +1594,18 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   Future<void> _addDestinationImageToStyle() async {
     if (_mapboxMapController == null || !mounted) return;
 
-    // Get the device's pixel ratio
-    final double devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
-
     try {
-      // 1. Load the raw byte data from the asset
-      // Flutter's asset bundle will automatically handle selecting the correct
-      // resolution (e.g., from /2.0x or /3.0x folders)
+      // Highest-res variant (192×215 px) registered at its own 4.0 density,
+      // so the pin's logical size is 48×54 pt regardless of screen DPR and
+      // stays sharp when the zoom curve scales it up.
       final ByteData byteData =
-          await rootBundle.load('assets/icons/2.0x/destination.png');
+          await rootBundle.load('assets/icons/4.0x/destination.png');
       final Uint8List imageBytes = byteData.buffer.asUint8List();
 
-      // 2. Decode the image to get its actual width and height
       final codec = await ui.instantiateImageCodec(imageBytes);
       final frameInfo = await codec.getNextFrame();
       final ui.Image image = frameInfo.image;
 
-      // 3. Create MbxImage with the *correct* dimensions
       final mbxImage = mp.MbxImage(
         width: image.width,
         height: image.height,
@@ -1317,10 +1614,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
       if (!mounted || _mapboxMapController == null) return;
 
-      // 4. Add the correctly sized image to the map style
       await _mapboxMapController!.style.addStyleImage(
         'destination-marker',
-        devicePixelRatio, // Use device pixel ratio for perfect scaling
+        4.0, // asset's own density — NOT screen DPR (see comment above)
         mbxImage,
         false,
         [], // StretchX - empty for normal images

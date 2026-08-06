@@ -16,7 +16,6 @@ class SnapToRoadService {
   double _offRouteThreshold = 100; // meters
   double _rerouteThreshold = 150; // meters - when to trigger reroute
   static const double _smoothingFactor = 0.15; // for position smoothing - reduced for more responsive snapping
-  static const double _stickySnapThreshold = 5.0; // meters - force puck within this distance when on-route
 
   // Cache for route points and Mapbox route for along-route distances
   List<PointLatLng>? _currentRoutePoints;
@@ -30,7 +29,6 @@ class SnapToRoadService {
   DateTime? _firstOffRouteTime;
   int _consecutiveOffRouteUpdates = 0;
   static const int _offRouteUpdatesThreshold = 3; // consecutive updates needed
-  static const Duration _offRouteDurationThreshold = Duration(seconds: 10);
 
   // GPS jump detection for connectivity issues
   geo.Position? _lastGpsPosition;
@@ -77,6 +75,143 @@ class SnapToRoadService {
         : null;
     _lastNearestIndex = 0;
     _lastSnappedPoint = null;
+    _precomputeManeuverIndices(route);
+    _precomputeIntersectionDensity(route);
+  }
+
+  /// Route-geometry index of each step's maneuver, precomputed once per
+  /// route: `_maneuverRouteIndices[legIndex][stepIndex]`.
+  ///
+  /// Computed MONOTONICALLY — each maneuver is searched for only forward of
+  /// the previous one. A per-fix global nearest-point search (the old
+  /// approach) locks onto the wrong occurrence whenever a route passes
+  /// near the same location twice (roundabouts, loops, out-and-back),
+  /// which froze step advancement — and with it the banner, voice, and
+  /// arrival detection — for the rest of the trip.
+  List<List<int>>? _maneuverRouteIndices;
+
+  void _precomputeManeuverIndices(MapboxRoute route) {
+    final points = _currentRoutePoints;
+    if (points == null || points.isEmpty) {
+      _maneuverRouteIndices = null;
+      return;
+    }
+    final result = <List<int>>[];
+    var searchFrom = 0;
+    for (final leg in route.legs) {
+      final legIndices = <int>[];
+      for (final step in leg.steps) {
+        if (step.maneuver.location.length >= 2) {
+          final target =
+              PointLatLng(step.maneuver.location[1], step.maneuver.location[0]);
+          final idx = _nearestIndexForward(target, searchFrom);
+          legIndices.add(idx);
+          searchFrom = idx;
+        } else {
+          legIndices.add(searchFrom);
+        }
+      }
+      result.add(legIndices);
+    }
+    _maneuverRouteIndices = result;
+  }
+
+  /// Nearest route index to [target], searching only forward of
+  /// [startIndex]. Early-exits once a close match is found and the scan
+  /// has moved clearly past it.
+  int _nearestIndexForward(PointLatLng target, int startIndex) {
+    final points = _currentRoutePoints!;
+    var best = startIndex;
+    var bestD = double.infinity;
+    for (var i = startIndex; i < points.length; i++) {
+      final d = _calculateDistance(points[i], target);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      } else if (bestD < 20 && d > bestD + 150) {
+        // Found the maneuver and we're clearly past it — stop before the
+        // scan reaches a later pass near the same coordinates.
+        break;
+      }
+    }
+    return best;
+  }
+
+  /// Precomputed maneuver index for a step, or null when unavailable.
+  int? maneuverRouteIndexFor(int legIndex, int stepIndex) {
+    final indices = _maneuverRouteIndices;
+    if (indices == null || legIndex >= indices.length) return null;
+    final leg = indices[legIndex];
+    if (stepIndex >= leg.length) return null;
+    return leg[stepIndex];
+  }
+
+  // -------------------------------------------------------------------
+  // Native camera framing inputs (MapboxNavigationViewportDataSource):
+  // the following-camera zoom is NOT speed-based — it frames the road
+  // ahead. Look-ahead distance = average spacing between intersections
+  // on the current step (gaps <= 20m filtered out) x 7.0.
+  // -------------------------------------------------------------------
+  List<List<double>>? _stepAvgIntersectionGap;
+
+  void _precomputeIntersectionDensity(MapboxRoute route) {
+    final result = <List<double>>[];
+    for (final leg in route.legs) {
+      final legGaps = <double>[];
+      for (final step in leg.steps) {
+        var avg = 20.0; // native fallback when everything filters out
+        final pts = step.intersections
+            .where((i) => i.location.length >= 2)
+            .map((i) => i.location)
+            .toList();
+        if (pts.length >= 2) {
+          final gaps = <double>[];
+          for (var i = 1; i < pts.length; i++) {
+            final d = geo.Geolocator.distanceBetween(
+                pts[i - 1][1], pts[i - 1][0], pts[i][1], pts[i][0]);
+            if (d > 20.0) gaps.add(d);
+          }
+          if (gaps.isNotEmpty) {
+            avg = gaps.reduce((a, b) => a + b) / gaps.length;
+          }
+        }
+        legGaps.add(avg);
+      }
+      result.add(legGaps);
+    }
+    _stepAvgIntersectionGap = result;
+  }
+
+  /// Native look-ahead distance for the camera frame (avg intersection
+  /// gap x 7), bounded so degenerate data can't zoom to the whole city
+  /// or into the puck.
+  double lookaheadDistanceFor(int legIndex, int stepIndex) {
+    var avg = 20.0;
+    final gaps = _stepAvgIntersectionGap;
+    if (gaps != null &&
+        legIndex >= 0 &&
+        legIndex < gaps.length &&
+        stepIndex >= 0 &&
+        stepIndex < gaps[legIndex].length) {
+      avg = gaps[legIndex][stepIndex];
+    }
+    return (avg * 7.0).clamp(120.0, 2500.0);
+  }
+
+  /// Route points from the current snapped position forward by
+  /// [lookaheadMeters] — the geometry the camera should keep in frame.
+  List<PointLatLng> getFramingPointsAhead(double lookaheadMeters) {
+    final points = _currentRoutePoints;
+    final cumul = _cumulativeDistances;
+    if (points == null || cumul == null || points.isEmpty) return const [];
+    final start = _lastNearestIndex.clamp(0, points.length - 1);
+    final endDistance = cumul[start] + lookaheadMeters;
+    final result = <PointLatLng>[];
+    for (var i = start; i < points.length; i++) {
+      result.add(points[i]);
+      if (cumul[i] >= endDistance) break;
+    }
+    return result;
   }
 
   /// Set PlacesService for Map Matching functionality
@@ -92,6 +227,7 @@ class SnapToRoadService {
     _totalRouteLengthMeters = null;
     _lastSnappedPoint = null;
     _lastNearestIndex = 0;
+    _maneuverRouteIndices = null;
     _clearGpsHistory();
     _resetOffRouteTracking();
     _clearMapMatchingBuffer();
@@ -160,16 +296,11 @@ class SnapToRoadService {
     double bearing = gpsPosition.heading;
 
     if (isOnRoute && !hasGpsJump) {
-      // User is on route and GPS is stable - snap with smoothing and sticky snap
+      // User is on route and GPS is stable — snap with smoothing. No
+      // "sticky" clamp back toward raw GPS: when on-route, the road
+      // centerline IS the truth, and dragging the snapped point back
+      // toward a noisy fix defeats the snap exactly when it matters.
       snappedPoint = _smoothSnapPosition(nearestResult.point, gpsPoint);
-      
-      // Sticky snap: force puck within threshold when on-route
-      final distanceToSnapped = _calculateDistance(gpsPoint, snappedPoint);
-      if (distanceToSnapped > _stickySnapThreshold) {
-        // If puck would escape beyond threshold, clamp it to threshold distance
-        snappedPoint = _movePointTowards(snappedPoint, gpsPoint, _stickySnapThreshold);
-      }
-      
       bearing = _calculateRouteBearing(nearestResult.index);
       _lastSnappedPoint = snappedPoint;
       _lastNearestIndex = nearestResult.index;
@@ -178,15 +309,8 @@ class SnapToRoadService {
       _resetOffRouteTracking();
       
     } else if (isOnRoute && hasGpsJump) {
-      // GPS jump but still on route - use less aggressive snapping with sticky snap
+      // GPS jump but still on route - blend toward the route point
       snappedPoint = _blendPositions(gpsPoint, nearestResult.point, 0.3);
-      
-      // Apply sticky snap even during GPS jumps
-      final distanceToSnapped = _calculateDistance(gpsPoint, snappedPoint);
-      if (distanceToSnapped > _stickySnapThreshold) {
-        snappedPoint = _movePointTowards(snappedPoint, gpsPoint, _stickySnapThreshold);
-      }
-      
       bearing = _interpolateBearing(gpsPosition.heading, _calculateRouteBearing(nearestResult.index), 0.3);
       _lastSnappedPoint = snappedPoint;
       _lastNearestIndex = nearestResult.index;
@@ -238,10 +362,12 @@ class SnapToRoadService {
         if (currentStepIndex < leg.steps.length) {
           final step = leg.steps[currentStepIndex];
           if (step.maneuver.location.length >= 2) {
-            final maneuverLat = step.maneuver.location[1];
-            final maneuverLng = step.maneuver.location[0];
-            final maneuverPoint = PointLatLng(maneuverLat, maneuverLng);
-            final maneuverRouteIndex = _findNearestRouteIndex(maneuverPoint);
+            // Precomputed monotonic index — O(1) per fix and immune to
+            // routes that pass the same location twice.
+            final maneuverRouteIndex =
+                maneuverRouteIndexFor(currentLegIndex, currentStepIndex) ??
+                    _findNearestRouteIndex(PointLatLng(
+                        step.maneuver.location[1], step.maneuver.location[0]));
             final distanceToManeuverAlongRoute = maneuverRouteIndex != null
                 ? (_cumulativeDistances![maneuverRouteIndex] - distanceTraveledAlongRouteMeters)
                 : null;
@@ -425,28 +551,6 @@ class SnapToRoadService {
     return PointLatLng(lat, lng);
   }
 
-  /// Move a point towards another point by a maximum distance (for sticky snap)
-  PointLatLng _movePointTowards(PointLatLng from, PointLatLng to, double maxDistance) {
-    final distance = _calculateDistance(from, to);
-    if (distance <= maxDistance) {
-      return from; // Already within threshold
-    }
-    
-    // Calculate direction vector
-    final bearing = _calculateBearing(from, to);
-    final bearingRad = bearing * math.pi / 180.0;
-    
-    // Move from point towards to point by maxDistance
-    final lat1Rad = from.latitude * math.pi / 180.0;
-    final dLat = maxDistance / 111320.0; // meters to degrees (approximate)
-    final dLng = maxDistance / (111320.0 * math.cos(lat1Rad));
-    
-    final newLat = from.latitude + (dLat * math.cos(bearingRad));
-    final newLng = from.longitude + (dLng * math.sin(bearingRad));
-    
-    return PointLatLng(newLat, newLng);
-  }
-
   /// Calculate bearing along route
   double _calculateRouteBearing(int routeIndex) {
     if (_currentRoutePoints == null ||
@@ -484,31 +588,36 @@ class SnapToRoadService {
     );
   }
 
-  /// Determine if rerouting should be triggered
+  /// Determine if rerouting should be triggered.
+  ///
+  /// Waze commits within ~2–5s of a confirmed departure. We require a few
+  /// consecutive fixes past the threshold — no wall-clock floor, and no
+  /// bearing veto. (The old `> 90°` bearing requirement almost never held:
+  /// a driver who misses a turn keeps moving roughly parallel to the
+  /// route, so rerouting effectively never fired.) A diverging bearing is
+  /// used only to CONFIRM FASTER, never to block.
   bool _shouldTriggerReroute(double distanceFromRoute, geo.Position gpsPosition) {
-    final now = DateTime.now();
-    
     if (distanceFromRoute > _rerouteThreshold) {
-      _firstOffRouteTime ??= now;
+      // Don't let one garbage fix march the counter forward.
+      if (gpsPosition.accuracy > 0 && gpsPosition.accuracy > 40) {
+        return false;
+      }
+      _firstOffRouteTime ??= DateTime.now();
       _consecutiveOffRouteUpdates++;
-      
-      // Check if user has been off route long enough AND moving in wrong direction
-      final timeOffRoute = now.difference(_firstOffRouteTime!);
-      final isMovingAwayFromRoute = _isMovingAwayFromRoute(gpsPosition);
-      
-      if (_consecutiveOffRouteUpdates >= _offRouteUpdatesThreshold &&
-          timeOffRoute >= _offRouteDurationThreshold &&
-          isMovingAwayFromRoute) {
-        
-        debugPrint('🚨 REROUTE TRIGGERED: ${distanceFromRoute.toStringAsFixed(1)}m away, '
-            '${timeOffRoute.inSeconds}s off route, moving away: $isMovingAwayFromRoute');
-        
+
+      final movingAway = _isMovingAwayFromRoute(gpsPosition);
+      final requiredUpdates = movingAway ? 2 : _offRouteUpdatesThreshold;
+
+      if (_consecutiveOffRouteUpdates >= requiredUpdates) {
+        debugPrint(
+            '🚨 REROUTE TRIGGERED: ${distanceFromRoute.toStringAsFixed(1)}m away '
+            'after $_consecutiveOffRouteUpdates fixes, moving away: $movingAway');
         return true;
       }
     } else {
       _resetOffRouteTracking();
     }
-    
+
     return false;
   }
 

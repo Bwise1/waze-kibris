@@ -13,6 +13,7 @@ import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 import 'package:waze_kibris/core/models/navigation/waypoint.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:waze_kibris/app/dashboard/services/voice_instruction_service.dart';
+import 'package:waze_kibris/core/services/nav_settings.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/di.dart';
 
@@ -44,15 +45,26 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     on<NavigationRerouteRequested>(_onRerouteRequested);
     on<ClearRerouteError>(_onClearRerouteError);
 
-    // Initialize voice service
-    _voiceService.initialize();
+    // Initialize voice service, then apply the user's persisted guidance
+    // settings and keep following them while the app runs.
+    _voiceService.initialize().then((_) {
+      _applyVoiceSettings();
+    });
+    NavSettings.voiceEnabled.addListener(_applyVoiceSettings);
+    NavSettings.voiceVolume.addListener(_applyVoiceSettings);
+  }
+
+  void _applyVoiceSettings() {
+    _voiceService.isEnabled = NavSettings.voiceEnabled.value;
+    _voiceService.setVolume(NavSettings.voiceVolume.value);
   }
 
   // Voice service getters for UI access
   bool get isVoiceEnabled => _voiceService.isEnabled;
 
+  /// Banner mute tap — persists, so guidance stays off across sessions.
   void toggleVoice() {
-    _voiceService.isEnabled = !_voiceService.isEnabled;
+    NavSettings.setVoiceEnabled(!NavSettings.voiceEnabled.value);
   }
 
   Future<void> speakCurrentInstruction() async {
@@ -116,7 +128,9 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       congestionNumericData: congestionNumericData,
     ));
 
-    WakelockPlus.enable();
+    if (NavSettings.keepScreenAwake.value) {
+      WakelockPlus.enable();
+    }
 
     // Prepare audio session and speak first instruction so user hears voice immediately
     _voiceService.prepareForNavigation();
@@ -209,6 +223,8 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     required double destLat,
     required double destLng,
     required String profile,
+    double? bearing,
+    double? avoidManeuverRadius,
     int maxRetries = 2,
   }) async {
     final placesService = getIt<PlacesService>();
@@ -224,6 +240,8 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
               destinationLng: destLng,
               profile: profile,
               alternatives: false,
+              bearing: bearing,
+              avoidManeuverRadius: avoidManeuverRadius,
             )
             .timeout(
               const Duration(seconds: 10),
@@ -348,12 +366,29 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
 
         // 2. Fetch new route with retry and timeout, using the mode the user
         // originally started navigation in.
+        // Send the direction of travel so Mapbox routes onward from the
+        // car's actual heading instead of suggesting an immediate U-turn.
+        // Only when moving — a stationary fix has no valid course.
+        final travelBearing =
+            (currentPos.heading >= 0 && currentPos.speed > 2)
+                ? currentPos.heading
+                : null;
+
+        // Native SDK default: no maneuver allowed within 8 seconds of
+        // travel from the reroute origin (RoutingConfig.swift:97 /
+        // RerouteOptions.kt:82) — prevents "turn now!" reroutes.
+        final avoidRadius = currentPos.speed > 2
+            ? (currentPos.speed * 8).clamp(20.0, 1000.0)
+            : null;
+
         final response = await _fetchRouteWithRetry(
           originLat: currentPos.latitude,
           originLng: currentPos.longitude,
           destLat: destLat,
           destLng: destLng,
           profile: currentState.mode.mapboxProfile,
+          bearing: travelBearing,
+          avoidManeuverRadius: avoidRadius,
           maxRetries: 2,
         );
 
@@ -704,5 +739,12 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       NavigationInProgress state, Emitter<NavigationState> emit) {
     final updatedState = _advanceStep(state);
     emit(updatedState);
+  }
+
+  @override
+  Future<void> close() {
+    NavSettings.voiceEnabled.removeListener(_applyVoiceSettings);
+    NavSettings.voiceVolume.removeListener(_applyVoiceSettings);
+    return super.close();
   }
 }

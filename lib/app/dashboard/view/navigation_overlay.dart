@@ -11,6 +11,7 @@ import 'package:waze_kibris/app/dashboard/view/speedometer_widget.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
+import 'package:waze_kibris/core/services/nav_settings.dart';
 
 class NavigationOverlay extends StatefulWidget {
   final NavigationInProgress navigationState;
@@ -40,8 +41,6 @@ class _NavigationOverlayState extends State<NavigationOverlay>
     with TickerProviderStateMixin {
   late AnimationController _slideController;
   late AnimationController _panelSlideController;
-  bool _isMuted = false;
-  Timer? _updateTimer;
 
   @override
   void initState() {
@@ -56,19 +55,13 @@ class _NavigationOverlayState extends State<NavigationOverlay>
     );
     _panelSlideController.forward();
 
-    // Start timer for real-time updates every 3 seconds for stability
-    _updateTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      if (mounted) {
-        setState(() {
-          // Force rebuild to update distance display - reduced frequency
-        });
-      }
-    });
+    // No polling timer: the bloc emits on every GPS fix (~1Hz) and the
+    // parent rebuilds this overlay with fresh state. A 3s setState on top
+    // only made the banner distance appear to jump in big steps.
   }
 
   @override
   void dispose() {
-    _updateTimer?.cancel();
     _slideController.dispose();
     _panelSlideController.dispose();
     super.dispose();
@@ -132,6 +125,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
             navigationBloc: context.read<NavigationBloc>(),
             nextStep: navigationState.nextStep,
             mode: navigationState.mode,
+            currentSpeedMps: navigationState.currentSpeed,
           ),
         ),
 
@@ -144,10 +138,16 @@ class _NavigationOverlayState extends State<NavigationOverlay>
             bottom: 192,
             left: 16,
             child: widget.isFollowingUser
-                ? SpeedometerWidget(
-                    currentSpeed: navigationState.currentSpeed ?? 0,
-                    // Only enforce TTS / red border when Mapbox provides a limit
-                    speedLimit: navigationState.speedLimit,
+                ? ValueListenableBuilder<bool>(
+                    valueListenable: NavSettings.showSpeedometer,
+                    builder: (context, show, _) => show
+                        ? SpeedometerWidget(
+                            currentSpeed: navigationState.currentSpeed ?? 0,
+                            // Only enforce TTS / red border when Mapbox
+                            // provides a limit
+                            speedLimit: navigationState.speedLimit,
+                          )
+                        : const SizedBox.shrink(),
                   )
                 : _RecenterPill(onTap: widget.onRecenter),
           ),

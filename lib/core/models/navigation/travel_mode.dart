@@ -60,15 +60,18 @@ enum TravelMode {
     }
   }
 
-  /// Distance (meters) that triggers a reroute request.
+  /// Distance (meters) that triggers a reroute request. Waze/Google commit
+  /// to a reroute at roughly 30–50m of confirmed lateral deviation — at
+  /// 150m the driver was already a block past the missed turn with a stale
+  /// route on screen.
   double get rerouteThresholdMeters {
     switch (this) {
       case TravelMode.drive:
-        return 150;
+        return 50;
       case TravelMode.cycle:
-        return 90;
+        return 40;
       case TravelMode.walk:
-        return 60;
+        return 35;
     }
   }
 

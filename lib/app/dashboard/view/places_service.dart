@@ -9,6 +9,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart'
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/core/models/directions/google_directions_response.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/core/services/nav_settings.dart';
 
 class PlacesService {
   static const String backendBaseUrl = 'https://waze-api.benjys.me';
@@ -229,11 +230,30 @@ class PlacesService {
         'driving-traffic', // driving, walking, cycling, driving-traffic (recommended)
     List<String>? waypoints, // Optional waypoints in "lat,lng" format
     bool alternatives = true, // Get alternative routes for selection
+    double? bearing, // Departure bearing (degrees) — send on reroutes
+    double? avoidManeuverRadius, // meters — no maneuvers allowed this close
   }) async {
     final params = <String, String>{
       'origin': '$originLat,$originLng',
       'destination': '$destinationLat,$destinationLng',
     };
+
+    if (bearing != null && bearing >= 0) {
+      params['bearing'] = bearing.round().toString();
+    }
+
+    if (avoidManeuverRadius != null && avoidManeuverRadius > 0) {
+      params['avoid_maneuver_radius'] =
+          avoidManeuverRadius.round().clamp(1, 1000).toString();
+    }
+
+    // Avoid tolls / highways / ferries. Read from settings here rather than
+    // threading a parameter through every call site, so reroutes honour the
+    // preference too.
+    final exclude = NavSettings.routeExcludeParam;
+    if (exclude != null) {
+      params['exclude'] = exclude;
+    }
 
     if (profile.isNotEmpty) {
       params['profile'] = profile;

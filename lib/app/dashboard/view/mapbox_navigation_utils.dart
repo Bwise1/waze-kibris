@@ -1,24 +1,62 @@
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
+import 'package:waze_kibris/core/services/nav_settings.dart';
 
 /// Utilities for Mapbox Navigation following industry best practices
 class MapboxNavigationUtils {
   static const Distance _distance = Distance();
 
-  /// Format distance in user-friendly format
+  /// Format distance using the native SDK's rounding bands
+  /// (MapboxDistanceUtil.kt / DistanceFormatter.swift). Metric:
+  ///   < 25 m  → steps of 5 (floor-clamped to 5 — never shows "0 m")
+  ///   < 100 m → steps of 25
+  ///   < 1 km  → steps of 50
+  ///   < 3 km  → km with 1 decimal
+  ///   ≥ 3 km  → whole km
+  /// Imperial mirrors it in feet/miles (the native SDKs' UnitType.IMPERIAL).
+  /// Exact readouts ("87 m") churn every second and read as noise; banded
+  /// values are stable and glanceable while driving.
   static String formatDistance(double meters) {
-    if (meters >= 1000) {
-      final km = meters / 1000;
-      if (km >= 10) {
-        return '${km.round()} km';
-      } else {
-        return '${km.toStringAsFixed(1)} km';
-      }
-    } else if (meters >= 100) {
-      return '${(meters / 10).round() * 10} m';
+    if (meters < 0 || meters.isNaN) return '';
+    if (NavSettings.units.value == DistanceUnit.imperial) {
+      return _formatDistanceImperial(meters);
+    }
+    if (meters < 25) {
+      final v = ((meters / 5).round() * 5).clamp(5, 25);
+      return '$v m';
+    } else if (meters < 100) {
+      final v = ((meters / 25).round() * 25).clamp(25, 100);
+      return '$v m';
+    } else if (meters < 1000) {
+      final v = ((meters / 50).round() * 50).clamp(50, 1000);
+      return '$v m';
+    } else if (meters < 3000) {
+      return '${(meters / 1000).toStringAsFixed(1)} km';
     } else {
-      return '${meters.round()} m';
+      return '${(meters / 1000).round()} km';
+    }
+  }
+
+  static const double _feetPerMeter = 3.28084;
+  static const double _metersPerMile = 1609.344;
+
+  static String _formatDistanceImperial(double meters) {
+    final feet = meters * _feetPerMeter;
+    // Switch to miles at ~0.1 mi, matching the native imperial formatter.
+    if (feet < 100) {
+      final v = ((feet / 10).round() * 10).clamp(10, 100);
+      return '$v ft';
+    } else if (feet < 500) {
+      final v = ((feet / 50).round() * 50).clamp(100, 500);
+      return '$v ft';
+    } else if (meters < _metersPerMile * 0.2) {
+      final v = ((feet / 100).round() * 100).clamp(500, 1100);
+      return '$v ft';
+    } else if (meters < _metersPerMile * 3) {
+      return '${(meters / _metersPerMile).toStringAsFixed(1)} mi';
+    } else {
+      return '${(meters / _metersPerMile).round()} mi';
     }
   }
 

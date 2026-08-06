@@ -29,13 +29,23 @@ class CameraController {
   bool _isCourseUp = true;
 
   geo.Position? _lastCameraPosition;
-  DateTime? _lastCameraUpdate;
+
+  /// Viewport padding during navigation follow mode. Pushes the camera
+  /// center down so the puck sits in the lower third of the screen and
+  /// most of the viewport shows the road ahead (Waze/Google framing).
+  /// Set from the map's layout via [setNavigationPadding].
+  mp.MbxEdgeInsets? _navPadding;
+
+  /// Timestamp of the previous navigation camera update, used to measure
+  /// the real GPS cadence so the easeTo animation spans the whole gap
+  /// between fixes instead of finishing early and stalling.
+  DateTime? _lastNavCameraUpdate;
+  int _navEaseDurationMs = 1000;
 
   static const double _smoothingFactor = 0.3;
   static const double _defaultZoom = 15;
   static const double _overviewPitch = 0;
   static const int _animationDuration = 1000;
-  static const double _lowSpeedBearingThresholdKmh = 5.0;
 
   void initialize(mp.MapboxMap mapboxMap) {
     _mapboxMap = mapboxMap;
@@ -52,6 +62,33 @@ class CameraController {
     _isCourseUp = !_isCourseUp;
   }
 
+  /// Set the navigation viewport padding (screen px, already scaled for the
+  /// platform's expected units by the caller). Applied to every nav-mode
+  /// camera update so the puck rides in the lower portion of the screen.
+  void setNavigationPadding(mp.MbxEdgeInsets padding) {
+    _navPadding = padding;
+  }
+
+  /// The nav viewport padding, for callers that need to fit geometry into
+  /// the same padded box the camera uses (native-style framed zoom).
+  mp.MbxEdgeInsets? get navigationPadding => _navPadding;
+
+  /// Mapbox keeps the last-set padding when CameraOptions.padding is null,
+  /// so non-nav camera modes must explicitly clear it or the nav offset
+  /// leaks into overview / free-drive framing.
+  static mp.MbxEdgeInsets get _zeroPadding =>
+      mp.MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0);
+
+  /// Immediately write the nav padding onto the map camera. Used before
+  /// handing the camera to the native FollowPuckViewportState, which
+  /// deliberately never modifies padding — so whatever is set here defines
+  /// the puck's on-screen anchor for the whole native-driven session.
+  void applyNavigationPaddingNow(mp.MapboxMap? map) {
+    final target = map ?? _mapboxMap;
+    if (target == null || _navPadding == null) return;
+    target.setCamera(mp.CameraOptions(padding: _navPadding));
+  }
+
   Future<void> updateCamera({
     required geo.Position userPosition,
     double? userBearing,
@@ -63,17 +100,9 @@ class CameraController {
   }) async {
     // Allow updates when following user, or when in overview mode so overview moves with user
     if (_mapboxMap == null) return;
-    if (!_isFollowingUser && !isOverviewMode) {
-      // ignore: avoid_print
-      print('📷 [NAV-CAM] SKIPPED — not following, not overview');
-      return;
-    }
+    if (!_isFollowingUser && !isOverviewMode) return;
 
     if (!_isValidPosition(userPosition)) return;
-
-    // ignore: avoid_print
-    print('📷 [NAV-CAM] entering _actuallyUpdateCamera — '
-        'isNavigationMode=$_isNavigationMode isOverview=$isOverviewMode');
 
     // No distance-skip / debounce — native Mapbox drives the camera every
     // render frame (60Hz) via ValueInterpolator. Skipping small updates or
@@ -125,7 +154,6 @@ class CameraController {
       );
     }
 
-    _lastCameraUpdate = DateTime.now();
   }
 
   /// Duration for recenter (my location) animation — Waze-style smooth ease.
@@ -152,6 +180,7 @@ class CameraController {
           position.latitude,
         ),
       ),
+      padding: _isNavigationMode ? _navPadding : _zeroPadding,
       zoom: targetZoom,
       bearing: targetBearing,
       pitch: targetPitch,
@@ -254,23 +283,30 @@ class CameraController {
           userPosition.latitude,
         ),
       ),
+      padding: _navPadding,
       zoom: _currentZoom,
       bearing: smoothedBearing, // Follow user's heading
       pitch: _currentPitch,
     );
 
-    // ignore: avoid_print
-    print('📷 [NAV-CAM] pitch=$_currentPitch bearing=${smoothedBearing.toStringAsFixed(1)} '
-        'zoom=${_currentZoom.toStringAsFixed(2)} userBearing=$userBearing '
-        'distToManeuver=$distanceToManeuverAlongRouteMeters');
+    // The ease must span the whole gap until the next GPS fix, or the
+    // camera glides then freezes (animation done, no new target yet).
+    // Measure the real cadence and animate slightly past it so the next
+    // fix always lands on a still-moving camera.
+    final now = DateTime.now();
+    if (_lastNavCameraUpdate != null) {
+      final intervalMs = now.difference(_lastNavCameraUpdate!).inMilliseconds;
+      if (intervalMs > 0) {
+        _navEaseDurationMs =
+            ((intervalMs * 1.15).round()).clamp(400, 2000);
+      }
+    }
+    _lastNavCameraUpdate = now;
 
     try {
-      // 450ms roughly matches typical GPS update cadence — camera keeps
-      // animating right up until the next update arrives, giving a
-      // continuous glide instead of a start-stop-restart per ping.
       await _mapboxMap!.easeTo(
         cameraOptions,
-        mp.MapAnimationOptions(duration: animate ? 450 : 0),
+        mp.MapAnimationOptions(duration: animate ? _navEaseDurationMs : 0),
       );
     } catch (e) {
       try {
@@ -322,6 +358,7 @@ class CameraController {
       _currentZoom = zoom.clamp(kOverviewDefaultZoom, kOverviewMaxZoom);
       final options = mp.CameraOptions(
         center: cameraOptions.center,
+        padding: _zeroPadding,
         zoom: _currentZoom,
         bearing: 0,
         pitch: _currentPitch,
@@ -349,6 +386,7 @@ class CameraController {
           userPosition.latitude,
         ),
       ),
+      padding: _zeroPadding,
       zoom: _currentZoom,
       bearing: _currentBearing,
       pitch: _currentPitch,
@@ -393,6 +431,7 @@ class CameraController {
           cameraPosition.latitude,
         ),
       ),
+      padding: _zeroPadding,
       zoom: _currentZoom,
       bearing: targetBearing,
       pitch: _currentPitch,
@@ -613,7 +652,7 @@ class CameraController {
 
   void reset() {
     _lastCameraPosition = null;
-    _lastCameraUpdate = null;
+    _lastNavCameraUpdate = null;
     _currentZoom = _defaultZoom;
     _currentPitch = _overviewPitch;
     _currentBearing = 0;
@@ -656,8 +695,13 @@ class CameraController {
       mp.MapAnimationOptions(duration: 1500),
     );
 
-    // Disable follow mode temporarily
-    _isFollowingUser = false;
+    // Route preview: stop following so the fitted frame stays put. During
+    // active navigation we must NOT drop follow mode — a route redraw
+    // (reroute, refresh) would otherwise freeze the nav camera until the
+    // user notices the recenter pill.
+    if (!_isNavigationMode) {
+      _isFollowingUser = false;
+    }
   }
 
   Future<void> fitToRouteFromMapboxRoute(MapboxRoute route) async {
@@ -673,8 +717,25 @@ class CameraController {
     await fitToRoute(routePoints);
   }
 
-  Future<void> forceNavigationZoom(geo.Position currentPosition) async {
+  /// Snap the camera into the full navigation preset. [initialBearing]
+  /// should be the route's departure bearing — at trip start the car is
+  /// usually stationary, so GPS course is invalid (0/-1) and using it
+  /// would leave the map facing north instead of down the route.
+  Future<void> forceNavigationZoom(
+    geo.Position currentPosition, {
+    double? initialBearing,
+  }) async {
     if (_mapboxMap == null) return;
+
+    final bearing = initialBearing ??
+        (currentPosition.heading >= 0 ? currentPosition.heading : 0.0);
+
+    // Sync internal state so per-GPS-tick updates continue smoothly from
+    // this preset instead of re-animating from stale values.
+    _currentZoom = _activeGuidanceZoom;
+    _currentPitch = kFollowingDefaultPitch;
+    _currentBearing = bearing;
+    _pendingNavBearingSnap = false;
 
     try {
       await _mapboxMap!.easeTo(
@@ -685,11 +746,12 @@ class CameraController {
               currentPosition.latitude,
             ),
           ),
+          padding: _navPadding,
           zoom: _activeGuidanceZoom,
-          bearing: currentPosition.heading >= 0 ? currentPosition.heading : 0,
+          bearing: bearing,
           pitch: kFollowingDefaultPitch,
         ),
-        mp.MapAnimationOptions(duration: 500),
+        mp.MapAnimationOptions(duration: 900),
       );
     } catch (e) {
       // Silently ignore

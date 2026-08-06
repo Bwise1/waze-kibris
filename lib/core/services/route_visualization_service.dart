@@ -85,11 +85,14 @@ class RouteVisualizationService {
   static const int trafficModerateColor = 0xFFFFD700;
   static const int trafficLightColor = 0xFF32CD32;
 
-  /// Initialize the service with a Mapbox map
+  /// Initialize the service with a Mapbox map. Re-runnable after a style
+  /// reload — layers/sources are recreated and the geometry hash is
+  /// invalidated so the next drawRoute re-uploads.
   Future<void> initialize(MapboxMap mapboxMap) async {
     print('🔧 Initializing RouteVisualizationService');
     _mapboxMap = mapboxMap;
     _isInitialized = true;
+    _lastRouteHash = null;
 
     try {
       await _setupRouteLayers();
@@ -149,19 +152,18 @@ class RouteVisualizationService {
       _currentRoute = route;
       _lastRouteHash = routeHash;
 
-      if (currentStepIndex != null && currentPosition != null) {
-        print('🔄 Updating route split for navigation progress');
-        await _updateRouteSplit(
-            route, currentStepIndex, 0, currentPosition); // leg 0 when from drawRoute
-      } else {
-        print('🗺️ Showing full route (no progress tracking)');
-        // Show full route
+      // Geometry is uploaded ONCE per route; per-tick progress is a
+      // line-trim-offset property write, never a source re-upload.
+      if (isNewRoute) {
+        _precomputeCumulativeDistances(route);
+        _lastTrimFraction = 0;
         await _showFullRoute(route);
+        await _setTrimOffset(0);
       }
 
-      if (isNewRoute) {
-        print('🎨 Updating route layer styling');
-        await _updateRouteLayerStyling(route);
+      if (currentStepIndex != null && currentPosition != null) {
+        await _updateRouteSplit(
+            route, currentStepIndex, 0, currentPosition); // leg 0 when from drawRoute
       }
 
       // Grey alternative routes (preview only — not while stepping through navigation)
@@ -238,94 +240,72 @@ class RouteVisualizationService {
     }
   }
 
-  /// Returns the maximum segment index (in route geometry) that may be used for
-  /// the split, so the split cannot be ahead of the current step. Returns null
-  /// if legs/steps are missing or indices are out of range (no cap).
-  int? _getMaxSegmentIndexForStep(
-    MapboxRoute route,
-    int currentLegIndex,
-    int currentStepIndex,
-  ) {
-    if (route.legs.isEmpty ||
-        currentLegIndex < 0 ||
-        currentLegIndex >= route.legs.length) {
-      return null;
-    }
-    final leg = route.legs[currentLegIndex];
-    if (leg.steps.isEmpty ||
-        currentStepIndex < 0 ||
-        currentStepIndex >= leg.steps.length) {
-      return null;
-    }
-    final maneuverLocation = leg.steps[currentStepIndex].maneuver.location;
-    if (maneuverLocation.length < 2) return null;
+  // Cumulative meters from route start to each coordinate index, computed
+  // once per route in [drawRoute]. Enables O(window) fraction-traveled math.
+  List<double>? _cumulativeMeters;
+  int _lastTrimSegmentIndex = 0;
 
-    final coordinates = route.geometry.coordinates;
-    if (coordinates.length < 2) return null;
-
-    final mLng = maneuverLocation[0];
-    final mLat = maneuverLocation[1];
-    int bestSegment = 0;
-    double minDist = double.infinity;
-
-    for (int i = 0; i < coordinates.length - 1; i++) {
-      final p1 = coordinates[i];
-      final p2 = coordinates[i + 1];
-      final proj = _projectPointOnSegment([mLng, mLat], p1, p2);
-      final dist = _calculateDistance(mLat, mLng, proj[1], proj[0]);
-      if (dist < minDist) {
-        minDist = dist;
-        bestSegment = i;
-      }
+  void _precomputeCumulativeDistances(MapboxRoute route) {
+    final coords = route.geometry.coordinates;
+    final cumul = List<double>.filled(coords.length, 0);
+    for (var i = 1; i < coords.length; i++) {
+      cumul[i] = cumul[i - 1] +
+          _calculateDistance(
+              coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]);
     }
-    // Allow one segment past the step so split can sit slightly ahead of step start
-    final cap = (bestSegment + 1).clamp(0, coordinates.length - 1);
-    return cap;
+    _cumulativeMeters = cumul;
+    _lastTrimSegmentIndex = 0;
   }
 
-  /// Update route split between traveled and remaining portions
+  /// Native vanishing-route-line: write a single `line-trim-offset` scalar on
+  /// the main + casing layers. The trimmed (traveled) part of the line simply
+  /// isn't rendered — no GeoJSON re-upload, no filters, GPU-side.
+  ///
+  /// Guards mirror the SDK (MapboxRouteLineApi.kt:615-659 /
+  /// VanishingRouteLine.kt:83): skip when the puck is >10 m off the line, and
+  /// never move the trim backwards.
+  double _lastTrimFraction = 0;
+
   Future<void> _updateRouteSplit(
     MapboxRoute route,
     int currentStepIndex,
     int currentLegIndex,
     geo.Position? currentPosition,
   ) async {
-    if (currentPosition == null) {
-      await _showFullRoute(route);
-      return;
-    }
+    if (currentPosition == null) return;
 
     try {
       final coordinates = route.geometry.coordinates;
-      if (coordinates.isEmpty) return;
+      if (coordinates.length < 2 ||
+          _cumulativeMeters == null ||
+          _cumulativeMeters!.length != coordinates.length) {
+        return;
+      }
+      final total = _cumulativeMeters!.last;
+      if (total <= 0) return;
 
-      final maxSegmentIndex =
-          _getMaxSegmentIndexForStep(route, currentLegIndex, currentStepIndex);
-      final maxSeg = maxSegmentIndex ?? (coordinates.length - 1);
+      // Project the puck onto the line, scanning a window around the last
+      // known segment (the SDK slices the previous 10 points + upcoming).
+      final windowStart = math.max(0, _lastTrimSegmentIndex - 10);
+      final windowEnd =
+          math.min(coordinates.length - 2, _lastTrimSegmentIndex + 40);
 
-      // Find the closest point on the route geometry (projected), only up to maxSeg
-      // so the split cannot be ahead of the current step
-      int closestSegmentIndex = 0;
+      int closestSegmentIndex = _lastTrimSegmentIndex;
       double minDistance = double.infinity;
-      List<double> projectedPoint = coordinates[0];
+      List<double> projectedPoint = coordinates[windowStart];
 
-      for (int i = 0; i <= maxSeg && i < coordinates.length - 1; i++) {
-        final p1 = coordinates[i];
-        final p2 = coordinates[i + 1];
-
+      for (int i = windowStart; i <= windowEnd; i++) {
         final proj = _projectPointOnSegment(
           [currentPosition.longitude, currentPosition.latitude],
-          p1,
-          p2,
+          coordinates[i],
+          coordinates[i + 1],
         );
-
         final dist = _calculateDistance(
           currentPosition.latitude,
           currentPosition.longitude,
-          proj[1], // lat
-          proj[0], // lng
+          proj[1],
+          proj[0],
         );
-
         if (dist < minDistance) {
           minDistance = dist;
           closestSegmentIndex = i;
@@ -333,78 +313,42 @@ class RouteVisualizationService {
         }
       }
 
-      // 1. Traveled Route (Start -> ... -> SegmentStart -> ProjectedPoint)
-      List<List<double>> traveledCoords = [];
-      if (closestSegmentIndex >= 0) {
-        traveledCoords.addAll(coordinates.sublist(0, closestSegmentIndex + 1));
-        traveledCoords.add(projectedPoint);
-      } else {
-        traveledCoords.add(projectedPoint);
-      }
+      // Off the line — don't advance the trim (native 10 m guard).
+      if (minDistance > 10.0) return;
 
-      List<Map<String, dynamic>> features = [];
-      if (traveledCoords.length >= 2) {
-        features.add({
-          'type': 'Feature',
-          'geometry': {
-            'type': 'LineString',
-            'coordinates': traveledCoords,
-          },
-          'properties': {
-            'route_id': route.hashCode.toString(),
-            'is_traveled': true,
-            'is_remaining': false,
-          },
-        });
-      }
+      final distanceTraveled = _cumulativeMeters![closestSegmentIndex] +
+          _calculateDistance(
+            coordinates[closestSegmentIndex][1],
+            coordinates[closestSegmentIndex][0],
+            projectedPoint[1],
+            projectedPoint[0],
+          );
+      var fraction = (distanceTraveled / total).clamp(0.0, 1.0);
 
-      // 2. Remaining Route (ProjectedPoint -> SegmentEnd -> ... -> End)
-      List<List<double>> remainingCoords = [];
-      remainingCoords.add(projectedPoint);
-      if (closestSegmentIndex + 1 < coordinates.length) {
-        remainingCoords.addAll(coordinates.sublist(closestSegmentIndex + 1));
-      }
+      // Monotonic: the traveled line never un-eats itself.
+      if (fraction < _lastTrimFraction) return;
 
-      // Fallback: if remaining would be empty or a single point, show full route
-      // so the line never disappears in front of the puck
-      if (remainingCoords.length < 2) {
-        await _showFullRoute(route);
-        _lastStepIndex = currentStepIndex;
-        _lastUpdatePosition = currentPosition;
-        _lastUpdateTime = DateTime.now();
-        return;
-      }
+      _lastTrimSegmentIndex = closestSegmentIndex;
+      _lastTrimFraction = fraction;
 
-      features.add({
-        'type': 'Feature',
-        'geometry': {
-          'type': 'LineString',
-          'coordinates': remainingCoords,
-        },
-        'properties': {
-          'route_id': route.hashCode.toString(),
-          'is_traveled': false,
-          'is_remaining': true,
-        },
-      });
-
-      final geoJson = {
-        'type': 'FeatureCollection',
-        'features': features,
-      };
-
-      await _mapboxMap!.style.setStyleSourceProperty(
-        _routeSourceId,
-        'data',
-        jsonEncode(geoJson),
-      );
+      await _setTrimOffset(fraction);
 
       _lastStepIndex = currentStepIndex;
       _lastUpdatePosition = currentPosition;
       _lastUpdateTime = DateTime.now();
     } catch (e) {
-      print('❌ Failed to update route split: $e');
-      await _showFullRoute(route);
+      print('❌ Failed to update route trim: $e');
+    }
+  }
+
+  Future<void> _setTrimOffset(double fraction) async {
+    final value = [0.0, fraction];
+    for (final layerId in [_routeLayerId, _routeBorderLayerId]) {
+      await _mapboxMap!.style.setStyleLayerProperty(
+        layerId,
+        'line-trim-offset',
+        value,
+      );
     }
   }
 
@@ -566,6 +510,14 @@ class RouteVisualizationService {
 
       await _mapboxMap!.style
           .setStyleSourceProperty(_routeSourceId, 'data', jsonEncode(emptyGeoJson));
+      await _setTrimOffset(0);
+      _lastTrimFraction = 0;
+      _lastTrimSegmentIndex = 0;
+      // The source is now empty — invalidate the hash so the next drawRoute
+      // re-uploads geometry even for the "same" route. Without this, a
+      // clear-then-redraw of an unchanged route skips the upload and the
+      // line disappears until the geometry happens to change.
+      _lastRouteHash = null;
       await _clearLaneGuidanceOnMap();
       await _clearManeuverArrow();
 
@@ -591,99 +543,66 @@ class RouteVisualizationService {
       // Remove existing layers and source if they exist
       await _removeExistingRouteLayers();
 
-      // Add single source (like the old code)
+      // Single source, uploaded ONCE per route. lineMetrics is required for
+      // line-trim-offset (the native vanishing-route-line mechanism) — the
+      // traveled portion is trimmed away GPU-side with a single scalar
+      // property write per tick instead of re-uploading split GeoJSON.
       await _mapboxMap!.style.addSource(
-        GeoJsonSource(id: _routeSourceId, data: jsonEncode(emptyGeoJson)),
+        GeoJsonSource(
+          id: _routeSourceId,
+          data: jsonEncode(emptyGeoJson),
+          lineMetrics: true,
+        ),
       );
       print('✅ Added route source: $_routeSourceId');
 
-      // 1. Route border layer (shared for both)
+      // 1. Casing (border) — native color #2F7AC6 and casing width curve
+      // (RouteLineScaleExpressions.kt: 10→7, 14→10.5, 16.5→15.5, 19→24, 22→29).
       await _mapboxMap!.style.addLayer(
         LineLayer(
           id: _routeBorderLayerId,
           sourceId: _routeSourceId,
           lineJoin: LineJoin.ROUND,
           lineCap: LineCap.ROUND,
-          // Thicker casing for professional look (Main width + ~4px)
           lineWidthExpression: [
             'interpolate',
             ['exponential', 1.5],
             ['zoom'],
-            10.0, 7.0, // 3 + 4
-            13.0, 10.0, // 6 + 4
-            16.0, 13.0, // 9 + 4
-            19.0, 18.0, // 14 + 4
-            22.0, 23.0, // 19 + 4
+            10.0, 7.0,
+            14.0, 10.5,
+            16.5, 15.5,
+            19.0, 24.0,
+            22.0, 29.0,
           ],
-          lineColor: 0xFF1556B8, // Professional Dark Blue Border
-          lineOpacity: 1.0, // Solid opacity
-          filter: [
-            '!=',
-            ['get', 'is_traveled'],
-            true
-          ], // Only border the remaining route
+          lineColor: 0xFF2F7AC6, // native route casing
+          lineOpacity: 1.0,
+          lineEmissiveStrength: 1.0,
         ),
       );
       print('✅ Added route border layer: $_routeBorderLayerId');
 
-      // 2. Traveled Route Layer (Faded Blue)
-      await _mapboxMap!.style.addLayer(
-        LineLayer(
-          id: _traveledRouteLayerId,
-          sourceId: _routeSourceId,
-          lineJoin: LineJoin.ROUND,
-          lineCap: LineCap.ROUND,
-          lineWidthExpression: [
-            'interpolate',
-            ['exponential', 1.5],
-            ['zoom'],
-            10.0,
-            3.0,
-            13.0,
-            6.0,
-            16.0,
-            9.0,
-            19.0,
-            14.0,
-            22.0,
-            19.0,
-          ],
-          lineColor: 0xFF89CFF0, // Faded/Baby Blue
-          lineOpacity: 0.6, // Slightly transparent for "faded" look
-          filter: [
-            '==',
-            ['get', 'is_traveled'],
-            true
-          ], // Only show traveled segments
-        ),
-      );
-      print('✅ Added traveled route layer: $_traveledRouteLayerId');
-
-      // 3. Main Route Layer (Active/Remaining)
+      // 2. Main route — native color #56A8FB and main width curve
+      // (RouteLineScaleExpressions.kt: 4→3, 10→4, 13→6, 16→10, 19→14, 22→18).
       await _mapboxMap!.style.addLayer(
         LineLayer(
           id: _routeLayerId,
           sourceId: _routeSourceId,
           lineJoin: LineJoin.ROUND,
           lineCap: LineCap.ROUND,
-          // Dynamic width based on zoom level (Waze-style)
           lineWidthExpression: [
             'interpolate',
             ['exponential', 1.5],
             ['zoom'],
-            10.0, 3.0, // Far zoom: thin line
-            13.0, 6.0, // Medium zoom
-            16.0, 9.0, // Close zoom
-            19.0, 14.0, // Very close: thick navigation line
-            22.0, 19.0, // Maximum zoom: very thick
+            4.0, 3.0,
+            10.0, 4.0,
+            13.0, 6.0,
+            16.0, 10.0,
+            19.0, 14.0,
+            22.0, 18.0,
           ],
-          lineColor: 0xFF4A90E2, // Vibrant Professional Blue
-          lineOpacity: 1.0, // Solid opacity
-          filter: [
-            '!=',
-            ['get', 'is_traveled'],
-            true
-          ], // Only show remaining segments
+          lineColor: 0xFF56A8FB, // native main route blue
+          lineOpacity: 1.0,
+          lineEmissiveStrength: 1.0,
         ),
       );
       print('✅ Added route main layer: $_routeLayerId');
@@ -736,36 +655,6 @@ class RouteVisualizationService {
   }
 
   /// Update route styling based on traffic
-  Future<void> _updateRouteLayerStyling(MapboxRoute route) async {
-    if (_mapboxMap == null) return;
-
-    try {
-      // Calculate traffic-aware color but don't override expressions
-      final avgSpeed = route.distance / route.duration * 3.6; // km/h
-      int routeColor = routeDefaultColor;
-
-      if (avgSpeed > 60) {
-        routeColor = trafficLightColor; // Fast route - green
-      } else if (avgSpeed > 40) {
-        routeColor = routeDefaultColor; // Normal - blue
-      } else if (avgSpeed > 20) {
-        routeColor = trafficModerateColor; // Slow - yellow
-      } else {
-        routeColor = trafficHeavyColor; // Very slow - red
-      }
-
-      // Only update color, don't override width expressions
-      await _mapboxMap!.style.setStyleLayerProperty(
-        _routeLayerId,
-        'line-color',
-        routeColor,
-      );
-    } catch (e) {
-      // Ignore styling errors - this is not critical
-      print('Route styling update failed: $e');
-    }
-  }
-
   /// Generate route hash for change detection
   String _generateRouteHash(MapboxRoute route) {
     final buffer = StringBuffer();
@@ -901,12 +790,15 @@ class RouteVisualizationService {
           iconPitchAlignment: IconPitchAlignment.MAP,
           minZoom: _maneuverArrowMinZoom,
           iconRotateExpression: ['get', 'bearing'],
+          // Casing must render LARGER than the fill so the dark-blue outline
+          // peeks out around the white triangle (native uses a bigger casing
+          // drawable; our two images are identical, so the size ratio does it).
           iconSizeExpression: [
             'interpolate',
             ['linear'],
             ['zoom'],
-            10.0, 0.22,
-            22.0, 0.88,
+            10.0, 0.19,
+            22.0, 0.72,
           ],
         ),
       );
@@ -927,8 +819,8 @@ class RouteVisualizationService {
             'interpolate',
             ['linear'],
             ['zoom'],
-            10.0, 0.225,
-            22.0, 0.885,
+            10.0, 0.16,
+            22.0, 0.62,
           ],
         ),
       );
