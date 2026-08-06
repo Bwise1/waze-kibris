@@ -35,12 +35,16 @@ class AppTheme {
     );
 
     final txtColor = text;
+    // primary MUST be the brand color, not white: Material dialogs, text
+    // buttons, checkboxes, spinners etc. all derive their color from
+    // colorScheme.primary — with white they render invisible on the white
+    // dialog/sheet surfaces (the "white buttons on popups" bug).
     final scheme = ColorScheme(
       brightness: isDark ? Brightness.dark : Brightness.light,
-      primary: white,
-      primaryContainer: primary,
-      secondary: secondary,
-      secondaryContainer: primary,
+      primary: primary,
+      primaryContainer: secondary,
+      secondary: primary,
+      secondaryContainer: secondary,
       surface: white,
       onSurface: txtColor,
       onError: white,
@@ -68,6 +72,57 @@ class AppTheme {
         alignLabelWithHint: true,
       ),
       visualDensity: VisualDensity.adaptivePlatformDensity,
+      // Branded, always-legible defaults for every stock Material popup.
+      dialogTheme: DialogThemeData(
+        backgroundColor: white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        titleTextStyle: textTheme.titleLarge!.copyWith(
+          color: txtColor,
+          fontWeight: FontWeight.w700,
+        ),
+        contentTextStyle: textTheme.bodyMedium!.copyWith(
+          color: body,
+          height: 1.4,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: primary,
+          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primary,
+          foregroundColor: white,
+          elevation: 0,
+          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: txtColor,
+          side: BorderSide(color: border),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: black,
+        contentTextStyle: textTheme.bodyMedium!.copyWith(color: white),
+        actionTextColor: secondary,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
     );
   }
 }

@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:waze_kibris/app/dashboard/view/place_details_screen.dart';
@@ -89,6 +91,17 @@ class _MapSheetState extends State<MapSheet> {
   List<RecentLocation> _recentLocations = [];
   bool _recentLocationsLoading = false;
   int _recentBuildCounter = 0;
+
+  // One controller for the sheet's (read-only) search bar. Allocating a new
+  // TextEditingController on every rebuild leaked controllers and added
+  // per-frame work while the sheet animated.
+  final TextEditingController _searchBarController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchBarController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -1401,6 +1414,32 @@ class _MapSheetState extends State<MapSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // Height of the OS gesture strip (iPhone home indicator / Android
+    // gesture nav). Touches starting there are meant for the SYSTEM
+    // (swipe up = minimize app), but the sheet's drag recognizer grabs the
+    // first few pixels and pops the sheet open. A transparent absorber over
+    // that strip keeps app gestures out; the OS gesture itself is handled
+    // above the app and is unaffected.
+    final systemGestureStrip =
+        math.max(MediaQuery.of(context).padding.bottom, 16.0) + 2;
+
+    return Stack(
+      children: [
+        _buildSheetBody(context),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: systemGestureStrip,
+          child: AbsorbPointer(
+            child: Container(color: Colors.transparent),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSheetBody(BuildContext context) {
     return BlocListener<ReportsBloc, ReportState>(
       listener: (context, state) {
         if (state is GetRecentLocationsSuccess) {
@@ -1421,11 +1460,16 @@ class _MapSheetState extends State<MapSheet> {
         }
       },
       child: DraggableScrollableSheet(
-        initialChildSize: 0.28,
+        // Resting height shows the search bar, compact Home/Work shortcuts,
+        // and the first Recent row — the driver's likeliest next tap.
+        initialChildSize: 0.36,
         minChildSize: 0.13,
         maxChildSize: 0.85,
         snap: true,
-        snapSizes: const [0.13, 0.28, 0.85],
+        snapSizes: const [0.13, 0.36, 0.85],
+        // Fixed, quick settle. The default spring simulation takes visibly
+        // long over the full 85%→13% travel and reads as lag.
+        snapAnimationDuration: const Duration(milliseconds: 220),
         builder: (BuildContext ctx, ScrollController scrollController) {
           final homeLocation = _savedLocations.firstWhereOrNull(
             (e) => e.name.toLowerCase() == 'home',
@@ -1435,7 +1479,11 @@ class _MapSheetState extends State<MapSheet> {
           );
           final otherLocations = _filterAddedLocation(_savedLocations);
 
-          return DecoratedBox(
+          // RepaintBoundary: while the sheet animates over the map platform
+          // view, only the sheet's own layer moves — its contents aren't
+          // re-rasterized every frame.
+          return RepaintBoundary(
+            child: DecoratedBox(
             decoration: const BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.only(
@@ -1477,7 +1525,7 @@ class _MapSheetState extends State<MapSheet> {
                     onTap: _openSearchPage,
                     child: AbsorbPointer(
                       child: CustomSearchBar(
-                        controller: TextEditingController(),
+                        controller: _searchBarController,
                         onChanged: (_) {},
                         onClear: () {},
                         onFocus: () {},
@@ -1490,7 +1538,7 @@ class _MapSheetState extends State<MapSheet> {
 
                 // ── Saved locations horizontal row ────────────────────────
                 SizedBox(
-                  height: 80,
+                  height: 56,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     padding: EdgeInsets.symmetric(horizontal: styles.insets.md),
@@ -1563,7 +1611,7 @@ class _MapSheetState extends State<MapSheet> {
                   ),
                 ),
 
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
 
                 // ── Recent locations ──────────────────────────────────────
                 Padding(
@@ -1579,12 +1627,185 @@ class _MapSheetState extends State<MapSheet> {
                   isLoading: _recentLocationsLoading,
                   buildCounter: _recentBuildCounter,
                   onLocationTap: _onRecentLocationTap,
+                  onLocationLongPress: _showRecentOptionsSheet,
                 ),
                 const SizedBox(height: 24),
               ],
             ),
+            ),
           );
         },
+      ),
+    );
+  }
+
+  // ── Recent long-press options ─────────────────────────────────────────────
+
+  /// Modal action sheet for a recent location. Uses the ROOT navigator so it
+  /// renders above (and dims) the persistent draggable sheet underneath.
+  Future<void> _showRecentOptionsSheet(RecentLocation location) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 10, bottom: 4),
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              // Header: what this menu is about.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: styles.theme.secondary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(Icons.history,
+                          size: 20, color: styles.theme.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            location.name,
+                            style: styles.typography.t2.medium,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            location.address,
+                            style: styles.typography.t3
+                                .textColor(styles.theme.ash),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: styles.theme.divider),
+              _RecentOptionTile(
+                icon: Icons.navigation_outlined,
+                label: 'Navigate here',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _onRecentLocationTap(location);
+                },
+              ),
+              _RecentOptionTile(
+                icon: Icons.bookmark_add_outlined,
+                label: 'Save place',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  context.read<ReportsBloc>()
+                    ..add(ReportsEvent.saveLocation(
+                      locationName: location.name,
+                      address: location.address,
+                      lat: location.latitude,
+                      lng: location.longitude,
+                      placeId: location.placeId,
+                    ))
+                    ..add(ReportsEvent.getSavedLocations());
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('${location.name} saved to your places')),
+                  );
+                },
+              ),
+              _RecentOptionTile(
+                icon: Icons.ios_share,
+                label: 'Copy address',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Clipboard.setData(ClipboardData(text: location.address));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Address copied')),
+                  );
+                },
+              ),
+              _RecentOptionTile(
+                icon: Icons.info_outline,
+                label: 'Info',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _showRecentInfoDialog(location);
+                },
+              ),
+              _RecentOptionTile(
+                icon: Icons.delete_outline,
+                label: 'Remove from recents',
+                destructive: true,
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  context.read<ReportsBloc>()
+                    ..add(ReportsEvent.removeRecentLocation(
+                        placeId: location.placeId))
+                    ..add(ReportsEvent.getRecentLocations());
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showRecentInfoDialog(RecentLocation location) {
+    final visited = location.lastVisited;
+    final visitedLabel =
+        '${visited.day.toString().padLeft(2, '0')}/${visited.month.toString().padLeft(2, '0')}/${visited.year}';
+    showDialog<void>(
+      context: context,
+      useRootNavigator: true,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(location.name),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(location.address),
+            const SizedBox(height: 12),
+            Text('Visited ${location.visitCount} '
+                '${location.visitCount == 1 ? 'time' : 'times'} · last on $visitedLabel'),
+            const SizedBox(height: 4),
+            Text(
+              '${location.latitude.toStringAsFixed(5)}, '
+              '${location.longitude.toStringAsFixed(5)}',
+              style: styles.typography.t3.textColor(styles.theme.ash),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }
@@ -1611,18 +1832,53 @@ class _MapSheetState extends State<MapSheet> {
 
 // ── Private: recent locations list inside the draggable sheet ────────────────
 
+/// A single row in the recent-options modal sheet.
+class _RecentOptionTile extends StatelessWidget {
+  const _RecentOptionTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = destructive ? styles.theme.red : styles.theme.text;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 22, color: color),
+            const SizedBox(width: 16),
+            Text(label, style: styles.typography.t2.textColor(color)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SheetRecentLocationsWidget extends StatelessWidget {
   const _SheetRecentLocationsWidget({
     required this.locations,
     required this.isLoading,
     required this.buildCounter,
     required this.onLocationTap,
+    required this.onLocationLongPress,
   });
 
   final List<RecentLocation> locations;
   final bool isLoading;
   final int buildCounter;
   final void Function(RecentLocation) onLocationTap;
+  final void Function(RecentLocation) onLocationLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1653,6 +1909,7 @@ class _SheetRecentLocationsWidget extends StatelessWidget {
             location: locations[i],
             showDivider: i < locations.length - 1,
             onTap: () => onLocationTap(locations[i]),
+            onLongPress: () => onLocationLongPress(locations[i]),
           ),
       ],
     );
@@ -1664,12 +1921,14 @@ class _SheetRecentLocationItem extends StatelessWidget {
     required this.location,
     required this.showDivider,
     required this.onTap,
+    required this.onLongPress,
     super.key,
   });
 
   final RecentLocation location;
   final bool showDivider;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1680,6 +1939,7 @@ class _SheetRecentLocationItem extends StatelessWidget {
         children: [
           InkWell(
             onTap: onTap,
+            onLongPress: onLongPress,
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 10),
@@ -2278,11 +2538,11 @@ class _SavedLocationCardState extends State<SavedLocationCard> {
     return GestureDetector(
       onTap: widget.onTap,
       child: Container(
-        width: 160,
-        padding: const EdgeInsets.all(12),
+        width: 148,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: Colors.grey.withOpacity(0.2),
             width: 1,
@@ -2298,20 +2558,20 @@ class _SavedLocationCardState extends State<SavedLocationCard> {
         child: Row(
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: 34,
+              height: 34,
               decoration: BoxDecoration(
                 color: Colors.grey.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
               child: Center(
                 child: widget.isImageFile
-                    ? Image.asset(widget.icon, width: 24, height: 24)
+                    ? Image.asset(widget.icon, width: 20, height: 20)
                     : AppIcon(widget.icon,
-                        size: 24, color: styles.theme.primary),
+                        size: 20, color: styles.theme.primary),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2326,7 +2586,7 @@ class _SavedLocationCardState extends State<SavedLocationCard> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   if (_isLoadingAddress)
                     const SizedBox(
                       width: 12,

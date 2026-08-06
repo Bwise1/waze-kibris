@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -24,8 +25,14 @@ import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
+import 'package:waze_kibris/core/services/map_style_preference.dart';
 import 'package:waze_kibris/core/bloc/groups/groups_bloc.dart';
-import 'package:waze_kibris/core/bloc/groups/groups_state.dart';
+import 'package:waze_kibris/core/bloc/groups/groups_event.dart';
+import 'package:waze_kibris/core/repositories/group_repository.dart';
+import 'package:waze_kibris/core/services/nav_puck_preference.dart';
+import 'package:waze_kibris/core/services/nav_settings.dart';
+import 'package:waze_kibris/core/services/push_notification_service.dart';
+import 'package:waze_kibris/app/dashboard/view/groups/group_chat_screen.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
 
 class MainDashboard extends StatefulWidget {
@@ -53,8 +60,17 @@ class _MainDashboardState extends State<MainDashboard>
       false; // So we only connect once when auth is ready
   Timer?
       _routeRefreshTimer; // Timer for periodic route refresh during navigation
+  Timer? _mapStyleTimer; // Re-evaluates Auto day/night at intervals
+  String? _initialStyleUri; // Style the MapWidget is created with (stable)
+
+  /// Live height of the home bottom sheet in px (-1 until first drag).
+  /// Drives the floating buttons so they ride on top of the sheet,
+  /// Waze-style, without rebuilding the whole screen per frame.
+  final ValueNotifier<double> _sheetHeightPx = ValueNotifier(-1);
   MapboxRoute?
       _lastDrawnRoute; // Track last drawn route for reroute/refresh redraw
+  StreamSubscription<WsMessage>? _groupLocationSub;
+  final Map<String, dynamic> _groupMemberLocations = {};
   DateTime? _lastNearbyUsersFetch;
   static const Duration _nearbyUsersFetchInterval = Duration(seconds: 30);
 
@@ -229,6 +245,30 @@ class _MainDashboardState extends State<MainDashboard>
       setState(() => _mapReadyToBuild = true);
     });
 
+    // Map style: load the persisted Auto/Day/Night preference, react to
+    // changes from the settings screen, and re-evaluate Auto mode
+    // periodically so a drive through dusk flips to the night style.
+    MapStylePreference.load().then((_) {
+      if (mounted) _evaluateMapStyle();
+    });
+    MapStylePreference.mode.addListener(_evaluateMapStyle);
+
+    // Puck icon (arrow/car/bus/truck): load persisted choice and re-apply
+    // the location puck when it changes in settings.
+    NavPuckPreference.load().then((_) {
+      if (mounted) refreshLocationPuck();
+    });
+    NavPuckPreference.style.addListener(_onPuckStyleChanged);
+
+    // Driving preferences (voice, units, avoid rules, report alerts…).
+    NavSettings.load();
+    // Hiding/showing a report type takes effect on the map immediately.
+    NavSettings.mutedReportTypes.addListener(_onReportFilterChanged);
+    _mapStyleTimer = Timer.periodic(
+      const Duration(minutes: 5),
+      (_) => _evaluateMapStyle(),
+    );
+
     // Check if user is already authenticated on app launch to connect WS immediately,
     // otherwise the BlocListener below will handle the initial AuthSuccess emission.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -250,6 +290,82 @@ class _MainDashboardState extends State<MainDashboard>
 
     // First report fetch is triggered when we get a position in onPositionUpdate,
     // with an 8s fallback timer started from build().
+
+    // Live member locations for group trips arrive straight off the socket
+    // (chat state moved to GroupChatBloc, so the map listens directly).
+    _groupLocationSub =
+        context.read<WebSocketService>().messages.listen((msg) {
+      if (msg.type != 'group_location_update' || msg.content == null) return;
+      try {
+        final payload = jsonDecode(msg.content!) as Map<String, dynamic>;
+        final userId = (payload['userId'] ?? payload['user_id'])?.toString();
+        final lat = double.tryParse(payload['lat'].toString());
+        final lng = double.tryParse(payload['lng'].toString());
+        if (userId == null || lat == null || lng == null) return;
+        _groupMemberLocations[userId] = {'lat': lat, 'lng': lng};
+        displayGroupLocationsOnMap(_groupMemberLocations);
+      } catch (_) {}
+    });
+
+    // Fetch the group list once at startup so unread badges are populated
+    // and can then update live from the socket.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<GroupsBloc>().add(const GetGroupsRequested());
+      }
+    });
+
+    // Tapping a group-chat push notification opens that conversation.
+    getIt<PushNotificationService>().setGroupChatTapHandler((groupId) async {
+      if (!mounted) return;
+      try {
+        final response =
+            await context.read<GroupRepository>().getGroupById(groupId);
+        final group = response.data;
+        if (group == null || !mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => GroupChatScreen(group: group),
+          ),
+        );
+      } catch (e) {
+        debugPrint('Push tap: could not open group $groupId: $e');
+      }
+    });
+  }
+
+  void _onPuckStyleChanged() {
+    if (mounted) refreshLocationPuck();
+  }
+
+  void _onReportFilterChanged() {
+    if (!mounted) return;
+    // Re-fetch so types that were muted (and dropped from the cache) come
+    // back when re-enabled.
+    final position = _lastReportFetchPosition;
+    if (position != null) {
+      _fetchNearbyReports(position, force: true);
+    }
+  }
+
+  /// Resolve the style for the current mode/sun position and apply it if it
+  /// differs from what the map is showing.
+  void _evaluateMapStyle() {
+    if (!mounted) return;
+    final uri = MapStylePreference.resolveStyleUri(
+      latitude: _lastReportFetchPosition?.latitude,
+      longitude: _lastReportFetchPosition?.longitude,
+    );
+    applyMapStyleUri(uri);
+  }
+
+  @override
+  void onMapStyleReloaded() {
+    // Restore the active route after the style wipe.
+    final route = _lastDrawnRoute;
+    if (route != null) {
+      drawMapboxPolyline(route, fitCamera: false);
+    }
   }
 
   Future<void> _connectWebSocketIfPossible() async {
@@ -303,8 +419,15 @@ class _MainDashboardState extends State<MainDashboard>
       resumeTrackingAndRefreshNavigation(_navigationBloc);
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
-      // Lightly pause tracking while in background to avoid unnecessary work.
-      pausePositionTracking();
+      // Pause tracking in background — but never during active navigation:
+      // guidance must keep advancing (steps, voice, reroute) while the
+      // screen is off or another app is in front. The Android foreground
+      // service notification exists precisely for this. `inactive` also
+      // fires on incoming calls / notification shade, where stopping
+      // navigation would be a serious failure.
+      if (_navigationBloc.state is! NavigationInProgress) {
+        pausePositionTracking();
+      }
     }
   }
 
@@ -333,6 +456,13 @@ class _MainDashboardState extends State<MainDashboard>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    MapStylePreference.mode.removeListener(_evaluateMapStyle);
+    NavPuckPreference.style.removeListener(_onPuckStyleChanged);
+    NavSettings.mutedReportTypes.removeListener(_onReportFilterChanged);
+    _mapStyleTimer?.cancel();
+    getIt<PushNotificationService>().setGroupChatTapHandler(null);
+    _groupLocationSub?.cancel();
+    _sheetHeightPx.dispose();
     _initialReportFetchFallbackTimer?.cancel();
     _routeRefreshTimer?.cancel();
     _navigationBloc.close();
@@ -377,10 +507,21 @@ class _MainDashboardState extends State<MainDashboard>
       _isMapSheetVisible = false;
     });
 
-    drawMapboxPolyline(route);
+    // fitCamera: false — the nav camera below owns the viewport. The old
+    // unawaited fit-to-route raced against forceNavigationZoom, and when it
+    // landed last it disabled follow mode and left the camera stuck on a
+    // north-up overview for the whole trip.
+    drawMapboxPolyline(route, fitCamera: false);
     setState(() => _lastDrawnRoute = route);
     updateMapForNavigationMode(true);
-    forceNavigationZoom();
+    if (useNativeNavViewport) {
+      // Native follow-puck camera: set the lower-third padding on the map
+      // (native never touches padding), pin the departure bearing so the
+      // map is course-up before the car moves, and let the SDK drive.
+      startNativeNavViewport(initialBearing: _initialRouteBearing(route));
+    } else {
+      forceNavigationZoom(initialBearing: _initialRouteBearing(route));
+    }
     _navigationBloc.add(NavigationStarted(route: route, mode: mode));
     setIsFollowingUser(true);
     initializeSnapToRoad(route, mode: mode);
@@ -392,13 +533,34 @@ class _MainDashboardState extends State<MainDashboard>
     _startRouteRefreshTimer(route);
   }
 
+  /// Bearing of the route's first meaningful segment (degrees, 0–360).
+  /// Used to rotate the map course-up at trip start, when the car is
+  /// stationary and GPS course is invalid.
+  double? _initialRouteBearing(MapboxRoute route) {
+    final coords = route.geometry.coordinates;
+    if (coords.length < 2 || coords.first.length < 2) return null;
+    final startLat = coords.first[1];
+    final startLng = coords.first[0];
+    for (final c in coords.skip(1)) {
+      if (c.length < 2) continue;
+      final d = Geolocator.distanceBetween(startLat, startLng, c[1], c[0]);
+      if (d >= 5) {
+        final bearing =
+            Geolocator.bearingBetween(startLat, startLng, c[1], c[0]);
+        return (bearing + 360) % 360;
+      }
+    }
+    return null;
+  }
+
   void _startRouteRefreshTimer(MapboxRoute initialRoute) {
     // Cancel any existing timer
     _routeRefreshTimer?.cancel();
 
-    // Refresh route every 4 minutes to get updated traffic conditions
+    // Refresh route every 2 minutes to get updated traffic conditions
+    // (native SDK default: routeRefreshPeriod = 120s).
     _routeRefreshTimer =
-        Timer.periodic(const Duration(minutes: 4), (timer) async {
+        Timer.periodic(const Duration(minutes: 2), (timer) async {
       final currentState = _navigationBloc.state;
       if (currentState is NavigationInProgress && !currentState.isRerouting) {
         try {
@@ -429,15 +591,32 @@ class _MainDashboardState extends State<MainDashboard>
 
           if (response.routes.isNotEmpty) {
             final refreshedRoute = response.routes.first;
+
+            // Only apply the refresh when traffic conditions meaningfully
+            // changed the route. Re-dispatching NavigationStarted resets step
+            // progress and replays the departure voice prompt, and the
+            // clear+redraw makes the route line blink — none of that is
+            // acceptable every 2 minutes for a near-identical route.
+            final distanceDelta =
+                (refreshedRoute.distance - currentState.remainingDistance)
+                    .abs();
+            final durationDelta =
+                (refreshedRoute.duration - currentState.remainingDuration)
+                    .abs();
+            if (distanceDelta < 50 && durationDelta < 30) {
+              debugPrint(
+                  '🔄 Route refresh: no meaningful change (Δ${distanceDelta.toStringAsFixed(0)}m, Δ${durationDelta.toStringAsFixed(0)}s) — keeping current route');
+              return;
+            }
+
             debugPrint(
                 '✅ Route refreshed! New distance: ${refreshedRoute.distance}m, duration: ${refreshedRoute.duration}s');
 
-            // Update navigation with refreshed route
+            // Update navigation with refreshed route. The NavigationBloc
+            // listener redraws the polyline (fitCamera: false) — no direct
+            // draw here, or the route gets cleared and redrawn twice.
             _navigationBloc.add(
                 NavigationStarted(route: refreshedRoute, mode: currentState.mode));
-
-            // Update polyline visualization
-            drawMapboxPolyline(refreshedRoute);
           } else {
             debugPrint('⚠️ Route refresh failed: No routes found');
           }
@@ -540,9 +719,12 @@ class _MainDashboardState extends State<MainDashboard>
             BlocListener<NavigationBloc, NavigationState>(
               listener: (context, state) {
                 if (state is NavigationInProgress) {
-                  // Redraw route and update snap service when bloc applies a new route (e.g. after reroute)
+                  // Redraw route and update snap service when bloc applies a
+                  // new route (e.g. after reroute). fitCamera: false — swap
+                  // the line silently like Waze; never yank the nav camera
+                  // out to a route overview mid-drive.
                   if (state.route != _lastDrawnRoute) {
-                    drawMapboxPolyline(state.route);
+                    drawMapboxPolyline(state.route, fitCamera: false);
                     setState(() => _lastDrawnRoute = state.route);
                   }
                   if (state.isNavigationComplete) {
@@ -569,13 +751,6 @@ class _MainDashboardState extends State<MainDashboard>
                 }
               },
             ),
-            BlocListener<GroupsBloc, GroupsState>(
-              listener: (context, state) {
-                if (state is GetGroupMessagesSuccess) {
-                  displayGroupLocationsOnMap(state.groupLocations);
-                }
-              },
-            ),
           ],
           child: BlocBuilder<NavigationBloc, NavigationState>(
             builder: (context, state) {
@@ -594,10 +769,33 @@ class _MainDashboardState extends State<MainDashboard>
                           return const SizedBox.shrink();
                         }
 
+                        // Keep the nav camera's lower-third puck framing in
+                        // sync with the actual map size (rotation, resize).
+                        updateNavigationViewportPadding(
+                          constraints.maxHeight,
+                          MediaQuery.of(context).devicePixelRatio,
+                        );
+
                         return mp.MapWidget(
                           key: _mapWidgetKey,
-                          onMapCreated: onMapCreated,
+                          // Mapbox's dedicated navigation style (what the
+                          // native turn-by-turn SDK ships). Resolved once at
+                          // creation from the Auto/Day/Night preference;
+                          // later switches go through applyMapStyleUri.
+                          styleUri: _initialStyleUri ??=
+                              MapStylePreference.resolveStyleUri(
+                            latitude: _lastReportFetchPosition?.latitude,
+                            longitude: _lastReportFetchPosition?.longitude,
+                          ),
+                          onMapCreated: (controller) {
+                            markInitialStyleApplied(_initialStyleUri!);
+                            onMapCreated(controller);
+                          },
                           onTapListener: onMapTap,
+                          // Native camera control during navigation (iOS):
+                          // FollowPuckViewportState keeps camera and puck
+                          // in 60fps lockstep on the render thread.
+                          viewport: navViewport,
                           // Any user pan / pinch-zoom exits follow mode so
                           // the recenter pill swaps in for the speedometer.
                           // Rotate / tilt gestures aren't exposed by the
@@ -676,49 +874,59 @@ class _MainDashboardState extends State<MainDashboard>
                     ),
                   ),
 
-                  // Global report button (available even when not navigating),
-                  // aligned just below the recenter FAB and only shown when
-                  // the main MapSheet is visible (so it appears "attached" to it)
+                  // Floating buttons (recenter + report) ride on top of the
+                  // bottom sheet as it drags — Waze-style. They follow the
+                  // sheet edge up to a cap; past that the (later-painted)
+                  // sheet simply slides over them.
                   if (state is! NavigationInProgress &&
                       _isMapSheetVisible &&
                       !_isModalOpen)
-                    Positioned(
-                      bottom: 268, // closer to recenter, but not overlapping
-                      right: 16,
-                      child: FloatingActionButton(
-                        heroTag: 'global_report_fab',
-                        backgroundColor: Colors.orange,
-                        onPressed: () async {
-                          showModalBottomSheet<void>(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => const ReportEventModal(),
-                          );
-                        },
-                        child: const Icon(
-                          Icons.report_problem,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-
-                  // Recenter (my location) button — above report FAB, visible above panel,
-                  // and only when the MapSheet is present (so it visually rides on top of it)
-                  if (state is! NavigationInProgress &&
-                      _isMapSheetVisible &&
-                      !_isModalOpen)
-                    Positioned(
-                      bottom: 332,
-                      right: 16,
-                      child: FloatingActionButton(
-                        heroTag: 'recenter_fab',
-                        onPressed: recenterOnUser,
-                        backgroundColor: Colors.white,
-                        child: const Icon(
-                          Icons.gps_fixed,
-                          color: Colors.blueAccent,
-                        ),
+                    ValueListenableBuilder<double>(
+                      valueListenable: _sheetHeightPx,
+                      builder: (context, sheetPx, buttons) {
+                        final screenH = MediaQuery.of(context).size.height;
+                        // Before the first drag notification, assume the
+                        // sheet's initial 36% resting height.
+                        final height = sheetPx < 0 ? screenH * 0.36 : sheetPx;
+                        final cap = screenH * 0.45;
+                        final bottom = (height < cap ? height : cap) + 12;
+                        return Positioned(
+                          bottom: bottom,
+                          right: 16,
+                          child: buttons!,
+                        );
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FloatingActionButton(
+                            heroTag: 'recenter_fab',
+                            onPressed: recenterOnUser,
+                            backgroundColor: Colors.white,
+                            child: const Icon(
+                              Icons.gps_fixed,
+                              color: Colors.blueAccent,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          FloatingActionButton(
+                            heroTag: 'global_report_fab',
+                            backgroundColor: Colors.orange,
+                            onPressed: () async {
+                              showModalBottomSheet<void>(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) =>
+                                    const ReportEventModal(),
+                              );
+                            },
+                            child: const Icon(
+                              Icons.report_problem,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
 
@@ -746,9 +954,16 @@ class _MainDashboardState extends State<MainDashboard>
                         onToggleOverview: () {
                           _navigationBloc.add(NavigationOverviewToggled());
                           if (!state.isOverviewVisible) {
+                            // Entering overview: take the camera back from
+                            // the native follow state so the Dart overview
+                            // framing can drive.
+                            exitNativeViewport();
                             setIsFollowingUser(false);
                           } else {
                             setIsFollowingUser(true);
+                            if (useNativeNavViewport) {
+                              enterNativeFollowViewport(maxDurationMs: 1500);
+                            }
                           }
                         },
                         onRecenter: () async {
@@ -767,7 +982,14 @@ class _MainDashboardState extends State<MainDashboard>
                         offstage: !_isMapSheetVisible,
                         child: IgnorePointer(
                           ignoring: !_isMapSheetVisible,
-                          child: MapSheet(
+                          child: NotificationListener<
+                              DraggableScrollableNotification>(
+                            onNotification: (notification) {
+                              _sheetHeightPx.value = notification.extent *
+                                  MediaQuery.of(context).size.height;
+                              return false;
+                            },
+                            child: MapSheet(
                             onSuggestionSelected: _onSuggestionSelected,
                             onDrawMapboxPolyline:
                                 (route, {alternativeRoutes}) {
@@ -789,6 +1011,7 @@ class _MainDashboardState extends State<MainDashboard>
                                 _isMapSheetVisible = true;
                               });
                             },
+                          ),
                           ),
                         ),
                       ),
