@@ -87,6 +87,9 @@ class PushNotificationService {
   void Function(String groupId)? _groupChatTapHandler;
   String? _pendingGroupChatId;
 
+  void Function(int reportId)? _reportChatTapHandler;
+  int? _pendingReportChatId;
+
   /// Register the navigation handler for "group_chat" notification taps.
   /// If a tap already happened (cold start), it fires immediately.
   void setGroupChatTapHandler(void Function(String groupId)? handler) {
@@ -98,16 +101,37 @@ class PushNotificationService {
     }
   }
 
+  /// Same, for replies in a report's discussion thread.
+  void setReportChatTapHandler(void Function(int reportId)? handler) {
+    _reportChatTapHandler = handler;
+    final pending = _pendingReportChatId;
+    if (handler != null && pending != null) {
+      _pendingReportChatId = null;
+      handler(pending);
+    }
+  }
+
   void _handleNotificationTap(RemoteMessage message) {
     final data = message.data;
-    if (data['type'] != 'group_chat') return;
-    final groupId = data['group_id']?.toString();
-    if (groupId == null || groupId.isEmpty) return;
-    final handler = _groupChatTapHandler;
-    if (handler != null) {
-      handler(groupId);
-    } else {
-      _pendingGroupChatId = groupId;
+    switch (data['type']) {
+      case 'group_chat':
+        final groupId = data['group_id']?.toString();
+        if (groupId == null || groupId.isEmpty) return;
+        final handler = _groupChatTapHandler;
+        if (handler != null) {
+          handler(groupId);
+        } else {
+          _pendingGroupChatId = groupId;
+        }
+      case 'report_chat':
+        final reportId = int.tryParse(data['report_id']?.toString() ?? '');
+        if (reportId == null) return;
+        final handler = _reportChatTapHandler;
+        if (handler != null) {
+          handler(reportId);
+        } else {
+          _pendingReportChatId = reportId;
+        }
     }
   }
 

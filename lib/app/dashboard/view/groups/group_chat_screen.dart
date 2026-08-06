@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/bloc/group_chat/group_chat_bloc.dart';
@@ -12,6 +13,7 @@ import 'package:waze_kibris/core/bloc/groups/groups_state.dart';
 import 'package:waze_kibris/core/models/groups/group_models.dart';
 import 'package:waze_kibris/core/repositories/group_repository.dart';
 import 'package:waze_kibris/core/services/websocket_service.dart';
+import 'package:waze_kibris/core/widgets/chat/chat_widgets.dart';
 
 const String _nilUuid = '00000000-0000-0000-0000-000000000000';
 
@@ -154,9 +156,11 @@ class _GroupChatViewState extends State<_GroupChatView> {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 2),
-            _ConnectionStatusLabel(
+            ChatConnectionLabel(
               status: context.read<WebSocketService>().status,
-              memberCount: widget.group.memberCount,
+              trailing: widget.group.memberCount > 0
+                  ? '${widget.group.memberCount} members'
+                  : null,
             ),
           ],
         ),
@@ -197,24 +201,9 @@ class _GroupChatViewState extends State<_GroupChatView> {
                   Positioned(
                     right: 16,
                     bottom: 12,
-                    child: AnimatedScale(
-                      scale: _showJumpToLatest ? 1 : 0,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                      child: Material(
-                        color: Colors.white,
-                        shape: const CircleBorder(),
-                        elevation: 4,
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: _jumpToLatest,
-                          child: const Padding(
-                            padding: EdgeInsets.all(10),
-                            child: Icon(Icons.keyboard_double_arrow_down,
-                                size: 22, color: Colors.black87),
-                          ),
-                        ),
-                      ),
+                    child: ChatJumpToLatest(
+                      visible: _showJumpToLatest,
+                      onTap: _jumpToLatest,
                     ),
                   ),
                 ],
@@ -232,66 +221,23 @@ class _GroupChatViewState extends State<_GroupChatView> {
   // -------------------------------------------------------------------------
 
   Widget _buildMessages(BuildContext context, GroupChatState state) {
-    final theme = Theme.of(context);
-
     if (state.loadingInitial && state.entries.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
     if (state.loadError != null && state.entries.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.cloud_off_outlined,
-                  size: 44, color: theme.colorScheme.onSurface.withValues(alpha: 0.35)),
-              const SizedBox(height: 12),
-              Text(
-                state.loadError!,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => context
-                    .read<GroupChatBloc>()
-                    .add(const GroupChatStarted()),
-                child: const Text('Try again'),
-              ),
-            ],
-          ),
-        ),
+      return ChatErrorState(
+        message: state.loadError!,
+        onRetry: () =>
+            context.read<GroupChatBloc>().add(const GroupChatStarted()),
       );
     }
 
     if (state.entries.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.08),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.forum_outlined,
-                  size: 34, color: theme.colorScheme.primary),
-            ),
-            const SizedBox(height: 14),
-            Text('No messages yet', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              'Say hi to your group.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-              ),
-            ),
-          ],
-        ),
+      return const ChatEmptyState(
+        icon: Icons.forum_outlined,
+        title: 'No messages yet',
+        subtitle: 'Say hi to your group.',
       );
     }
 
@@ -334,7 +280,7 @@ class _GroupChatViewState extends State<_GroupChatView> {
         final newer = index > 0 ? entries[index - 1].message : null;
 
         final dayChanged =
-            older == null || !_sameDay(older.createdAt, msg.createdAt);
+            older == null || !sameDay(older.createdAt, msg.createdAt);
         final firstOfRun = dayChanged ||
             older.userId != msg.userId ||
             msg.createdAt.difference(older.createdAt).inMinutes >= 3;
@@ -342,12 +288,21 @@ class _GroupChatViewState extends State<_GroupChatView> {
             newer.userId != msg.userId ||
             newer.createdAt.difference(msg.createdAt).inMinutes >= 3;
 
-        final bubble = _MessageBubble(
-          entry: entry,
+        final bubble = ChatBubble(
+          text: msg.content,
           isMe: widget.currentUserId != null &&
               msg.userId == widget.currentUserId,
+          sentAt: msg.createdAt,
           firstOfRun: firstOfRun,
           lastOfRun: lastOfRun,
+          senderName: msg.senderUsername?.isNotEmpty == true
+              ? msg.senderUsername!
+              : (msg.userId.length >= 4
+                  ? 'User ${msg.userId.substring(0, 4)}'
+                  : 'User'),
+          senderId: msg.userId,
+          failed: entry.status == ChatSendStatus.failed,
+          sending: entry.status == ChatSendStatus.sending,
           onRetry: () => context
               .read<GroupChatBloc>()
               .add(GroupChatRetryRequested(entry.localId)),
@@ -365,7 +320,7 @@ class _GroupChatViewState extends State<_GroupChatView> {
 
         // Widgets above the bubble (rendered higher on screen).
         final decorations = <Widget>[
-          if (dayChanged) _DayDivider(date: msg.createdAt),
+          if (dayChanged) ChatDayDivider(date: msg.createdAt),
           if (unreadDividerIndex >= 0 && index == unreadDividerIndex)
             const _NewMessagesDivider(),
         ];
@@ -390,59 +345,14 @@ class _GroupChatViewState extends State<_GroupChatView> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: theme.scaffoldBackgroundColor,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: theme.colorScheme.outline.withValues(alpha: 0.2),
-                  ),
-                ),
-                child: TextField(
-                  controller: _msgController,
-                  decoration: const InputDecoration(
-                    hintText: 'Message your group…',
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    filled: false,
-                    isCollapsed: true,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  ),
-                  maxLines: 4,
-                  minLines: 1,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _send(),
-                ),
+              child: ChatComposerField(
+                controller: _msgController,
+                hintText: 'Message your group…',
+                onSubmitted: _send,
               ),
             ),
             const SizedBox(width: 8),
-            // Only the button listens to the text — typing never rebuilds
-            // the message list.
-            ValueListenableBuilder<TextEditingValue>(
-              valueListenable: _msgController,
-              builder: (context, value, _) {
-                final hasText = value.text.trim().isNotEmpty;
-                return AnimatedOpacity(
-                  opacity: hasText ? 1 : 0.4,
-                  duration: const Duration(milliseconds: 120),
-                  child: Material(
-                    color: theme.colorScheme.primary,
-                    shape: const CircleBorder(),
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: hasText ? _send : null,
-                      child: const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: Icon(Icons.send_rounded,
-                            color: Colors.white, size: 22),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
+            ChatSendButton(controller: _msgController, onSend: _send),
           ],
         ),
       ),
@@ -612,101 +522,14 @@ class _GroupChatViewState extends State<_GroupChatView> {
 // Pieces
 // ---------------------------------------------------------------------------
 
-/// Honest connection indicator driven by the socket's actual state.
-class _ConnectionStatusLabel extends StatelessWidget {
-  const _ConnectionStatusLabel({
-    required this.status,
-    required this.memberCount,
-  });
 
-  final ValueNotifier<WsStatus> status;
-  final int memberCount;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ValueListenableBuilder<WsStatus>(
-      valueListenable: status,
-      builder: (context, value, _) {
-        final (color, label) = switch (value) {
-          WsStatus.connected => (const Color(0xFF00A650), 'Live'),
-          WsStatus.connecting => (const Color(0xFFFFA000), 'Connecting…'),
-          WsStatus.reconnecting => (const Color(0xFFFFA000), 'Reconnecting…'),
-          WsStatus.disconnected => (const Color(0xFF9E9E9E), 'Offline'),
-        };
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 5),
-            Text(
-              memberCount > 0 ? '$label · $memberCount members' : label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _DayDivider extends StatelessWidget {
-  const _DayDivider({required this.date});
-  final DateTime date;
-
-  String _label() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final day = DateTime(date.year, date.month, date.day);
-    final diff = today.difference(day).inDays;
-    if (diff == 0) return 'Today';
-    if (diff == 1) return 'Yesterday';
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    final label = '${months[day.month - 1]} ${day.day}';
-    return day.year == now.year ? label : '$label ${day.year}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            _label(),
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
+/// Marks where the user's unread messages begin.
 class _NewMessagesDivider extends StatelessWidget {
   const _NewMessagesDivider();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = theme.colorScheme.primary;
+    final color = styles.theme.primary;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
@@ -716,10 +539,9 @@ class _NewMessagesDivider extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Text(
               'New',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: color,
-                fontWeight: FontWeight.w700,
-              ),
+              style: styles.typography.hairline
+                  .textColor(color)
+                  .copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           Expanded(child: Divider(color: color.withValues(alpha: 0.35))),
@@ -727,202 +549,4 @@ class _NewMessagesDivider extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Deterministic per-user accent so different senders are telling-apart-able
-/// at a glance without clashing with the brand red reserved for "me".
-const List<Color> _senderPalette = [
-  Color(0xFF00639B), // ocean
-  Color(0xFF7A5900), // amber-dark
-  Color(0xFF37693D), // forest
-  Color(0xFF7D5260), // plum
-  Color(0xFF00696E), // teal
-  Color(0xFF695F00), // olive
-];
-
-Color _senderColor(String userId) =>
-    _senderPalette[userId.hashCode.abs() % _senderPalette.length];
-
-String _senderFallbackName(String userId) =>
-    userId.length >= 4 ? 'User ${userId.substring(0, 4)}' : 'User';
-
-class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({
-    required this.entry,
-    required this.isMe,
-    required this.firstOfRun,
-    required this.lastOfRun,
-    required this.onRetry,
-    required this.onCopy,
-  });
-
-  final ChatEntry entry;
-  final bool isMe;
-  final bool firstOfRun;
-  final bool lastOfRun;
-  final VoidCallback onRetry;
-  final VoidCallback onCopy;
-
-  String _timeLabel(DateTime at) {
-    final local = at.toLocal();
-    final h = local.hour.toString().padLeft(2, '0');
-    final m = local.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final msg = entry.message;
-    final failed = entry.status == ChatSendStatus.failed;
-    final senderName = msg.senderUsername?.isNotEmpty == true
-        ? msg.senderUsername!
-        : _senderFallbackName(msg.userId);
-    final senderColor = _senderColor(msg.userId);
-    final maxWidth = MediaQuery.of(context).size.width * 0.75;
-
-    final bubbleColor = isMe
-        ? (failed
-            ? theme.colorScheme.primary.withValues(alpha: 0.55)
-            : theme.colorScheme.primary)
-        : Colors.white;
-    final textColor = isMe ? Colors.white : Colors.black87;
-
-    final radius = BorderRadius.only(
-      topLeft: Radius.circular(!isMe && firstOfRun ? 18 : 18),
-      topRight: const Radius.circular(18),
-      bottomLeft: Radius.circular(isMe ? 18 : (lastOfRun ? 4 : 18)),
-      bottomRight: Radius.circular(isMe ? (lastOfRun ? 4 : 18) : 18),
-    );
-
-    final statusIcon = switch (entry.status) {
-      ChatSendStatus.sending => Icons.schedule_rounded,
-      ChatSendStatus.sent => Icons.check_rounded,
-      ChatSendStatus.failed => Icons.error_outline_rounded,
-    };
-
-    Widget bubble = Container(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      padding: const EdgeInsets.fromLTRB(13, 9, 13, 7),
-      decoration: BoxDecoration(
-        color: bubbleColor,
-        borderRadius: radius,
-        border: failed
-            ? Border.all(color: theme.colorScheme.error, width: 1.2)
-            : null,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (!isMe && firstOfRun) ...[
-            Text(
-              senderName,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: senderColor,
-              ),
-            ),
-            const SizedBox(height: 3),
-          ],
-          Text(
-            msg.content,
-            style:
-                theme.textTheme.bodyMedium?.copyWith(color: textColor),
-          ),
-          const SizedBox(height: 3),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _timeLabel(msg.createdAt),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontSize: 10.5,
-                  color: isMe
-                      ? Colors.white.withValues(alpha: 0.8)
-                      : Colors.black.withValues(alpha: 0.4),
-                ),
-              ),
-              if (isMe) ...[
-                const SizedBox(width: 4),
-                Icon(
-                  statusIcon,
-                  size: 13,
-                  color: failed
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.8),
-                ),
-              ],
-            ],
-          ),
-        ],
-      ),
-    );
-
-    bubble = GestureDetector(
-      onTap: failed ? onRetry : null,
-      onLongPress: onCopy,
-      child: bubble,
-    );
-
-    return Padding(
-      padding: EdgeInsets.only(bottom: lastOfRun ? 10 : 2),
-      child: Column(
-        crossAxisAlignment:
-            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment:
-                isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (!isMe) ...[
-                if (lastOfRun)
-                  CircleAvatar(
-                    radius: 15,
-                    backgroundColor: senderColor.withValues(alpha: 0.15),
-                    child: Text(
-                      senderName[0].toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: senderColor,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  )
-                else
-                  const SizedBox(width: 30),
-                const SizedBox(width: 8),
-              ],
-              Flexible(child: bubble),
-            ],
-          ),
-          if (failed)
-            Padding(
-              padding: EdgeInsets.only(top: 3, right: isMe ? 4 : 0),
-              child: Text(
-                'Not sent — tap the message to retry',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontSize: 11,
-                  color: theme.colorScheme.error,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-bool _sameDay(DateTime a, DateTime b) {
-  final la = a.toLocal();
-  final lb = b.toLocal();
-  return la.year == lb.year && la.month == lb.month && la.day == lb.day;
 }

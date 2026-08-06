@@ -33,6 +33,7 @@ import 'package:waze_kibris/core/services/nav_puck_preference.dart';
 import 'package:waze_kibris/core/services/nav_settings.dart';
 import 'package:waze_kibris/core/services/push_notification_service.dart';
 import 'package:waze_kibris/app/dashboard/view/groups/group_chat_screen.dart';
+import 'package:waze_kibris/app/dashboard/view/report_chat_screen.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
 
 class MainDashboard extends StatefulWidget {
@@ -332,6 +333,16 @@ class _MainDashboardState extends State<MainDashboard>
         debugPrint('Push tap: could not open group $groupId: $e');
       }
     });
+
+    // Tapping a report-discussion notification opens that thread.
+    getIt<PushNotificationService>().setReportChatTapHandler((reportId) {
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ReportChatScreen(reportId: reportId),
+        ),
+      );
+    });
   }
 
   void _onPuckStyleChanged() {
@@ -461,6 +472,7 @@ class _MainDashboardState extends State<MainDashboard>
     NavSettings.mutedReportTypes.removeListener(_onReportFilterChanged);
     _mapStyleTimer?.cancel();
     getIt<PushNotificationService>().setGroupChatTapHandler(null);
+    getIt<PushNotificationService>().setReportChatTapHandler(null);
     _groupLocationSub?.cancel();
     _sheetHeightPx.dispose();
     _initialReportFetchFallbackTimer?.cancel();

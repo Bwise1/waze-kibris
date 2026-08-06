@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -9,6 +12,7 @@ import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/core/repositories/report_repository.dart';
+import 'package:waze_kibris/core/services/websocket_service.dart';
 import 'package:waze_kibris/core/utils/report_expiry.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
 import 'package:waze_kibris/app/dashboard/view/report_chat_screen.dart';
@@ -240,7 +244,10 @@ class ReportDetailsModal extends StatelessWidget {
                     Navigator.of(context).pop();
                     Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        builder: (_) => ReportChatScreen(reportId: report.id),
+                        builder: (_) => ReportChatScreen(
+                          reportId: report.id,
+                          reportLabel: _formatReportType(report.type),
+                        ),
                       ),
                     );
                   },
@@ -451,11 +458,28 @@ class _DiscussButton extends StatefulWidget {
 
 class _DiscussButtonState extends State<_DiscussButton> {
   int? _count;
+  StreamSubscription<WsMessage>? _wsSub;
 
   @override
   void initState() {
     super.initState();
     _loadCount();
+    // Keep the count live while the card is open, so a reply arriving now
+    // is reflected immediately.
+    _wsSub = context.read<WebSocketService>().messages.listen((msg) {
+      if (msg.type != 'report_chat' || msg.content == null) return;
+      try {
+        final json = jsonDecode(msg.content!) as Map<String, dynamic>;
+        if ((json['report_id'] as num?)?.toInt() != widget.reportId) return;
+        if (mounted) setState(() => _count = (_count ?? 0) + 1);
+      } catch (_) {}
+    });
+  }
+
+  @override
+  void dispose() {
+    _wsSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadCount() async {

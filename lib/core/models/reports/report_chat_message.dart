@@ -26,7 +26,15 @@ class ReportChatMessage extends Equatable {
   final String userId;
   final String? username;
   final String content;
+
+  /// Server timestamp as sent (ISO-8601). Use [sentAt] for anything that
+  /// needs to compare or format it.
   final String createdAt;
+
+  /// Parsed [createdAt], falling back to now for unparseable values so the
+  /// message still renders in order rather than jumping to 1970.
+  DateTime get sentAt =>
+      DateTime.tryParse(createdAt)?.toLocal() ?? DateTime.now();
 
   @override
   List<Object?> get props =>
