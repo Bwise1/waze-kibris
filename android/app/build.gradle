@@ -41,7 +41,7 @@ def mapboxAccessToken =
 
 android {
     namespace "com.example.verygoodcore.waze_kibris"
-    compileSdkVersion 35
+    compileSdk 36
     ndkVersion "27.0.12077973"
 
     compileOptions {
