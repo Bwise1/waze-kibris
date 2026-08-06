@@ -372,15 +372,24 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           .updateSettings(mp.LogoSettings(enabled: false));
       _mapboxMapController?.attribution
           .updateSettings(mp.AttributionSettings(enabled: false));
-      // Compass sits in the top-right, on the same row as the top-left
-      // menu button. Android ornament margins are physical pixels.
+      // Compass sits top-right, vertically centred on the same line as the
+      // top-left menu button. The button is 42pt tall (22pt icon + 10pt
+      // padding each side) at safeTop; the Mapbox compass ornament is 40pt,
+      // so nudge it down by half the difference to align their centres
+      // rather than their top edges. Android ornament margins are physical
+      // pixels, hence the DPR scaling.
+      const double menuButtonSize = 42;
+      const double compassOrnamentSize = 40;
       final safeTop = MediaQuery.of(context).padding.top + 12.0;
+      final compassTop =
+          safeTop + (menuButtonSize - compassOrnamentSize) / 2;
       final ornamentScale =
           Platform.isAndroid ? MediaQuery.of(context).devicePixelRatio : 1.0;
       _mapboxMapController?.compass.updateSettings(mp.CompassSettings(
         enabled: true,
         position: mp.OrnamentPosition.TOP_RIGHT,
-        marginTop: safeTop * ornamentScale,
+        marginTop: compassTop * ornamentScale,
+        // Match the menu button's 16pt inset from the opposite edge.
         marginRight: 16.0 * ornamentScale,
       ));
       _mapboxMapController?.scaleBar
