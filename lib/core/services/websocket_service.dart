@@ -11,6 +11,8 @@ class WsMessage {
     required this.userId,
     this.content,
     this.groupId,
+    this.username,
+    this.typing,
   });
 
   final String type;
@@ -18,11 +20,19 @@ class WsMessage {
   final String? content;
   final String? groupId;
 
+  /// Sender's display name — sent on typing events, stamped server-side.
+  final String? username;
+
+  /// Typing events only: whether they started or stopped.
+  final bool? typing;
+
   factory WsMessage.fromJson(Map<String, dynamic> json) => WsMessage(
         type: json['type']?.toString() ?? 'unknown',
         userId: json['user_id']?.toString() ?? '',
         content: json['content']?.toString(),
         groupId: json['group_id']?.toString(),
+        username: json['username']?.toString(),
+        typing: json['typing'] as bool?,
       );
 }
 

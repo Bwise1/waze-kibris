@@ -111,8 +111,12 @@ class _GroupChatViewState extends State<_GroupChatView> {
   void _send() {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
-    context.read<GroupChatBloc>().add(GroupChatSendRequested(text));
+    final bloc = context.read<GroupChatBloc>()
+      ..add(GroupChatSendRequested(text))
+      // Sending ends the typing state immediately.
+      ..add(const GroupChatTypingChanged(false));
     _msgController.clear();
+    if (bloc.isClosed) return;
     // A message you just sent should always be visible.
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
@@ -209,6 +213,14 @@ class _GroupChatViewState extends State<_GroupChatView> {
                 ],
               ),
             ),
+            // "Fred is typing…" sits directly above the composer.
+            BlocBuilder<GroupChatBloc, GroupChatState>(
+              buildWhen: (prev, curr) =>
+                  prev.typingUsers != curr.typingUsers,
+              builder: (context, state) => ChatTypingIndicator(
+                names: state.typingUsers.values.toList(),
+              ),
+            ),
             _buildComposer(context, theme),
           ],
         ),
@@ -297,10 +309,9 @@ class _GroupChatViewState extends State<_GroupChatView> {
           lastOfRun: lastOfRun,
           senderName: msg.senderUsername?.isNotEmpty == true
               ? msg.senderUsername!
-              : (msg.userId.length >= 4
-                  ? 'User ${msg.userId.substring(0, 4)}'
-                  : 'User'),
+              : 'Wazer',
           senderId: msg.userId,
+          senderIcon: msg.senderIcon,
           failed: entry.status == ChatSendStatus.failed,
           sending: entry.status == ChatSendStatus.sending,
           onRetry: () => context
@@ -349,6 +360,9 @@ class _GroupChatViewState extends State<_GroupChatView> {
                 controller: _msgController,
                 hintText: 'Message your group…',
                 onSubmitted: _send,
+                onChanged: (text) => context
+                    .read<GroupChatBloc>()
+                    .add(GroupChatTypingChanged(text.trim().isNotEmpty)),
               ),
             ),
             const SizedBox(width: 8),

@@ -231,7 +231,7 @@ class _GroupListScreenState extends State<GroupListScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.maybePop(context),
         ),
-        title: const Text('Route Groups'),
+        title: const Text('Chats'),
         centerTitle: true,
         actions: [
           BlocBuilder<GroupsBloc, GroupsState>(

@@ -198,6 +198,7 @@ class GroupMessage {
     required this.groupId,
     required this.userId,
     this.senderUsername,
+    this.senderIcon,
     required this.messageType,
     required this.content,
     required this.createdAt,
@@ -207,6 +208,10 @@ class GroupMessage {
   final String groupId;
   final String userId;
   final String? senderUsername;
+
+  /// Avatar: a URL for uploaded pictures, or a preset filename shipped under
+  /// assets/user_profiles/.
+  final String? senderIcon;
   final String messageType;
   final String content;
   final DateTime createdAt;
@@ -217,11 +222,13 @@ class GroupMessage {
     final userId = json['user_id'];
     final createdAtRaw = json['created_at'];
     final senderUsername = json['sender_username']?.toString();
+    final senderIcon = json['sender_icon']?.toString();
     return GroupMessage(
       id: id?.toString() ?? '',
       groupId: groupId?.toString() ?? '',
       userId: userId?.toString() ?? '',
       senderUsername: senderUsername?.isNotEmpty == true ? senderUsername : null,
+      senderIcon: senderIcon?.isNotEmpty == true ? senderIcon : null,
       messageType: json['message_type']?.toString() ?? 'text',
       content: json['content']?.toString() ?? '',
       createdAt: createdAtRaw != null

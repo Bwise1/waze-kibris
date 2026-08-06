@@ -51,6 +51,32 @@ class _GroupChatIncoming extends GroupChatEvent {
   List<Object?> get props => [message];
 }
 
+/// Someone in the group started or stopped typing.
+class _GroupTypingChanged extends GroupChatEvent {
+  const _GroupTypingChanged(this.userId, this.username, this.typing);
+  final String userId;
+  final String username;
+  final bool typing;
+  @override
+  List<Object?> get props => [userId, username, typing];
+}
+
+/// Tell the group we are (or are no longer) typing.
+class GroupChatTypingChanged extends GroupChatEvent {
+  const GroupChatTypingChanged(this.typing);
+  final bool typing;
+  @override
+  List<Object?> get props => [typing];
+}
+
+/// Drop a stale typing entry when its author goes quiet without sending.
+class _GroupTypingExpired extends GroupChatEvent {
+  const _GroupTypingExpired(this.userId);
+  final String userId;
+  @override
+  List<Object?> get props => [userId];
+}
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -89,6 +115,7 @@ class GroupChatState extends Equatable {
     this.loadingOlder = false,
     this.hasMore = true,
     this.loadError,
+    this.typingUsers = const {},
   });
 
   final String groupId;
@@ -102,12 +129,16 @@ class GroupChatState extends Equatable {
   /// Non-null when the *initial* load failed and there is nothing to show.
   final String? loadError;
 
+  /// Who is currently typing, keyed by user id → display name.
+  final Map<String, String> typingUsers;
+
   GroupChatState copyWith({
     List<ChatEntry>? entries,
     bool? loadingInitial,
     bool? loadingOlder,
     bool? hasMore,
     String? loadError,
+    Map<String, String>? typingUsers,
     bool clearLoadError = false,
   }) =>
       GroupChatState(
@@ -117,11 +148,19 @@ class GroupChatState extends Equatable {
         loadingOlder: loadingOlder ?? this.loadingOlder,
         hasMore: hasMore ?? this.hasMore,
         loadError: clearLoadError ? null : (loadError ?? this.loadError),
+        typingUsers: typingUsers ?? this.typingUsers,
       );
 
   @override
-  List<Object?> get props =>
-      [groupId, entries, loadingInitial, loadingOlder, hasMore, loadError];
+  List<Object?> get props => [
+        groupId,
+        entries,
+        loadingInitial,
+        loadingOlder,
+        hasMore,
+        loadError,
+        typingUsers,
+      ];
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +177,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     required WebSocketService webSocketService,
     required String? currentUserId,
   })  : _groupRepository = groupRepository,
+        _webSocketService = webSocketService,
         _currentUserId = currentUserId,
         super(GroupChatState(groupId: groupId)) {
     on<GroupChatStarted>(_onStarted);
@@ -145,8 +185,20 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     on<GroupChatSendRequested>(_onSendRequested);
     on<GroupChatRetryRequested>(_onRetryRequested);
     on<_GroupChatIncoming>(_onIncoming);
+    on<_GroupTypingChanged>(_onTypingChanged);
+    on<_GroupTypingExpired>(_onTypingExpired);
+    on<GroupChatTypingChanged>(_onOutgoingTyping);
 
     _wsSubscription = webSocketService.messages.listen((msg) {
+      if (msg.type == 'typing') {
+        if (msg.groupId != groupId || msg.userId == currentUserId) return;
+        add(_GroupTypingChanged(
+          msg.userId,
+          msg.username ?? 'Someone',
+          msg.typing ?? false,
+        ));
+        return;
+      }
       if (msg.type != 'group_chat' || msg.content == null) return;
       try {
         final json = jsonDecode(msg.content!) as Map<String, dynamic>;
@@ -160,17 +212,103 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     });
   }
 
+  /// A peer stops being "typing" this long after their last keystroke, in
+  /// case their stop event never arrives (backgrounded app, dropped socket).
+  static const Duration _typingTimeout = Duration(seconds: 6);
+  final Map<String, Timer> _typingTimers = {};
+
+  /// Throttle outgoing typing pings so we send one per few seconds rather
+  /// than one per keystroke.
+  DateTime? _lastTypingSent;
+  Timer? _stopTypingTimer;
+
   static const int _pageSize = 50;
 
   final GroupRepository _groupRepository;
+  final WebSocketService _webSocketService;
   final String? _currentUserId;
   StreamSubscription<WsMessage>? _wsSubscription;
   final _uuid = const Uuid();
 
   @override
   Future<void> close() async {
+    // Leaving the screen mid-sentence shouldn't leave us "typing" forever.
+    if (_lastTypingSent != null) {
+      _sendTyping(false);
+    }
+    _stopTypingTimer?.cancel();
+    for (final timer in _typingTimers.values) {
+      timer.cancel();
+    }
     await _wsSubscription?.cancel();
     return super.close();
+  }
+
+  void _sendTyping(bool typing) {
+    _webSocketService.send({
+      'type': 'typing',
+      'group_id': state.groupId,
+      'typing': typing,
+    });
+  }
+
+  /// Called as the user types. Sends at most one "typing" every 3s, and an
+  /// explicit "stopped" once they pause.
+  void _onOutgoingTyping(
+    GroupChatTypingChanged event,
+    Emitter<GroupChatState> emit,
+  ) {
+    if (!event.typing) {
+      _stopTypingTimer?.cancel();
+      if (_lastTypingSent != null) {
+        _lastTypingSent = null;
+        _sendTyping(false);
+      }
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_lastTypingSent == null ||
+        now.difference(_lastTypingSent!) > const Duration(seconds: 3)) {
+      _lastTypingSent = now;
+      _sendTyping(true);
+    }
+    // Auto-stop shortly after the last keystroke.
+    _stopTypingTimer?.cancel();
+    _stopTypingTimer = Timer(const Duration(seconds: 4), () {
+      _lastTypingSent = null;
+      _sendTyping(false);
+    });
+  }
+
+  void _onTypingChanged(
+    _GroupTypingChanged event,
+    Emitter<GroupChatState> emit,
+  ) {
+    final next = Map<String, String>.from(state.typingUsers);
+    _typingTimers.remove(event.userId)?.cancel();
+
+    if (event.typing) {
+      next[event.userId] = event.username;
+      // Safety net: expire the entry if no stop event arrives.
+      _typingTimers[event.userId] = Timer(_typingTimeout, () {
+        if (!isClosed) add(_GroupTypingExpired(event.userId));
+      });
+    } else {
+      next.remove(event.userId);
+    }
+    emit(state.copyWith(typingUsers: next));
+  }
+
+  void _onTypingExpired(
+    _GroupTypingExpired event,
+    Emitter<GroupChatState> emit,
+  ) {
+    if (!state.typingUsers.containsKey(event.userId)) return;
+    final next = Map<String, String>.from(state.typingUsers)
+      ..remove(event.userId);
+    _typingTimers.remove(event.userId)?.cancel();
+    emit(state.copyWith(typingUsers: next));
   }
 
   Future<void> _onStarted(

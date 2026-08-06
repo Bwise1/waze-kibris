@@ -28,6 +28,8 @@ import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/core/services/map_style_preference.dart';
 import 'package:waze_kibris/core/bloc/groups/groups_bloc.dart';
 import 'package:waze_kibris/core/bloc/groups/groups_event.dart';
+import 'package:waze_kibris/core/bloc/groups/groups_state.dart';
+import 'package:waze_kibris/app/dashboard/view/groups/group_list_screen.dart';
 import 'package:waze_kibris/core/repositories/group_repository.dart';
 import 'package:waze_kibris/core/services/nav_puck_preference.dart';
 import 'package:waze_kibris/core/services/nav_settings.dart';
@@ -905,6 +907,77 @@ class _MainDashboardState extends State<MainDashboard>
                       ),
                     ),
                   ),
+
+                  // Chats: one tap from the map, since it's a daily
+                  // destination rather than a setting. Hidden while
+                  // navigating so it can't distract or be mis-tapped.
+                  if (state is! NavigationInProgress)
+                    Positioned(
+                      top: MediaQuery.of(context).padding.top + 68,
+                      left: 16,
+                      child: BlocBuilder<GroupsBloc, GroupsState>(
+                        buildWhen: (prev, curr) => curr is GetGroupsSuccess,
+                        builder: (context, groupsState) {
+                          final unread = groupsState is GetGroupsSuccess
+                              ? groupsState.totalUnreadCount
+                              : 0;
+                          return Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Material(
+                                color: Colors.white,
+                                shape: const CircleBorder(),
+                                elevation: 4,
+                                child: InkWell(
+                                  customBorder: const CircleBorder(),
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => const GroupListScreen(),
+                                    ),
+                                  ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(10),
+                                    child: Icon(
+                                      Icons.forum_outlined,
+                                      color: Colors.black87,
+                                      size: 22,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (unread > 0)
+                                Positioned(
+                                  top: -2,
+                                  right: -2,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 5, vertical: 2),
+                                    constraints:
+                                        const BoxConstraints(minWidth: 18),
+                                    decoration: BoxDecoration(
+                                      color: styles.theme.primary,
+                                      borderRadius: BorderRadius.circular(999),
+                                      border: Border.all(
+                                          color: Colors.white, width: 1.5),
+                                    ),
+                                    child: Text(
+                                      unread > 99 ? '99+' : '$unread',
+                                      textAlign: TextAlign.center,
+                                      style: styles.typography.hairline
+                                          .textColor(Colors.white)
+                                          .copyWith(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
 
                   // Floating buttons (recenter + report) ride on top of the
                   // bottom sheet as it drags — Waze-style. They follow the

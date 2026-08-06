@@ -33,6 +33,157 @@ String chatTimeLabel(DateTime at) {
   return '$h:$m';
 }
 
+/// Sender avatar: real profile picture when the user has one (uploaded URL
+/// or a preset shipped under assets/user_profiles/), otherwise their initial
+/// on a tinted disc.
+class ChatAvatar extends StatelessWidget {
+  const ChatAvatar({
+    required this.userId,
+    required this.name,
+    this.icon,
+    this.radius = 15,
+    super.key,
+  });
+
+  final String userId;
+  final String name;
+  final String? icon;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final colour = senderColor(userId);
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
+    final fallback = CircleAvatar(
+      radius: radius,
+      backgroundColor: colour.withValues(alpha: 0.15),
+      child: Text(
+        initial,
+        style: styles.typography.hairline
+            .textColor(colour)
+            .copyWith(fontWeight: FontWeight.w700),
+      ),
+    );
+
+    final value = icon?.trim();
+    if (value == null || value.isEmpty) return fallback;
+
+    // Uploaded pictures are URLs; presets are bare filenames.
+    final isUrl = value.startsWith('http://') || value.startsWith('https://');
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: colour.withValues(alpha: 0.15),
+      foregroundImage: isUrl
+          ? NetworkImage(value)
+          : AssetImage('assets/user_profiles/$value') as ImageProvider,
+      // Shown while loading and if the image fails to resolve.
+      child: Text(
+        initial,
+        style: styles.typography.hairline
+            .textColor(colour)
+            .copyWith(fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
+/// WhatsApp-style "Fred is typing…" / "3 people are typing…" line.
+class ChatTypingIndicator extends StatelessWidget {
+  const ChatTypingIndicator({required this.names, super.key});
+
+  /// Display names of everyone currently typing.
+  final List<String> names;
+
+  String get _label {
+    if (names.isEmpty) return '';
+    if (names.length == 1) return '${names.first} is typing…';
+    if (names.length == 2) {
+      return '${names.first} and ${names[1]} are typing…';
+    }
+    return '${names.length} people are typing…';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      child: names.isEmpty
+          ? const SizedBox(width: double.infinity, height: 0)
+          : Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
+              child: Row(
+                children: [
+                  const _TypingDots(),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _label,
+                      overflow: TextOverflow.ellipsis,
+                      style: styles.typography.hairline
+                          .textColor(styles.theme.ash),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+/// Three dots that pulse in sequence, as in WhatsApp/iMessage.
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            // Stagger each dot a third of a cycle apart.
+            final t = (_controller.value - i * 0.2) % 1.0;
+            final opacity = t < 0.5 ? 0.35 + t : 0.35 + (1 - t);
+            return Padding(
+              padding: EdgeInsets.only(right: i == 2 ? 0 : 3),
+              child: Container(
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: styles.theme.ash
+                      .withValues(alpha: opacity.clamp(0.3, 1.0)),
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+}
+
 /// "Today" / "Yesterday" / "12 Mar" pill separating days of conversation.
 class ChatDayDivider extends StatelessWidget {
   const ChatDayDivider({required this.date, super.key});
@@ -170,12 +321,16 @@ class ChatComposerField extends StatelessWidget {
     required this.controller,
     required this.hintText,
     required this.onSubmitted,
+    this.onChanged,
     super.key,
   });
 
   final TextEditingController controller;
   final String hintText;
   final VoidCallback onSubmitted;
+
+  /// Fires on each keystroke — used to drive typing indicators.
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -202,6 +357,7 @@ class ChatComposerField extends StatelessWidget {
         minLines: 1,
         textCapitalization: TextCapitalization.sentences,
         textInputAction: TextInputAction.send,
+        onChanged: onChanged,
         onSubmitted: (_) => onSubmitted(),
       ),
     );
@@ -339,6 +495,7 @@ class ChatBubble extends StatelessWidget {
     required this.lastOfRun,
     required this.senderName,
     required this.senderId,
+    this.senderIcon,
     required this.failed,
     required this.sending,
     required this.onRetry,
@@ -353,6 +510,7 @@ class ChatBubble extends StatelessWidget {
   final bool lastOfRun;
   final String senderName;
   final String senderId;
+  final String? senderIcon;
   final bool failed;
   final bool sending;
   final VoidCallback onRetry;
@@ -459,17 +617,10 @@ class ChatBubble extends StatelessWidget {
             children: [
               if (!isMe) ...[
                 if (lastOfRun)
-                  CircleAvatar(
-                    radius: 15,
-                    backgroundColor: color.withValues(alpha: 0.15),
-                    child: Text(
-                      senderName.isNotEmpty
-                          ? senderName[0].toUpperCase()
-                          : '?',
-                      style: styles.typography.hairline
-                          .textColor(color)
-                          .copyWith(fontWeight: FontWeight.w700),
-                    ),
+                  ChatAvatar(
+                    userId: senderId,
+                    name: senderName,
+                    icon: senderIcon,
                   )
                 else
                   const SizedBox(width: 30),

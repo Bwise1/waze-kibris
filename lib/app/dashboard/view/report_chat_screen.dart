@@ -259,6 +259,7 @@ class _ReportChatViewState extends State<_ReportChatView> {
           lastOfRun: lastOfRun,
           senderName: msg.username?.isNotEmpty == true ? msg.username! : 'Wazer',
           senderId: msg.userId,
+          senderIcon: msg.userIcon,
           failed: entry.status == ChatSendStatus.failed,
           sending: entry.status == ChatSendStatus.sending,
           onRetry: () => context

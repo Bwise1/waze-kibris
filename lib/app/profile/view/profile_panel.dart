@@ -98,11 +98,13 @@ class ProfilePanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
 
-                  // Settings shortcuts
-                  const _SectionHeader('Settings'),
+                  // Communities live above Settings: this is a place people
+                  // visit daily, not something they configure once.
+                  const _SectionHeader('Community'),
                   _PanelRow(
-                    icon: Icons.group_outlined,
-                    label: 'Groups',
+                    icon: Icons.forum_outlined,
+                    label: 'Chats',
+                    subtitle: 'Talk to drivers on your routes',
                     onTap: () {
                       Navigator.push(
                         context,
@@ -112,6 +114,10 @@ class ProfilePanel extends StatelessWidget {
                       );
                     },
                   ),
+                  const SizedBox(height: 24),
+
+                  // Settings shortcuts
+                  const _SectionHeader('Settings'),
                   _PanelRow(
                     icon: Icons.directions_car_outlined,
                     label: 'Driving preferences',

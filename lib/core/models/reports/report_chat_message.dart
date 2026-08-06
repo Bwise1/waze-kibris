@@ -6,6 +6,7 @@ class ReportChatMessage extends Equatable {
     required this.reportId,
     required this.userId,
     this.username,
+    this.userIcon,
     required this.content,
     required this.createdAt,
   });
@@ -16,6 +17,7 @@ class ReportChatMessage extends Equatable {
       reportId: (json['report_id'] as num?)?.toInt() ?? 0,
       userId: json['user_id']?.toString() ?? '',
       username: json['username']?.toString(),
+      userIcon: json['user_icon']?.toString(),
       content: json['content']?.toString() ?? '',
       createdAt: json['created_at']?.toString() ?? '',
     );
@@ -25,6 +27,10 @@ class ReportChatMessage extends Equatable {
   final int reportId;
   final String userId;
   final String? username;
+
+  /// Avatar: an uploaded picture URL, or a preset filename from
+  /// assets/user_profiles/.
+  final String? userIcon;
   final String content;
 
   /// Server timestamp as sent (ISO-8601). Use [sentAt] for anything that
