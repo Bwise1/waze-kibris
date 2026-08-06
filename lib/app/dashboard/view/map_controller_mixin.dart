@@ -1234,19 +1234,23 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     if (map == null || _savedPlaces.isEmpty) return null;
     try {
       if (!await map.style.styleLayerExists(_savedLayerId)) return null;
-      // Generous box: pins are small targets on a moving map, and the pin
-      // is bottom-anchored so the visual sits *above* the tap point —
-      // hence the asymmetric vertical padding.
-      const double pad = 40;
+
+      // Small slop around the finger, nothing more. An oversized box makes
+      // taps on empty map "hit" a pin that is merely nearby — the box only
+      // has to overlap the pin's rendered bounds, so padding downward by
+      // 40pt meant a tap well below the pin still caught it.
+      const double padX = 12;
+      const double padTop = 12;
+      const double padBottom = 12;
       final box = mp.RenderedQueryGeometry.fromScreenBox(
         mp.ScreenBox(
           min: mp.ScreenCoordinate(
-            x: ctx.touchPosition.x - pad,
-            y: ctx.touchPosition.y - pad * 1.6,
+            x: ctx.touchPosition.x - padX,
+            y: ctx.touchPosition.y - padTop,
           ),
           max: mp.ScreenCoordinate(
-            x: ctx.touchPosition.x + pad,
-            y: ctx.touchPosition.y + pad,
+            x: ctx.touchPosition.x + padX,
+            y: ctx.touchPosition.y + padBottom,
           ),
         ),
       );
@@ -1255,6 +1259,13 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         mp.RenderedQueryOptions(layerIds: [_savedLayerId], filter: null),
       );
       debugPrint('📍 Saved-place hit-test: ${hits.length} feature(s)');
+      if (hits.isEmpty) return null;
+
+      // With several pins close together the query can return more than
+      // one; pick whichever is actually nearest the finger rather than
+      // whatever the renderer happened to list first.
+      SavedLocations? best;
+      var bestDistance = double.infinity;
       for (final hit in hits) {
         final props = hit?.queriedFeature.feature['properties'];
         if (props is! Map) continue;
@@ -1263,9 +1274,34 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         final id = int.tryParse(props['id']?.toString() ?? '');
         if (id == null) continue;
         for (final place in _savedPlaces) {
-          if (place.id == id) return place;
+          if (place.id != id) continue;
+          // Use the *drawn* position: pins are displaced away from the
+          // puck and reports, so the saved coordinate isn't where the
+          // icon actually is.
+          final drawn = _savedPinDisplayPosition(place);
+          final screen = await map.pixelForCoordinate(
+            mp.Point(coordinates: mp.Position(drawn.lon, drawn.lat)),
+          );
+          final dx = screen.x - ctx.touchPosition.x;
+          final dy = screen.y - ctx.touchPosition.y;
+          final distance = math.sqrt(dx * dx + dy * dy);
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            best = place;
+          }
         }
       }
+
+      // Final guard: the pin's anchor is at its base, so a legitimate tap
+      // lands within roughly the pin's height of it. Anything further away
+      // is the renderer being generous, not the user aiming at this pin.
+      const double maxTapDistance = 56;
+      if (best != null && bestDistance > maxTapDistance) {
+        debugPrint(
+            '📍 Ignoring saved-place hit ${bestDistance.round()}pt away');
+        return null;
+      }
+      return best;
     } catch (e) {
       debugPrint('⚠️ Saved place hit-test failed: $e');
     }
