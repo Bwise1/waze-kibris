@@ -113,6 +113,13 @@ class ProfilePanel extends StatelessWidget {
                     },
                   ),
                   _PanelRow(
+                    icon: Icons.directions_car_outlined,
+                    label: 'Driving preferences',
+                    onTap: () {
+                      context.push(ScreenPaths.drivingPreferences);
+                    },
+                  ),
+                  _PanelRow(
                     icon: Icons.volume_up_outlined,
                     label: 'Sound settings',
                     onTap: () {

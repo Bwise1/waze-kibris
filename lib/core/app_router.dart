@@ -17,6 +17,7 @@ class ScreenPaths {
   static String updateUserName = '/update-username';
   static String changeUsername = '/change-username';
   static String soundSettings = '/sound-settings';
+  static String drivingPreferences = '/driving-preferences';
   static String helpAndFeedback = '/help-and-feedback';
   static String addLocation = '/add-location';
   static String aboutUs = '/about-us';
@@ -121,6 +122,11 @@ GoRouter createAppRouter() {
           ScreenPaths.soundSettings,
           (state) => const SoundSettingsScreen(),
           name: 'sound-settings',
+        ),
+        RouteWrapper(
+          ScreenPaths.drivingPreferences,
+          (state) => const DrivingPreferenceScreen(),
+          name: 'driving-preferences',
         ),
         RouteWrapper(
           ScreenPaths.helpAndFeedback,
