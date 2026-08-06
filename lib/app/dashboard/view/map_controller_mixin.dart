@@ -36,6 +36,20 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   mp.MapboxMap? _mapboxMapController;
   StreamSubscription<Position>? _userPositionStream;
   StreamSubscription<Position>? _replayPositionSub;
+
+  /// Bearing the camera should use: GPS course while moving, null when
+  /// stationary (meaning "keep the current heading"). Kept separate from
+  /// the puck's bearing, which may follow the compass at a standstill.
+  double? _cameraBearing;
+
+  /// Last position we actually moved the camera to. Used to swallow GPS
+  /// jitter while parked — consumer GPS wanders several metres even when
+  /// perfectly still, which makes the puck crawl around the map.
+  Position? _lastCameraPosition;
+
+  /// While stopped, ignore movement smaller than this. Roughly the noise
+  /// floor of a good consumer fix; real movement clears it immediately.
+  static const double _stationaryJitterMeters = 6.0;
   mp.PointAnnotationManager? pointAnnotationManager;
   mp.PointAnnotationManager? reportAnnotationManager;
   mp.PointAnnotationManager? groupAnnotationManager;
@@ -1646,6 +1660,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         // Fuse GPS course with compass so the puck stays stable at low speed.
         // Snap-to-road (below) can still override with the route bearing.
         final fusedBearing = _bearingFusion.fuse(rawPosition);
+        // The camera gets the *unfused* course: null while stationary, so
+        // the map holds still instead of following the compass.
+        _cameraBearing = _bearingFusion.cameraBearing(rawPosition);
         final Position position = fusedBearing == null
             ? rawPosition
             : Position(
@@ -1737,7 +1754,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             // Camera is driven natively by FollowPuckViewportState; Dart
             // only retunes zoom/pitch/bearing-mode when targets change.
             _updateNativeViewportDynamics(processedPosition, snapResultForBloc);
-          } else {
+          } else if (_shouldMoveCameraFor(processedPosition)) {
             updateMapCamera(
               processedPosition,
               distanceToManeuverAlongRouteMeters: snapResultForBloc
@@ -1798,6 +1815,29 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
+  /// Whether this fix is worth moving the camera for.
+  ///
+  /// Parked, consumer GPS wanders several metres between fixes; following
+  /// every one makes the map creep and the puck appear to drift. Once
+  /// actually moving we follow every fix, so responsiveness is unaffected.
+  bool _shouldMoveCameraFor(Position position) {
+    final last = _lastCameraPosition;
+    final moving = _bearingFusion.isMoving(position);
+    if (moving || last == null) {
+      _lastCameraPosition = position;
+      return true;
+    }
+    final drift = Geolocator.distanceBetween(
+      last.latitude,
+      last.longitude,
+      position.latitude,
+      position.longitude,
+    );
+    if (drift < _stationaryJitterMeters) return false;
+    _lastCameraPosition = position;
+    return true;
+  }
+
   void updateMapCamera(
     Position position, {
     double? distanceToManeuverAlongRouteMeters,
@@ -1816,7 +1856,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     // Use camera controller for all camera updates (pass snap-based distances for native parity)
     _cameraController.updateCamera(
       userPosition: position,
-      userBearing: position.heading >= 0 ? position.heading : null,
+      // Deliberately NOT position.heading: that carries the compass value
+      // while stationary, so rotating the parked phone would spin the whole
+      // map. _cameraBearing is null when stopped, which the camera reads as
+      // "hold the current heading" — the puck turns, the map doesn't.
+      userBearing: _cameraBearing,
       isOverviewMode: isOverviewMode,
       distanceToManeuverAlongRouteMeters: distanceToManeuverAlongRouteMeters,
       remainingDistanceAlongRouteMeters: remainingDistanceAlongRouteMeters,
