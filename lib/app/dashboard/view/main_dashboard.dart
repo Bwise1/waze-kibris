@@ -335,11 +335,16 @@ class _MainDashboardState extends State<MainDashboard>
     });
 
     // Tapping a report-discussion notification opens that thread.
-    getIt<PushNotificationService>().setReportChatTapHandler((reportId) {
+    getIt<PushNotificationService>()
+        .setReportChatTapHandler((reportId, lat, lng) {
       if (!mounted) return;
       Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => ReportChatScreen(reportId: reportId),
+          builder: (_) => ReportChatScreen(
+            reportId: reportId,
+            latitude: lat,
+            longitude: lng,
+          ),
         ),
       );
     });

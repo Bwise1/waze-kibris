@@ -87,8 +87,9 @@ class PushNotificationService {
   void Function(String groupId)? _groupChatTapHandler;
   String? _pendingGroupChatId;
 
-  void Function(int reportId)? _reportChatTapHandler;
-  int? _pendingReportChatId;
+  void Function(int reportId, double? lat, double? lng)?
+      _reportChatTapHandler;
+  ({int id, double? lat, double? lng})? _pendingReportChat;
 
   /// Register the navigation handler for "group_chat" notification taps.
   /// If a tap already happened (cold start), it fires immediately.
@@ -101,13 +102,16 @@ class PushNotificationService {
     }
   }
 
-  /// Same, for replies in a report's discussion thread.
-  void setReportChatTapHandler(void Function(int reportId)? handler) {
+  /// Same, for replies in a report's discussion thread. Coordinates come
+  /// along so the screen can title itself with the street.
+  void setReportChatTapHandler(
+    void Function(int reportId, double? lat, double? lng)? handler,
+  ) {
     _reportChatTapHandler = handler;
-    final pending = _pendingReportChatId;
+    final pending = _pendingReportChat;
     if (handler != null && pending != null) {
-      _pendingReportChatId = null;
-      handler(pending);
+      _pendingReportChat = null;
+      handler(pending.id, pending.lat, pending.lng);
     }
   }
 
@@ -126,11 +130,13 @@ class PushNotificationService {
       case 'report_chat':
         final reportId = int.tryParse(data['report_id']?.toString() ?? '');
         if (reportId == null) return;
+        final lat = double.tryParse(data['latitude']?.toString() ?? '');
+        final lng = double.tryParse(data['longitude']?.toString() ?? '');
         final handler = _reportChatTapHandler;
         if (handler != null) {
-          handler(reportId);
+          handler(reportId, lat, lng);
         } else {
-          _pendingReportChatId = reportId;
+          _pendingReportChat = (id: reportId, lat: lat, lng: lng);
         }
     }
   }

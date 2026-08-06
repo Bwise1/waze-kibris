@@ -12,6 +12,7 @@ import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
 import 'package:waze_kibris/core/repositories/report_repository.dart';
+import 'package:waze_kibris/core/services/place_label_service.dart';
 import 'package:waze_kibris/core/services/websocket_service.dart';
 import 'package:waze_kibris/core/utils/report_expiry.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
@@ -130,6 +131,13 @@ class ReportDetailsModal extends StatelessWidget {
                               height: 1.15,
                             ),
                       ),
+                      const SizedBox(height: 2),
+                      // Where it is — the one thing that tells two reports of
+                      // the same type apart.
+                      _PlaceLabel(
+                        latitude: report.latitude,
+                        longitude: report.longitude,
+                      ),
                       const SizedBox(height: 3),
                       // Time and expiry on one line: both answer "is this
                       // still worth trusting?", so they belong together.
@@ -247,6 +255,8 @@ class ReportDetailsModal extends StatelessWidget {
                         builder: (_) => ReportChatScreen(
                           reportId: report.id,
                           reportLabel: _formatReportType(report.type),
+                          latitude: report.latitude,
+                          longitude: report.longitude,
                         ),
                       ),
                     );
@@ -415,6 +425,52 @@ class ReportDetailsModal extends StatelessWidget {
       default:
         return Colors.grey;
     }
+  }
+}
+
+/// Street/area for a report, resolved lazily. Renders nothing until (and
+/// unless) a label is available, so the header never shows a placeholder or
+/// jumps in height for a failed lookup.
+class _PlaceLabel extends StatefulWidget {
+  const _PlaceLabel({required this.latitude, required this.longitude});
+  final double latitude;
+  final double longitude;
+
+  @override
+  State<_PlaceLabel> createState() => _PlaceLabelState();
+}
+
+class _PlaceLabelState extends State<_PlaceLabel> {
+  String? _label;
+
+  @override
+  void initState() {
+    super.initState();
+    PlaceLabelService.shortLabel(widget.latitude, widget.longitude)
+        .then((label) {
+      if (mounted && label != null) setState(() => _label = label);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _label;
+    if (label == null) return const SizedBox.shrink();
+    return Row(
+      children: [
+        Icon(Icons.place_outlined, size: 13, color: styles.theme.ash),
+        const SizedBox(width: 3),
+        Expanded(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: styles.typography.hairline
+                .textColor(styles.theme.body)
+                .copyWith(fontWeight: FontWeight.w500),
+          ),
+        ),
+      ],
+    );
   }
 }
 

@@ -8,6 +8,7 @@ import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/bloc/report_chat/report_chat_bloc.dart';
 import 'package:waze_kibris/core/repositories/report_repository.dart';
+import 'package:waze_kibris/core/services/place_label_service.dart';
 import 'package:waze_kibris/core/services/websocket_service.dart';
 import 'package:waze_kibris/core/widgets/chat/chat_widgets.dart';
 
@@ -18,12 +19,19 @@ class ReportChatScreen extends StatelessWidget {
     super.key,
     required this.reportId,
     this.reportLabel,
+    this.latitude,
+    this.longitude,
   });
 
   final int reportId;
 
   /// e.g. "Traffic" — shown in the title so the thread has context.
   final String? reportLabel;
+
+  /// Where the report is. Used to show a street/area under the title so
+  /// several reports of the same type stay distinguishable.
+  final double? latitude;
+  final double? longitude;
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +48,8 @@ class ReportChatScreen extends StatelessWidget {
       child: _ReportChatView(
         reportId: reportId,
         reportLabel: reportLabel,
+        latitude: latitude,
+        longitude: longitude,
         currentUserId: currentUserId,
       ),
     );
@@ -50,11 +60,15 @@ class _ReportChatView extends StatefulWidget {
   const _ReportChatView({
     required this.reportId,
     required this.reportLabel,
+    required this.latitude,
+    required this.longitude,
     required this.currentUserId,
   });
 
   final int reportId;
   final String? reportLabel;
+  final double? latitude;
+  final double? longitude;
   final String? currentUserId;
 
   @override
@@ -66,10 +80,26 @@ class _ReportChatViewState extends State<_ReportChatView> {
   final ScrollController _scroll = ScrollController();
   Timer? _clock;
   bool _showJump = false;
+  String? _placeLabel;
+
+  /// "Traffic on Abayomi St" when we know where it is, otherwise the plain
+  /// "Traffic discussion".
+  String _title(String? type, String? place) {
+    final base = type ?? 'Report';
+    if (place != null && place.isNotEmpty) return '$base on $place';
+    return '$base discussion';
+  }
 
   @override
   void initState() {
     super.initState();
+    final lat = widget.latitude;
+    final lng = widget.longitude;
+    if (lat != null && lng != null) {
+      PlaceLabelService.shortLabel(lat, lng).then((label) {
+        if (mounted && label != null) setState(() => _placeLabel = label);
+      });
+    }
     _scroll.addListener(_onScroll);
     // Keeps relative labels honest without rebuilding on every frame.
     _clock = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -115,7 +145,9 @@ class _ReportChatViewState extends State<_ReportChatView> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              label == null ? 'Report discussion' : '$label discussion',
+              // Prefer "Traffic on Abayomi St" — with several reports of the
+              // same type open, the place is what tells them apart.
+              _title(label, _placeLabel),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
