@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
 
@@ -8,44 +9,48 @@ import 'package:waze_kibris/core/models/groups/group_models.dart';
 import 'package:waze_kibris/core/repositories/group_repository.dart';
 import 'package:waze_kibris/core/services/websocket_service.dart';
 
+/// Group *list*, membership, and invitations. Conversations live in
+/// GroupChatBloc — this bloc only listens to the socket to keep unread
+/// badges and "last message" times live while the user is anywhere in the
+/// app.
 class GroupsBloc extends Bloc<GroupsEvent, GroupsState> {
   GroupsBloc({
     required GroupRepository groupRepository,
     required WebSocketService webSocketService,
+    String? Function()? currentUserId,
   })  : _groupRepository = groupRepository,
-        _webSocketService = webSocketService,
+        _currentUserId = currentUserId,
         super(const GroupsInitial()) {
     on<GetGroupsRequested>(_onGetGroups);
     on<CreateGroupRequested>(_onCreateGroup);
     on<JoinGroupRequested>(_onJoinGroup);
     on<LeaveGroupRequested>(_onLeaveGroup);
-    on<GetGroupMessagesRequested>(_onGetGroupMessages);
-    on<SendGroupMessageRequested>(_onSendGroupMessage);
-    on<GroupMessageReceived>(_onGroupMessageReceived);
-    on<GroupLocationReceived>(_onGroupLocationReceived);
+    on<GroupChatMessageArrived>(_onGroupChatMessageArrived);
     on<LoadMyInvitationsRequested>(_onLoadMyInvitations);
     on<CreateInviteRequested>(_onCreateInvite);
     on<AcceptInvitationRequested>(_onAcceptInvitation);
     on<DeclineInvitationRequested>(_onDeclineInvitation);
     on<MarkGroupReadRequested>(_onMarkGroupRead);
 
-    _webSocketService.messages.listen((msg) {
+    _wsSubscription = webSocketService.messages.listen((msg) {
       if (msg.type == 'group_chat' && msg.content != null) {
         try {
           final json = jsonDecode(msg.content!) as Map<String, dynamic>;
-          add(GroupMessageReceived(json));
-        } catch (_) {}
-      } else if (msg.type == 'group_location_update' && msg.content != null) {
-        try {
-          final json = jsonDecode(msg.content!) as Map<String, dynamic>;
-          add(GroupLocationReceived(json));
+          add(GroupChatMessageArrived(GroupMessage.fromJson(json)));
         } catch (_) {}
       }
     });
   }
 
   final GroupRepository _groupRepository;
-  final WebSocketService _webSocketService;
+  final String? Function()? _currentUserId;
+  StreamSubscription<WsMessage>? _wsSubscription;
+
+  @override
+  Future<void> close() async {
+    await _wsSubscription?.cancel();
+    return super.close();
+  }
 
   Future<void> _onGetGroups(
     GetGroupsRequested event,
@@ -117,119 +122,29 @@ class GroupsBloc extends Bloc<GroupsEvent, GroupsState> {
     }
   }
 
-  Future<void> _onGetGroupMessages(
-    GetGroupMessagesRequested event,
+  /// A chat message arrived on the socket (for any of my groups): bump that
+  /// group's unread badge and last-message time in the list, live. Messages I
+  /// sent myself update the timestamp but not the badge.
+  void _onGroupChatMessageArrived(
+    GroupChatMessageArrived event,
     Emitter<GroupsState> emit,
-  ) async {
-    final wasShowingMessages = state is GetGroupMessagesSuccess;
-    try {
-      // Do not emit GroupsLoading so the chat screen shows scaffold + "Loading messages..." instead of a full-screen spinner.
-      final response = await _groupRepository.getGroupMessages(event.groupId);
-      log('GroupsBloc: get messages for group ${event.groupId} returned ${response.data.length} messages');
-      final currentState = state;
-      if (response.data.isEmpty &&
-          currentState is GetGroupMessagesSuccess &&
-          currentState.groupId == event.groupId &&
-          currentState.messages.isNotEmpty) {
-        log('GroupsBloc: refetch returned empty for group ${event.groupId}, keeping current ${currentState.messages.length} messages');
-        return;
-      }
-      final groupLocations = currentState is GetGroupMessagesSuccess &&
-              currentState.groupId == event.groupId
-          ? currentState.groupLocations
-          : <String, dynamic>{};
-      emit(GetGroupMessagesSuccess(
-        messages: response.data,
-        groupId: event.groupId,
-        groupLocations: groupLocations,
-      ));
-    } catch (e) {
-      log('Get group messages error: $e');
-      if (!wasShowingMessages) emit(GroupsError(e.toString()));
-    }
-  }
+  ) {
+    final currentState = state;
+    if (currentState is! GetGroupsSuccess) return;
+    final msg = event.message;
+    final myId = _currentUserId?.call();
+    final isMine = myId != null && msg.userId == myId;
 
-  Future<void> _onSendGroupMessage(
-    SendGroupMessageRequested event,
-    Emitter<GroupsState> emit,
-  ) async {
-    try {
-      final response = await _groupRepository.sendGroupMessage(
-        event.groupId,
-        event.content,
-        event.messageType,
+    var changed = false;
+    final updated = currentState.groups.map((g) {
+      if (g.id != msg.groupId) return g;
+      changed = true;
+      return g.copyWith(
+        unreadCount: isMine ? g.unreadCount : g.unreadCount + 1,
+        lastMessageAt: msg.createdAt,
       );
-      final createdMessage = response.data;
-      log('GroupsBloc: send message response data=${createdMessage != null ? "message(id=${createdMessage.id})" : "null"}');
-      final currentState = state;
-      if (createdMessage != null &&
-          currentState is GetGroupMessagesSuccess &&
-          currentState.groupId == event.groupId &&
-          !currentState.messages.any((m) => m.id == createdMessage.id)) {
-        final updatedList = List<GroupMessage>.from(currentState.messages)
-          ..insert(0, createdMessage);
-        emit(GetGroupMessagesSuccess(
-          messages: updatedList,
-          groupId: event.groupId,
-          groupLocations: currentState.groupLocations,
-        ));
-      }
-      add(GetGroupMessagesRequested(event.groupId));
-    } catch (e) {
-      emit(GroupsError(e.toString()));
-    }
-  }
-
-  Future<void> _onGroupMessageReceived(
-    GroupMessageReceived event,
-    Emitter<GroupsState> emit,
-  ) async {
-    final currentState = state;
-    if (currentState is GetGroupMessagesSuccess) {
-      try {
-        final newMsg = GroupMessage.fromJson(event.messagePayload);
-        // Only append if it belongs to the current open group (assuming we have one state list for now)
-        // This can be refined later if the app allows multiple active chats
-        final updatedList = List<GroupMessage>.from(currentState.messages);
-
-        // Ensure that we don't add duplicates
-        if (!updatedList.any((m) => m.id == newMsg.id)) {
-          updatedList.insert(0, newMsg);
-          emit(GetGroupMessagesSuccess(
-            messages: updatedList,
-            groupId: currentState.groupId,
-            groupLocations: currentState.groupLocations,
-          ));
-        }
-      } catch (e) {
-        log('Error parsing incoming group message: $e');
-      }
-    }
-  }
-
-  Future<void> _onGroupLocationReceived(
-    GroupLocationReceived event,
-    Emitter<GroupsState> emit,
-  ) async {
-    final currentState = state;
-    if (currentState is GetGroupMessagesSuccess) {
-      try {
-        final payload = event.locationPayload;
-        final userId = payload['userId'] as String?;
-        // Location might come in as lat/lng strings or doubles depending on backend
-        final lat = double.tryParse(payload['lat'].toString());
-        final lng = double.tryParse(payload['lng'].toString());
-
-        if (userId != null && lat != null && lng != null) {
-          final newLocs =
-              Map<String, dynamic>.from(currentState.groupLocations);
-          newLocs[userId] = {'lat': lat, 'lng': lng};
-          emit(currentState.copyWith(groupLocations: newLocs));
-        }
-      } catch (e) {
-        log('Error parsing group location update: $e');
-      }
-    }
+    }).toList(growable: false);
+    if (changed) emit(GetGroupsSuccess(updated));
   }
 
   Future<void> _onLoadMyInvitations(
@@ -309,7 +224,7 @@ class GroupsBloc extends Bloc<GroupsEvent, GroupsState> {
             .toList(growable: false);
         emit(GetGroupsSuccess(updatedGroups));
       } else {
-        // We're likely in the middle of an active chat (GetGroupMessagesSuccess).
+        // Not showing the list right now (e.g. a chat is open).
         // Avoid emitting/triggering a groups refresh here, since it can cause
         // the chat screen to briefly rebuild into a loading state.
       }

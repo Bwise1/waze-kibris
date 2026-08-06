@@ -3,6 +3,7 @@ import 'package:get_it/get_it.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
+import 'package:waze_kibris/core/res/store_keys.dart';
 import 'package:waze_kibris/core/services/auth_interceptor.dart';
 import 'package:waze_kibris/core/services/firebase_social_auth_service.dart';
 import 'package:waze_kibris/core/services/push_notification_service.dart';
@@ -60,9 +61,14 @@ class DI {
     final httpClient = HttpClient(dio: dio);
     final thirdPartyHttp = ThirdPartyHttpClient(dio: Dio());
 
-    // Derive WebSocket endpoint from API URL (https -> wss, + '/ws')
+    // Derive WebSocket endpoint from API URL (https -> wss, + '/ws').
+    // The token provider is read at (re)connect time so a refreshed token is
+    // always the one presented to the server.
     final wsEndpoint = '${env.apiUrl.replaceFirst('http', 'ws')}/ws';
-    final webSocketService = WebSocketService(wsEndpoint);
+    final webSocketService = WebSocketService(
+      wsEndpoint,
+      tokenProvider: () => localStorage.get<String>(StoreKeys.wazeToken),
+    );
 
     getIt
       ..registerLazySingleton<HttpClient>(() => httpClient)

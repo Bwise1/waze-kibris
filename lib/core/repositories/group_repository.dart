@@ -19,7 +19,13 @@ abstract class GroupRepository {
   );
   Future<GroupActionResponse> joinGroupByShortCode(String shortCode);
   Future<GroupActionResponse> leaveGroup(String groupId);
-  Future<GetGroupMessagesResponse> getGroupMessages(String groupId);
+  /// [before] (RFC3339 timestamp of the oldest loaded message) pages back
+  /// through history; null loads the newest page.
+  Future<GetGroupMessagesResponse> getGroupMessages(
+    String groupId, {
+    DateTime? before,
+    int limit = 50,
+  });
   Future<SendGroupMessageResponse> sendGroupMessage(
       String groupId, String content, String messageType);
   Future<GetInvitationsResponse> listInvitationsForGroup(String groupId);
@@ -133,10 +139,18 @@ class GroupRepositoryImpl implements GroupRepository {
   }
 
   @override
-  Future<GetGroupMessagesResponse> getGroupMessages(String groupId) async {
+  Future<GetGroupMessagesResponse> getGroupMessages(
+    String groupId, {
+    DateTime? before,
+    int limit = 50,
+  }) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/community/$groupId/messages',
+        queryParameters: {
+          'limit': limit,
+          if (before != null) 'before': before.toUtc().toIso8601String(),
+        },
       );
       return GetGroupMessagesResponse.fromJson(response.data);
     } on DioException catch (e) {

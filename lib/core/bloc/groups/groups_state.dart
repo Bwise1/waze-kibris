@@ -44,33 +44,6 @@ class GroupActionSuccess extends GroupsState {
   List<Object?> get props => [message, group];
 }
 
-class GetGroupMessagesSuccess extends GroupsState {
-  const GetGroupMessagesSuccess({
-    required this.messages,
-    required this.groupId,
-    this.groupLocations = const {},
-  });
-  final List<GroupMessage> messages;
-  final String groupId;
-  final Map<String, dynamic>
-      groupLocations; // map of userId -> LatLng/dynamic dict
-
-  GetGroupMessagesSuccess copyWith({
-    List<GroupMessage>? messages,
-    String? groupId,
-    Map<String, dynamic>? groupLocations,
-  }) {
-    return GetGroupMessagesSuccess(
-      messages: messages ?? this.messages,
-      groupId: groupId ?? this.groupId,
-      groupLocations: groupLocations ?? this.groupLocations,
-    );
-  }
-
-  @override
-  List<Object?> get props => [messages, groupId, groupLocations];
-}
-
 class MyInvitationsLoaded extends GroupsState {
   const MyInvitationsLoaded(this.invitations);
   final List<GroupInvitation> invitations;

@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:waze_kibris/core/models/groups/group_models.dart';
 
 abstract class GroupsEvent extends Equatable {
   const GroupsEvent();
@@ -55,44 +56,15 @@ class LeaveGroupRequested extends GroupsEvent {
   List<Object?> get props => [groupId];
 }
 
-class GetGroupMessagesRequested extends GroupsEvent {
-  const GetGroupMessagesRequested(this.groupId);
-  final String groupId;
+/// Internal: a chat message arrived on the socket — used to keep unread
+/// badges and last-message times live in the group list. Conversation
+/// state itself lives in GroupChatBloc.
+class GroupChatMessageArrived extends GroupsEvent {
+  const GroupChatMessageArrived(this.message);
+  final GroupMessage message;
 
   @override
-  List<Object?> get props => [groupId];
-}
-
-class SendGroupMessageRequested extends GroupsEvent {
-  const SendGroupMessageRequested({
-    required this.groupId,
-    required this.content,
-    required this.messageType,
-  });
-
-  final String groupId;
-  final String content;
-  final String messageType;
-
-  @override
-  List<Object?> get props => [groupId, content, messageType];
-}
-
-class GroupLocationReceived extends GroupsEvent {
-  const GroupLocationReceived(this.locationPayload);
-  final Map<String, dynamic> locationPayload;
-
-  @override
-  List<Object?> get props => [locationPayload];
-}
-
-/// Dispatched when a new message arrives via WebSockets
-class GroupMessageReceived extends GroupsEvent {
-  const GroupMessageReceived(this.messagePayload);
-  final Map<String, dynamic> messagePayload;
-
-  @override
-  List<Object?> get props => [messagePayload];
+  List<Object?> get props => [message];
 }
 
 class LoadMyInvitationsRequested extends GroupsEvent {

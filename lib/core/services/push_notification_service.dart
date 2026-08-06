@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart'
@@ -54,15 +56,59 @@ class PushNotificationService {
       }
     });
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      if (kDebugMode) {
-        debugPrint('FCM opened app: ${message.data}');
-      }
-    });
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
+
+    // Cold start from a tapped notification: the payload arrives before any
+    // UI exists, so it is parked until a tap handler is registered.
+    //
+    // NEVER await this here — main() awaits initialize() before runApp(), and
+    // getInitialMessage() can hang indefinitely when APNs is unavailable
+    // (notably the iOS Simulator), which strands the app on the splash
+    // screen. Fire-and-forget with a timeout instead.
+    unawaited(
+      FirebaseMessaging.instance
+          .getInitialMessage()
+          .timeout(const Duration(seconds: 5), onTimeout: () => null)
+          .then((initial) {
+        if (initial != null) _handleNotificationTap(initial);
+      }).catchError((Object e) {
+        if (kDebugMode) debugPrint('FCM getInitialMessage skipped: $e');
+        return null;
+      }),
+    );
 
     FirebaseMessaging.instance.onTokenRefresh.listen((String newToken) {
       syncTokenIfLoggedIn(newToken: newToken);
     });
+  }
+
+  // --- Notification tap routing -------------------------------------------
+
+  void Function(String groupId)? _groupChatTapHandler;
+  String? _pendingGroupChatId;
+
+  /// Register the navigation handler for "group_chat" notification taps.
+  /// If a tap already happened (cold start), it fires immediately.
+  void setGroupChatTapHandler(void Function(String groupId)? handler) {
+    _groupChatTapHandler = handler;
+    final pending = _pendingGroupChatId;
+    if (handler != null && pending != null) {
+      _pendingGroupChatId = null;
+      handler(pending);
+    }
+  }
+
+  void _handleNotificationTap(RemoteMessage message) {
+    final data = message.data;
+    if (data['type'] != 'group_chat') return;
+    final groupId = data['group_id']?.toString();
+    if (groupId == null || groupId.isEmpty) return;
+    final handler = _groupChatTapHandler;
+    if (handler != null) {
+      handler(groupId);
+    } else {
+      _pendingGroupChatId = groupId;
+    }
   }
 
   /// On iOS, FCM `getToken()` requires an APNs device token first or it throws

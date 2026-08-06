@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
+import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
 import 'package:waze_kibris/core/repositories/report_repository.dart';
@@ -52,10 +53,17 @@ class App extends StatelessWidget {
                 ),
               ),
               BlocProvider<GroupsBloc>(
-                create: (context) => GroupsBloc(
-                  groupRepository: context.read<GroupRepository>(),
-                  webSocketService: context.read<WebSocketService>(),
-                ),
+                create: (context) {
+                  final authBloc = context.read<AuthBloc>();
+                  return GroupsBloc(
+                    groupRepository: context.read<GroupRepository>(),
+                    webSocketService: context.read<WebSocketService>(),
+                    currentUserId: () {
+                      final s = authBloc.state;
+                      return s is AuthSuccess ? s.user?.id : null;
+                    },
+                  );
+                },
               ),
             ],
             child: LayoutBuilder(

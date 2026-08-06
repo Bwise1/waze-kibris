@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -18,7 +20,14 @@ void main() async {
   applyMapboxAccessTokenFromDartIfPresent(MapboxOptions.setAccessToken);
 
   await DI.initializeObjects(WazeEnv.prod);
-  await getIt<PushNotificationService>().initialize();
-  await getIt<PushNotificationService>().syncTokenIfLoggedIn();
+
+  // Push setup must never gate the first frame: it waits on APNs, which is
+  // slow on device and never resolves on the Simulator.
+  unawaited(
+    getIt<PushNotificationService>().initialize().then(
+          (_) => getIt<PushNotificationService>().syncTokenIfLoggedIn(),
+        ),
+  );
+
   await bootstrap(() => const App());
 }

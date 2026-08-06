@@ -237,7 +237,6 @@ class _GroupListScreenState extends State<GroupListScreen> {
           BlocBuilder<GroupsBloc, GroupsState>(
             buildWhen: (previous, current) =>
                 current is GetGroupsSuccess ||
-                current is GetGroupMessagesSuccess ||
                 current is GroupsLoading ||
                 current is GroupsError,
             builder: (context, state) {
@@ -308,36 +307,12 @@ class _GroupListScreenState extends State<GroupListScreen> {
           }
         },
         buildWhen: (previous, current) {
-          return current is GetGroupsSuccess ||
-              current is GroupsLoading ||
-              current is GetGroupMessagesSuccess;
+          return current is GetGroupsSuccess || current is GroupsLoading;
         },
         builder: (context, state) {
           // When we have a successful groups load, cache so we can show it when returning from chat.
           if (state is GetGroupsSuccess) {
             _cachedGroups = state.groups;
-          }
-
-          // Only refetch groups when we're actually visible (returned from chat).
-          // When user is still on GroupChatScreen, this route is not current; refetching
-          // here would overwrite GetGroupMessagesSuccess and hide chat messages.
-          if (state is GetGroupMessagesSuccess) {
-            final isListCurrentRoute = ModalRoute.of(context)?.isCurrent ?? false;
-            if (isListCurrentRoute && !_refetchedOnReturn) {
-              _refetchedOnReturn = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  context.read<GroupsBloc>().add(const GetGroupsRequested());
-                }
-              });
-            }
-            // Show cached list immediately so screen is not blank while refetching.
-            if (_cachedGroups != null) {
-              final searchQuery = _searchController.text;
-              final validGroups = _filterAndSort(_cachedGroups!, searchQuery);
-              return _buildListBody(context, theme, validGroups);
-            }
-            return const Center(child: CircularProgressIndicator());
           }
 
           // While loading (e.g. refetch after return), show cached list if we have it.
