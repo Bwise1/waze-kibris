@@ -2017,21 +2017,26 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         ..color = Colors.white
         ..style = PaintingStyle.fill;
 
+      // The disc is deliberately smaller than the canvas: the glyph fills
+      // most of it, so the icon reads as the symbol itself rather than a
+      // symbol floating in a large white ring.
+      final double discRadius = radius - 9;
+
       // Draw shadow
       canvas.drawCircle(
-        Offset(centerX, centerY + 2),
-        radius - 2,
+        Offset(centerX, centerY + 1.5),
+        discRadius,
         ui.Paint()
-          ..color = Colors.black.withOpacity(0.2)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+          ..color = Colors.black.withOpacity(0.22)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
       );
 
       // Draw white circle
-      canvas.drawCircle(Offset(centerX, centerY), radius - 4, paint);
+      canvas.drawCircle(Offset(centerX, centerY), discRadius, paint);
 
       // Draw colored circle
       paint.color = color.withOpacity(0.1);
-      canvas.drawCircle(Offset(centerX, centerY), radius - 4, paint);
+      canvas.drawCircle(Offset(centerX, centerY), discRadius, paint);
 
       // Draw Icon
       final TextPainter textPainter = TextPainter(
@@ -2041,7 +2046,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       textPainter.text = TextSpan(
         text: String.fromCharCode(icon.codePoint),
         style: TextStyle(
-          fontSize: size.width * 0.6,
+          // ~85% of the disc, so the padding around the glyph is a thin
+          // ring instead of a wide margin.
+          fontSize: discRadius * 1.7,
           fontFamily: icon.fontFamily,
           package: icon.fontPackage,
           color: color,
