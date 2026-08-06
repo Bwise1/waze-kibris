@@ -1878,6 +1878,15 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   /// Load location puck image from assets with proper resolution handling
   Future<Uint8List> _loadLocationPuckImage() async {
+    // Travel mode wins over the vehicle preference: showing a car while
+    // the user is walking is simply wrong, whatever they picked in
+    // settings. Matches Google/Apple Maps.
+    final mode = NavPuckPreference.mode.value;
+    if (mode != NavPuckMode.vehicle) {
+      final bytes = await PuckIconFactory.renderMode(mode);
+      if (bytes != null) return bytes;
+    }
+
     // Vehicle pucks (car/bus/truck) are rendered at runtime — the native
     // SDKs only ship the chevron, so these are ours (PuckIconFactory).
     final style = NavPuckPreference.style.value;

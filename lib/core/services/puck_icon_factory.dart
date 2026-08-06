@@ -14,6 +14,75 @@ class PuckIconFactory {
   PuckIconFactory._();
 
   static final Map<NavPuckStyle, Uint8List> _cache = {};
+  static final Map<NavPuckMode, Uint8List> _modeCache = {};
+
+  /// Puck for walking/cycling: a brand-coloured disc with the mode's glyph
+  /// and a white ring, plus a small nose so heading still reads. Vehicles
+  /// get a top-down silhouette; a pedestrian doesn't have one, so this
+  /// follows the Google/Apple convention of a marker with an icon instead.
+  static Future<Uint8List?> renderMode(NavPuckMode mode,
+      {double size = 128}) async {
+    if (mode == NavPuckMode.vehicle) return null;
+    final cached = _modeCache[mode];
+    if (cached != null) return cached;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final k = size / 128;
+    canvas.scale(k);
+
+    const cx = 64.0;
+    const centre = Offset(cx, cx);
+    const radius = 34.0;
+    final colour = mode == NavPuckMode.walk
+        ? const Color(0xFF2E7D32) // walking green
+        : const Color(0xFF1565C0); // cycling blue
+
+    // Heading nose, so the puck still shows which way you're facing.
+    final nose = Path()
+      ..moveTo(cx - 13, 30)
+      ..lineTo(cx, 8)
+      ..lineTo(cx + 13, 30)
+      ..close();
+    canvas.drawPath(nose, Paint()..color = colour);
+
+    canvas.drawCircle(
+      centre.translate(0, 3),
+      radius,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.28)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
+    canvas.drawCircle(centre, radius, Paint()..color = Colors.white);
+    canvas.drawCircle(centre, radius - 4, Paint()..color = colour);
+
+    final icon =
+        mode == NavPuckMode.walk ? Icons.directions_walk : Icons.pedal_bike;
+    final painter = TextPainter(textDirection: TextDirection.ltr)
+      ..text = TextSpan(
+        text: String.fromCharCode(icon.codePoint),
+        style: TextStyle(
+          fontSize: 38,
+          fontFamily: icon.fontFamily,
+          package: icon.fontPackage,
+          color: Colors.white,
+        ),
+      )
+      ..layout();
+    painter.paint(
+      canvas,
+      centre - Offset(painter.width / 2, painter.height / 2),
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    if (byteData == null) return null;
+    final bytes = byteData.buffer.asUint8List();
+    _modeCache[mode] = bytes;
+    return bytes;
+  }
 
   /// PNG bytes for [style] at [size]×[size] px (128 matches the 4.0x
   /// resolution of the stock arrow asset).

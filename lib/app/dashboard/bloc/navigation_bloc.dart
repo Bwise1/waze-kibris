@@ -13,6 +13,7 @@ import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 import 'package:waze_kibris/core/models/navigation/waypoint.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:waze_kibris/app/dashboard/services/voice_instruction_service.dart';
+import 'package:waze_kibris/core/services/nav_puck_preference.dart';
 import 'package:waze_kibris/core/services/nav_settings.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/di.dart';
@@ -108,6 +109,13 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     _cameraController?.setTravelMode(event.mode);
     _cameraController?.enableNavigationMode();
 
+    // Swap the puck to match how the user is travelling.
+    NavPuckPreference.setMode(switch (event.mode) {
+      TravelMode.walk => NavPuckMode.walk,
+      TravelMode.cycle => NavPuckMode.cycle,
+      TravelMode.drive => NavPuckMode.vehicle,
+    });
+
     // Reset voice service for new navigation session and tune cadence per mode.
     _voiceService.reset();
     _voiceService.setSpeechRate(event.mode.voiceSpeechRate);
@@ -139,6 +147,8 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
 
   void _onNavigationStopped(
       NavigationStopped event, Emitter<NavigationState> emit) {
+    // Back to the user's chosen vehicle puck once the trip ends.
+    NavPuckPreference.setMode(NavPuckMode.vehicle);
     WakelockPlus.disable();
 
     // Disable navigation mode on camera controller

@@ -265,6 +265,8 @@ class _MainDashboardState extends State<MainDashboard>
       if (mounted) refreshLocationPuck();
     });
     NavPuckPreference.style.addListener(_onPuckStyleChanged);
+    // Walking/cycling swaps the puck for the duration of the trip.
+    NavPuckPreference.mode.addListener(_onPuckStyleChanged);
 
     // Tapping a saved-place pin on the map opens the same place/route sheet
     // the Home/Work cards use.
@@ -488,6 +490,7 @@ class _MainDashboardState extends State<MainDashboard>
     WidgetsBinding.instance.removeObserver(this);
     MapStylePreference.mode.removeListener(_evaluateMapStyle);
     NavPuckPreference.style.removeListener(_onPuckStyleChanged);
+    NavPuckPreference.mode.removeListener(_onPuckStyleChanged);
     NavSettings.mutedReportTypes.removeListener(_onReportFilterChanged);
     _mapStyleTimer?.cancel();
     getIt<PushNotificationService>().setGroupChatTapHandler(null);

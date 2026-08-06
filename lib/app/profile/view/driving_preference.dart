@@ -93,7 +93,8 @@ Select things you want to see while driving to have the perfect experience''',
                   ),
                   Gap(8 * styles.scale),
                   Text(
-                    'How you appear on the map while driving.',
+                    'How you appear on the map while driving. Walking and '
+                    'cycling trips use their own icon.',
                     style:
                         styles.typography.hairline.textColor(styles.theme.ash),
                   ),
