@@ -199,12 +199,11 @@ class RouteReplayService {
       final t = segLen <= 0 ? 0.0 : (alongSegment / segLen).clamp(0.0, 1.0);
       final pos = _interpolate(segFrom, segTo, t);
 
-      // Bearing with a 2-point lookahead, so it anticipates the next turn
-      // rather than snapping at the vertex.
-      final lookahead = segment + 2 < points.length
-          ? points[segment + 2]
-          : points[points.length - 1];
-      final bearing = _bearing(pos, lookahead);
+      // Bearing along the segment we're actually on. A 2-point lookahead
+      // made the "car" face the next turn while still travelling straight,
+      // which reads as the map swinging early. A real vehicle points where
+      // it's going now; the camera smoothing handles easing into the turn.
+      final bearing = _bearing(segFrom, segTo);
 
       frames.add(
         Position(

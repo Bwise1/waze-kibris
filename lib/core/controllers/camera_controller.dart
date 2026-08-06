@@ -68,6 +68,11 @@ class CameraController {
   int _navEaseDurationMs = 1000;
 
   static const double _smoothingFactor = 0.3;
+
+  /// Base blend for camera rotation, per GPS fix (~1 Hz). Low enough that
+  /// the map leans into a turn rather than snapping; [_smoothBearing] scales
+  /// it up with the size of the turn.
+  static const double _bearingSmoothingFactor = 0.25;
   static const double _defaultZoom = 15;
   static const double _overviewPitch = 0;
   static const int _animationDuration = 1000;
@@ -669,6 +674,15 @@ class CameraController {
   /// the animation duration provides the smoothing rather than per-step
   /// angle caps that make the camera physically unable to keep up with a
   /// turning driver.
+  /// Ease the camera toward the route bearing instead of snapping to it.
+  ///
+  /// This used to return the target verbatim — the shortest-angle unwrap was
+  /// there, but no actual smoothing — so every bearing change jumped. Waze
+  /// leans into a turn: the map starts rotating as you approach the corner
+  /// and settles as you come out of it.
+  ///
+  /// Small corrections track almost 1:1 so the map still feels responsive on
+  /// a straight road; big swings (a 90° turn) ease over a few fixes.
   double _smoothBearing(double currentBearing, double targetBearing) {
     double diff = targetBearing - currentBearing;
     if (diff > 180) {
@@ -676,7 +690,16 @@ class CameraController {
     } else if (diff < -180) {
       diff += 360;
     }
-    return currentBearing + diff;
+
+    // Blend harder the bigger the turn, so sharp corners still complete
+    // quickly rather than lagging the car through the junction.
+    final magnitude = diff.abs();
+    final factor = magnitude < 5
+        ? 1.0 // tiny drift: track exactly, no visible lag
+        : (_bearingSmoothingFactor + (magnitude / 180.0) * 0.35)
+            .clamp(0.0, 1.0);
+
+    return currentBearing + diff * factor;
   }
 
   bool _isValidPosition(geo.Position position) {

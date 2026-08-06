@@ -288,15 +288,28 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     if (mounted) setState(() {});
   }
 
+  /// Whether a gesture callback came from an actual finger on the map.
+  ///
+  /// Programmatic camera moves surface through the same listeners but carry
+  /// no meaningful touch point, so a coordinate at (or outside) the origin
+  /// means "not a real gesture".
+  bool _isRealTouch(mp.ScreenCoordinate touch) {
+    return touch.x > 0 && touch.y > 0;
+  }
+
   /// Call this from map pan/zoom/rotate gesture handlers to exit follow mode
   /// (similar to Mapbox NavigationCamera behavior).
-  void onUserMapGesture() {
+  void onUserMapGesture([mp.MapContentGestureContext? context]) {
     if (!_cameraController.isFollowingUser) return; // Already off; skip rebuild
     // Mapbox fires onScrollListener for *programmatic* camera moves too, not
-    // just finger drags. Our own follow-camera easeTo therefore looked like
-    // a user pan and switched following off on the first fix — after which
-    // the map only rotated and never re-centred. Ignore callbacks that land
-    // while (or just after) we drove the camera ourselves.
+    // just finger drags — our own easeTo, route redraws, reroutes. Those
+    // looked like a user pan and switched following off, leaving the map
+    // north-up for the rest of the trip.
+    //
+    // A real gesture always reports where the finger is. Programmatic moves
+    // report a degenerate touch position, so that's the discriminator; the
+    // timing window below only covers callbacks that arrive without context.
+    if (context != null && !_isRealTouch(context.touchPosition)) return;
     if (_cameraController.isAnimatingProgrammatically) return;
     debugPrint('🖐️ Follow mode OFF (map gesture)');
     _cameraController.disableFollowUser();
@@ -1959,7 +1972,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     final scale = Platform.isAndroid ? devicePixelRatio : 1.0;
     _cameraController.setNavigationPadding(
       mp.MbxEdgeInsets(
-        top: mapHeightLogical * 0.4 * scale,
+        // 0.4 put the puck around mid-screen; Waze rides it much lower so
+        // most of the viewport is the road ahead, which is what you actually
+        // need to see. 0.62 lands the puck at roughly three-quarters height.
+        top: mapHeightLogical * 0.62 * scale,
         left: 0,
         bottom: 0,
         right: 0,

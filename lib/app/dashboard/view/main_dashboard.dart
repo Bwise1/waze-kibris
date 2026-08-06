@@ -847,8 +847,11 @@ class _MainDashboardState extends State<MainDashboard>
                           // only surface through onCameraChangeListener,
                           // which also fires for our own programmatic
                           // easeTo calls and would create a feedback loop.
-                          onScrollListener: (_) => onUserMapGesture(),
-                          onZoomListener: (_) => onUserMapGesture(),
+                          // These fire for programmatic camera moves too, so
+                          // check for a real finger: a genuine gesture always
+                          // reports a touch position inside the map view.
+                          onScrollListener: (ctx) => onUserMapGesture(ctx),
+                          onZoomListener: (ctx) => onUserMapGesture(ctx),
                           // Drives our own compass. Only the notifier
                           // updates, so this doesn't rebuild the screen.
                           onCameraChangeListener: (data) {
