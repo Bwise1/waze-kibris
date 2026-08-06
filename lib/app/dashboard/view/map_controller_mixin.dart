@@ -531,6 +531,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
       debugPrint(
           '✅ Displayed ${clusters.length} report annotations (${filtered.length} reports total, ${reports.length - filtered.length} expired skipped)');
+
+      // Saved pins are positioned to avoid reports, so a change in the
+      // report set means they may need to move.
+      await refreshSavedPlaces();
     } catch (e) {
       debugPrint('❌ Error displaying reports on map: $e');
     }
@@ -1099,20 +1103,25 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     try {
       await _addSavedPinImageToStyle();
 
-      final features = places
-          .map((p) => {
-                'type': 'Feature',
-                'geometry': {
-                  'type': 'Point',
-                  'coordinates': [p.longitude, p.latitude],
-                },
-                'properties': {
-                  'id': p.id,
-                  'name': p.name,
-                  'icon': savedPinImageFor(p.name),
-                },
-              })
-          .toList();
+      final features = places.map((p) {
+        // Saved places are fixed points, but the puck and live reports can
+        // land right on top of one (you're parked at home and someone
+        // reports traffic outside). Nudge the pin clear so all three stay
+        // separately visible and tappable.
+        final display = _savedPinDisplayPosition(p);
+        return {
+          'type': 'Feature',
+          'geometry': {
+            'type': 'Point',
+            'coordinates': [display.lon, display.lat],
+          },
+          'properties': {
+            'id': p.id,
+            'name': p.name,
+            'icon': savedPinImageFor(p.name),
+          },
+        };
+      }).toList();
       final geoJson =
           jsonEncode({'type': 'FeatureCollection', 'features': features});
 
@@ -1131,8 +1140,15 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             // Per-place icon (house / briefcase / bookmark), like Waze.
             iconImageExpression: ['get', 'icon'],
             iconAnchor: mp.IconAnchor.BOTTOM,
-            iconAllowOverlap: true,
-            iconIgnorePlacement: true,
+            // Let Mapbox's collision engine hide a saved pin when something
+            // more urgent (a live report) already occupies that spot —
+            // reports are transient and time-critical, a saved place is
+            // neither and the user knows where their own home is.
+            iconAllowOverlap: false,
+            iconIgnorePlacement: false,
+            // Lower sort key = drawn first and wins collisions. Reports sit
+            // above saved places (see _reportSymbolSortKey).
+            symbolSortKey: 10,
             // The image registers at 48×60 pt logical (see
             // _addSavedPinImageToStyle), so these factors put the pin at
             // ~48 pt tall at street zoom — a comfortable touch target —
@@ -1157,6 +1173,51 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     } catch (e) {
       debugPrint('⚠️ Error drawing saved places: $e');
     }
+  }
+
+  /// Minimum separation (metres) between a saved pin and the puck or a
+  /// report icon before we start displacing it.
+  static const double _savedPinClearanceMeters = 35;
+
+  /// Where a saved-place pin should actually draw, given what else is on
+  /// the map right now. Displaces it away from the user puck and from any
+  /// nearby report so the icons don't stack.
+  ({double lat, double lon}) _savedPinDisplayPosition(SavedLocations place) {
+    var lat = place.latitude;
+    var lon = place.longitude;
+
+    // 1. Clear the user puck.
+    final user = _lastKnownUserPosition;
+    if (user != null) {
+      final moved = _clusterDisplayPositionNearPuck(
+        user.latitude,
+        user.longitude,
+        lat,
+        lon,
+        _savedPinClearanceMeters,
+      );
+      lat = moved.lat;
+      lon = moved.lon;
+    }
+
+    // 2. Clear any report sitting on the same spot. Reports win the
+    //    position because they're transient and time-critical.
+    for (final report in _currentReports) {
+      final d = _distanceMeters(report.latitude, report.longitude, lat, lon);
+      if (d < _savedPinClearanceMeters) {
+        final moved = _clusterDisplayPositionNearPuck(
+          report.latitude,
+          report.longitude,
+          lat,
+          lon,
+          _savedPinClearanceMeters,
+        );
+        lat = moved.lat;
+        lon = moved.lon;
+      }
+    }
+
+    return (lat: lat, lon: lon);
   }
 
   /// Re-draw saved places after a style reload wiped the runtime layers.
