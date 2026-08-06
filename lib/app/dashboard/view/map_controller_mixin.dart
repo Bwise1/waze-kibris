@@ -1137,19 +1137,19 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             // _addSavedPinImageToStyle), so these factors put the pin at
             // ~48 pt tall at street zoom — a comfortable touch target —
             // shrinking to ~29 pt at city overview.
-            // Pin is 56pt tall at scale 1.0, so these keep it around 56pt
-            // at street zoom — matching the chunky Waze pin — and never
-            // below ~34pt when zoomed right out.
+            // Pin artwork is 66pt tall at scale 1.0; these land it around
+            // 50pt at street zoom — big enough to hit comfortably without
+            // dominating the map — and ~33pt when zoomed right out.
             iconSizeExpression: [
               'interpolate',
               ['exponential', 1.5],
               ['zoom'],
-              0.0, 0.60,
-              12.0, 0.85,
-              14.0, 0.95,
-              16.0, 1.00,
-              19.0, 1.10,
-              22.0, 1.20,
+              0.0, 0.50,
+              12.0, 0.66,
+              14.0, 0.72,
+              16.0, 0.76,
+              19.0, 0.84,
+              22.0, 0.92,
             ],
           ),
         );
