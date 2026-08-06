@@ -1543,8 +1543,13 @@ class MapSheetState extends State<MapSheet> {
                 const SizedBox(height: 8),
 
                 // ── Saved locations horizontal row ────────────────────────
+                // A horizontal ListView needs a bounded height, so this is
+                // fixed — but sized off the card's real content (8+8
+                // padding, ~20pt title line, 2pt gap, ~17pt subtitle line)
+                // with headroom, because text metrics differ per platform:
+                // 56 fit on iOS and overflowed by 1px on Android.
                 SizedBox(
-                  height: 56,
+                  height: 62,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     padding: EdgeInsets.symmetric(horizontal: styles.insets.md),
@@ -2582,12 +2587,18 @@ class _SavedLocationCardState extends State<SavedLocationCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.center,
+                // The row that holds these cards has a bounded height, so
+                // the column must not try to grow past it — otherwise a
+                // taller-than-expected line (platform font metrics, or a
+                // large system text scale) overflows the card.
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     widget.title,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
+                      height: 1.2,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -2605,6 +2616,7 @@ class _SavedLocationCardState extends State<SavedLocationCard> {
                       style: TextStyle(
                         color: Colors.grey[600],
                         fontSize: 12,
+                        height: 1.2,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
