@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:waze_kibris/app/dashboard/services/route_replay_service.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/view/map_controller_mixin.dart';
@@ -1036,6 +1038,18 @@ class _MainDashboardState extends State<MainDashboard>
                     ),
 
                   // Navigation UI
+                  // Debug-only drive simulator. Compiled out of release
+                  // builds; lets the emulator/simulator produce a realistic
+                  // drive with bearing and speed.
+                  if (kDebugMode && state is NavigationInProgress)
+                    Positioned(
+                      top: MediaQuery.of(context).padding.top + 124,
+                      right: 16,
+                      child: _ReplayControl(
+                        route: _lastDrawnRoute,
+                      ),
+                    ),
+
                   if (state is NavigationInProgress) ...[
                     if (state.isOverviewVisible)
                       RouteOverviewWidget(
@@ -1226,6 +1240,71 @@ class _MapCompassButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Debug-only control for the drive simulator: play/stop, and cycle the
+/// playback speed. Never present in release builds.
+class _ReplayControl extends StatefulWidget {
+  const _ReplayControl({required this.route});
+  final MapboxRoute? route;
+
+  @override
+  State<_ReplayControl> createState() => _ReplayControlState();
+}
+
+class _ReplayControlState extends State<_ReplayControl> {
+  static const _speeds = [1.0, 2.0, 4.0, 8.0];
+  int _speedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final replay = RouteReplayService.instance;
+    final running = replay.isRunning;
+    return Column(
+      children: [
+        _MapCircleButton(
+          icon: running ? Icons.stop_rounded : Icons.play_arrow_rounded,
+          backgroundColor: running ? Colors.red : Colors.black87,
+          iconColor: Colors.white,
+          onTap: () {
+            final route = widget.route;
+            if (route == null) return;
+            setState(() {
+              if (running) {
+                replay.stop();
+              } else {
+                replay.start(route, speedMultiplier: _speeds[_speedIndex]);
+              }
+            });
+          },
+        ),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _speedIndex = (_speedIndex + 1) % _speeds.length;
+              replay.setSpeedMultiplier(_speeds[_speedIndex]);
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '${_speeds[_speedIndex].toStringAsFixed(0)}x',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

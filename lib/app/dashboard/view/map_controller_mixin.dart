@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart' hide TravelMode;
@@ -12,6 +13,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
 import 'package:waze_kibris/app/dashboard/services/bearing_fusion_service.dart';
+import 'package:waze_kibris/app/dashboard/services/route_replay_service.dart';
 import 'package:waze_kibris/app/dashboard/services/snap_to_road_service.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/core/constants/navigation_camera_constants.dart';
@@ -30,6 +32,7 @@ import 'package:waze_kibris/app/dashboard/modals/report_details_modal.dart';
 mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   mp.MapboxMap? _mapboxMapController;
   StreamSubscription<Position>? _userPositionStream;
+  StreamSubscription<Position>? _replayPositionSub;
   mp.PointAnnotationManager? pointAnnotationManager;
   mp.PointAnnotationManager? reportAnnotationManager;
   mp.PointAnnotationManager? groupAnnotationManager;
@@ -1599,9 +1602,34 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     _bearingFusion.start();
 
+    // In debug builds the drive simulator feeds the same pipeline as real
+    // GPS. It emits fixes with genuine bearing and speed, which neither the
+    // Android emulator nor the iOS simulator provide — see
+    // RouteReplayService.
+    _replayPositionSub?.cancel();
+    if (kDebugMode) {
+      _replayPositionSub =
+          RouteReplayService.instance.positions.listen(_handlePositionUpdate);
+    }
+
     _userPositionStream =
-        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (Position rawPosition) async {
+        Geolocator.getPositionStream(locationSettings: locationSettings)
+            .listen(_handlePositionUpdate,
+                onError: (Object error) {
+      debugPrint('Position stream error: $error');
+    });
+  }
+
+  /// Single entry point for a position fix, whether it came from the device
+  /// or the debug replay.
+  Future<void> _handlePositionUpdate(Position rawPosition) async {
+        // While a replay is running, ignore real device fixes so the two
+        // sources don't fight over the puck.
+        if (kDebugMode &&
+            RouteReplayService.instance.isRunning &&
+            !RouteReplayService.instance.isSimulated(rawPosition)) {
+          return;
+        }
         // Fuse GPS course with compass so the puck stays stable at low speed.
         // Snap-to-road (below) can still override with the route bearing.
         final fusedBearing = _bearingFusion.fuse(rawPosition);
@@ -1710,11 +1738,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         // Puck position is now driven by the built-in LocationComponent,
         // which reads directly from CoreLocation / FusedLocationProvider
         // and interpolates at 60fps. No manual per-frame update needed.
-      },
-      onError: (Object error) {
-        debugPrint('Position stream error: $error');
-      },
-    );
   }
 
   /// Pause position tracking when the app goes to background.
@@ -2205,6 +2228,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   @override
   void dispose() {
     _userPositionStream?.cancel();
+    _replayPositionSub?.cancel();
+    RouteReplayService.instance.stop();
     _bearingFusion.dispose();
     _reportIconUpdateTimer?.cancel();
     reportAnnotationManager?.deleteAll();
