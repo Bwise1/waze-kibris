@@ -1109,6 +1109,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
                 'properties': {
                   'id': p.id,
                   'name': p.name,
+                  'icon': savedPinImageFor(p.name),
                 },
               })
           .toList();
@@ -1127,36 +1128,25 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           mp.SymbolLayer(
             id: _savedLayerId,
             sourceId: _savedSourceId,
-            iconImage: _savedPinImageId,
+            // Per-place icon (house / briefcase / bookmark), like Waze.
+            iconImageExpression: ['get', 'icon'],
             iconAnchor: mp.IconAnchor.BOTTOM,
             iconAllowOverlap: true,
             iconIgnorePlacement: true,
-            // Name under the pin, like Mapbox's own place labels. Hidden
-            // when zoomed out so the map doesn't turn into a wall of text.
-            textField: '{name}',
-            textAnchor: mp.TextAnchor.TOP,
-            textOffset: [0, 0.6],
-            textSize: 12,
-            textColor: const Color(0xFF1E1B18).value,
-            textHaloColor: Colors.white.value,
-            textHaloWidth: 1.4,
-            textOptional: true,
-            textSizeExpression: [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              11.0, 0.0, // no label at city overview
-              12.5, 11.0,
-              16.0, 13.0,
-            ],
+            // The image registers at 48×60 pt logical (see
+            // _addSavedPinImageToStyle), so these factors put the pin at
+            // ~48 pt tall at street zoom — a comfortable touch target —
+            // shrinking to ~29 pt at city overview.
             iconSizeExpression: [
               'interpolate',
               ['exponential', 1.5],
               ['zoom'],
-              0.0, 0.22,
-              12.0, 0.38,
-              16.0, 0.5,
-              22.0, 0.7,
+              0.0, 0.45,
+              12.0, 0.62,
+              14.0, 0.72,
+              16.0, 0.80,
+              19.0, 0.92,
+              22.0, 1.05,
             ],
           ),
         );
@@ -1180,16 +1170,19 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     if (map == null || _savedPlaces.isEmpty) return null;
     try {
       if (!await map.style.styleLayerExists(_savedLayerId)) return null;
-      // Generous box: pins are small targets on a moving map.
+      // Generous box: pins are small targets on a moving map, and the pin
+      // is bottom-anchored so the visual sits *above* the tap point —
+      // hence the asymmetric vertical padding.
+      const double pad = 34;
       final box = mp.RenderedQueryGeometry.fromScreenBox(
         mp.ScreenBox(
           min: mp.ScreenCoordinate(
-            x: ctx.touchPosition.x - 22,
-            y: ctx.touchPosition.y - 22,
+            x: ctx.touchPosition.x - pad,
+            y: ctx.touchPosition.y - pad * 1.6,
           ),
           max: mp.ScreenCoordinate(
-            x: ctx.touchPosition.x + 22,
-            y: ctx.touchPosition.y + 22,
+            x: ctx.touchPosition.x + pad,
+            y: ctx.touchPosition.y + pad,
           ),
         ),
       );
@@ -1197,13 +1190,16 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         box,
         mp.RenderedQueryOptions(layerIds: [_savedLayerId], filter: null),
       );
+      debugPrint('📍 Saved-place hit-test: ${hits.length} feature(s)');
       for (final hit in hits) {
         final props = hit?.queriedFeature.feature['properties'];
-        if (props is Map && props['id'] != null) {
-          final id = (props['id'] as num).toInt();
-          for (final place in _savedPlaces) {
-            if (place.id == id) return place;
-          }
+        if (props is! Map) continue;
+        // The platform channel may hand back numbers as num or String,
+        // so parse defensively rather than casting.
+        final id = int.tryParse(props['id']?.toString() ?? '');
+        if (id == null) continue;
+        for (final place in _savedPlaces) {
+          if (place.id == id) return place;
         }
       }
     } catch (e) {
@@ -1212,70 +1208,105 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     return null;
   }
 
-  /// Home/Work/other pin: a rounded brand-red teardrop with a white glyph,
-  /// drawn programmatically so no new asset is needed.
+  /// Which pin image a saved place uses, keyed off its name the way Waze
+  /// does (house for Home, briefcase for Work, bookmark for the rest).
+  static String savedPinImageFor(String name) {
+    final n = name.trim().toLowerCase();
+    if (n == 'home' || n == 'house') return '$_savedPinImageId-home';
+    if (n == 'work' || n == 'office') return '$_savedPinImageId-work';
+    return '$_savedPinImageId-default';
+  }
+
+  /// Waze-style saved-place pin: a white teardrop with a coloured glyph
+  /// inside. Drawn programmatically, one image per place kind.
   Future<void> _addSavedPinImageToStyle() async {
     final map = _mapboxMapController;
     if (map == null || !mounted) return;
-    try {
-      if (await map.style.hasStyleImage(_savedPinImageId)) return;
 
-      const int w = 96;
-      const int h = 120;
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
+    const kinds = <String, (IconData, Color)>{
+      'home': (Icons.home_rounded, Color(0xFFE53935)),
+      'work': (Icons.work_rounded, Color(0xFFC97A20)),
+      'default': (Icons.bookmark_rounded, Color(0xFFFF7043)),
+    };
 
-      const centre = Offset(w / 2, w / 2);
-      const radius = 40.0;
+    for (final entry in kinds.entries) {
+      final imageId = '$_savedPinImageId-${entry.key}';
+      try {
+        if (await map.style.hasStyleImage(imageId)) continue;
 
-      // Drop shadow
-      canvas.drawCircle(
-        centre.translate(0, 5),
-        radius,
-        Paint()
-          ..color = Colors.black.withValues(alpha: 0.25)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-      );
+        // Drawn at 4× so it stays crisp when the zoom curve scales it up.
+        const double scale = 4;
+        const double ptW = 44; // logical size once registered at `scale`
+        const double ptH = 56;
+        final w = (ptW * scale).round();
+        final h = (ptH * scale).round();
 
-      // Teardrop tail
-      final tail = Path()
-        ..moveTo(w / 2 - 15, w / 2 + 30)
-        ..lineTo(w / 2, h.toDouble() - 4)
-        ..lineTo(w / 2 + 15, w / 2 + 30)
-        ..close();
-      canvas.drawPath(tail, Paint()..color = const Color(0xFFFF0000));
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(recorder)..scale(scale);
 
-      // Body + white ring
-      canvas.drawCircle(centre, radius, Paint()..color = Colors.white);
-      canvas.drawCircle(
-          centre, radius - 5, Paint()..color = const Color(0xFFFF0000));
+        const centre = Offset(ptW / 2, ptW / 2);
+        const radius = 20.0;
 
-      // Bookmark glyph
-      final glyph = Path()
-        ..moveTo(w / 2 - 11, w / 2 - 15)
-        ..lineTo(w / 2 + 11, w / 2 - 15)
-        ..lineTo(w / 2 + 11, w / 2 + 16)
-        ..lineTo(w / 2, w / 2 + 6)
-        ..lineTo(w / 2 - 11, w / 2 + 16)
-        ..close();
-      canvas.drawPath(glyph, Paint()..color = Colors.white);
+        // Soft drop shadow so the pin lifts off the map.
+        canvas.drawCircle(
+          centre.translate(0, 2),
+          radius,
+          Paint()
+            ..color = Colors.black.withValues(alpha: 0.28)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+        );
 
-      final image = await recorder.endRecording().toImage(w, h);
-      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      image.dispose();
-      if (bytes == null || !mounted || _mapboxMapController == null) return;
+        // White teardrop: circle head + tapered tail, as in Waze.
+        final pin = Paint()..color = Colors.white;
+        final tail = Path()
+          ..moveTo(ptW / 2 - 7.5, ptW / 2 + 14)
+          ..quadraticBezierTo(ptW / 2, ptH - 8, ptW / 2, ptH - 1)
+          ..quadraticBezierTo(ptW / 2, ptH - 8, ptW / 2 + 7.5, ptW / 2 + 14)
+          ..close();
+        canvas.drawPath(tail, pin);
+        canvas.drawCircle(centre, radius, pin);
 
-      await _mapboxMapController!.style.addStyleImage(
-        _savedPinImageId,
-        3.0, // asset density: 96px wide renders at 32pt
-        mp.MbxImage(width: w, height: h, data: bytes.buffer.asUint8List()),
-        false,
-        [],
-        [],
-        null,
-      );
-    } catch (e) {
-      debugPrint('⚠️ Error creating saved place pin: $e');
+        // Tinted disc + glyph inside the head.
+        final (iconData, colour) = entry.value;
+        canvas.drawCircle(
+          centre,
+          radius - 3,
+          Paint()..color = colour.withValues(alpha: 0.16),
+        );
+
+        final painter = TextPainter(textDirection: TextDirection.ltr)
+          ..text = TextSpan(
+            text: String.fromCharCode(iconData.codePoint),
+            style: TextStyle(
+              fontSize: 22,
+              fontFamily: iconData.fontFamily,
+              package: iconData.fontPackage,
+              color: colour,
+            ),
+          )
+          ..layout();
+        painter.paint(
+          canvas,
+          centre - Offset(painter.width / 2, painter.height / 2),
+        );
+
+        final image = await recorder.endRecording().toImage(w, h);
+        final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+        image.dispose();
+        if (bytes == null || !mounted || _mapboxMapController == null) return;
+
+        await _mapboxMapController!.style.addStyleImage(
+          imageId,
+          scale, // asset's own density — 176px renders at 44pt logical
+          mp.MbxImage(width: w, height: h, data: bytes.buffer.asUint8List()),
+          false,
+          [],
+          [],
+          null,
+        );
+      } catch (e) {
+        debugPrint('⚠️ Error creating saved place pin $imageId: $e');
+      }
     }
   }
 
