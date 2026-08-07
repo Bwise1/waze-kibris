@@ -13,6 +13,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
 import 'package:waze_kibris/app/dashboard/services/bearing_fusion_service.dart';
+import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
 import 'package:waze_kibris/app/dashboard/services/route_replay_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
@@ -309,8 +310,22 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     // A real gesture always reports where the finger is. Programmatic moves
     // report a degenerate touch position, so that's the discriminator; the
     // timing window below only covers callbacks that arrive without context.
-    if (context != null && !_isRealTouch(context.touchPosition)) return;
-    if (_cameraController.isAnimatingProgrammatically) return;
+    if (context != null && !_isRealTouch(context.touchPosition)) {
+      NavTraceRecorder.instance.log('gestureIgnored', {
+        'touchX': r(context.touchPosition.x, 1),
+        'touchY': r(context.touchPosition.y, 1),
+        'reason': 'noTouch',
+      });
+      return;
+    }
+    if (_cameraController.isAnimatingProgrammatically) {
+      NavTraceRecorder.instance.log('gestureIgnored', {'reason': 'animating'});
+      return;
+    }
+    NavTraceRecorder.instance.log('followOff', {
+      'touchX': r(context?.touchPosition.x, 1),
+      'touchY': r(context?.touchPosition.y, 1),
+    });
     debugPrint('🖐️ Follow mode OFF (map gesture)');
     _cameraController.disableFollowUser();
     if (mounted) setState(() {});
@@ -863,8 +878,14 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     if (isNavigating) {
       _cameraController.enableNavigationMode();
+      // Start the flight recorder with the trip. Debug builds only.
+      NavTraceRecorder.instance.start(context: {
+        'useNativeNavViewport': useNativeNavViewport,
+        'navPadding': _cameraController.navigationPadding?.top,
+      });
     } else {
       _cameraController.disableNavigationMode();
+      NavTraceRecorder.instance.stop();
       // Return camera control to Dart (free-drive follow / idle).
       exitNativeViewport();
     }
@@ -1683,6 +1704,20 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         // The camera gets the *unfused* course: null while stationary, so
         // the map holds still instead of following the compass.
         _cameraBearing = _bearingFusion.cameraBearing(rawPosition);
+
+        NavTraceRecorder.instance.log('fix', {
+          'lat': r(rawPosition.latitude),
+          'lng': r(rawPosition.longitude),
+          'gpsHeading': r(rawPosition.heading, 1),
+          'speedMps': r(rawPosition.speed, 2),
+          'accuracy': r(rawPosition.accuracy, 1),
+          'simulated': RouteReplayService.instance.isSimulated(rawPosition),
+          // Bearing sources side by side: which one the puck uses, which the
+          // camera uses, and whether the compass disagreed with GPS.
+          'fusedBearing': r(fusedBearing, 1),
+          'cameraBearing': r(_cameraBearing, 1),
+          'isMoving': _bearingFusion.isMoving(rawPosition),
+        });
         final Position position = fusedBearing == null
             ? rawPosition
             : Position(
@@ -1729,6 +1764,21 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
               speedAccuracy: position.speedAccuracy,
             );
 
+            NavTraceRecorder.instance.log('snap', {
+              'lat': r(snapResult.snappedPosition.latitude),
+              'lng': r(snapResult.snappedPosition.longitude),
+              // This becomes position.heading during navigation and drives
+              // the camera, so it's the single most important bearing here.
+              'routeBearing': r(snapResult.bearing, 1),
+              'distFromRoute': r(snapResult.distanceFromRoute, 1),
+              'onRoute': snapResult.isOnRoute,
+              'offRoute': snapResult.isOffRoute,
+              'needsReroute': snapResult.needsReroute,
+              'progress': r(snapResult.routeProgress, 4),
+              'distToManeuver':
+                  r(snapResult.distanceToCurrentStepManeuverAlongRouteMeters, 1),
+            });
+
             // Log route status for debugging
             if (snapResult.needsReroute) {
               debugPrint(
@@ -1769,6 +1819,9 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         final nativeViewportDrives =
             useNativeNavViewport && isNavigating && !inOverview;
         if (isNavigating && !_cameraController.isFollowingUser && !inOverview) {
+          NavTraceRecorder.instance.log('cameraSkipped', {
+            'reason': 'followOff',
+          });
           debugPrint('📷 Camera skipped: follow mode is OFF while navigating');
         }
         if (_mapboxMapController != null &&

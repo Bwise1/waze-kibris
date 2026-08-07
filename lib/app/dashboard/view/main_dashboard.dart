@@ -4,7 +4,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
 import 'package:waze_kibris/app/dashboard/services/route_replay_service.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
@@ -1053,6 +1055,15 @@ class _MainDashboardState extends State<MainDashboard>
                       ),
                     ),
 
+                  // Exports the nav trace so a whole drive can be debugged
+                  // after the fact, without a laptop attached.
+                  if (kDebugMode && state is NavigationInProgress)
+                    Positioned(
+                      top: MediaQuery.of(context).padding.top + 216,
+                      right: 16,
+                      child: const _TraceShareButton(),
+                    ),
+
                   if (state is NavigationInProgress) ...[
                     if (state.isOverviewVisible)
                       RouteOverviewWidget(
@@ -1241,6 +1252,48 @@ class _MapCompassButton extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Debug-only: flush the nav trace and hand it to the share sheet, so a
+/// drive recorded on a real phone can be pulled off and analysed.
+class _TraceShareButton extends StatelessWidget {
+  const _TraceShareButton();
+
+  Future<void> _share(BuildContext context) async {
+    final recorder = NavTraceRecorder.instance;
+    final path = recorder.filePath;
+    if (path == null) return;
+    final lines = recorder.lineCount;
+    // Flush without ending the recording — the drive continues, and the
+    // exported file is a valid snapshot up to this moment.
+    await recorder.stop();
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(path)],
+        text: 'Nav trace — $lines events',
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => _share(context),
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: const BoxDecoration(
+          color: Colors.black87,
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(
+          Icons.ios_share,
+          color: Colors.white,
+          size: 20,
         ),
       ),
     );

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter_polyline_points/flutter_polyline_points.dart' hide TravelMode;
 import 'package:geolocator/geolocator.dart' as geo;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
+import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
 import 'package:waze_kibris/core/constants/navigation_camera_constants.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
@@ -320,14 +321,21 @@ class CameraController {
       pitch: _currentPitch,
     );
 
-    if (kDebugMode) {
-      debugPrint('📷 nav camera → '
-          'lat=${userPosition.latitude.toStringAsFixed(5)} '
-          'lng=${userPosition.longitude.toStringAsFixed(5)} '
-          'bearing=${smoothedBearing.toStringAsFixed(0)} '
-          'zoom=${_currentZoom.toStringAsFixed(1)} '
-          'speed=${(userPosition.speed * 3.6).toStringAsFixed(0)}km/h');
-    }
+    NavTraceRecorder.instance.log('camera', {
+      'lat': r(userPosition.latitude),
+      'lng': r(userPosition.longitude),
+      // requested vs applied shows the smoothing at work: a large gap means
+      // the camera is easing (expected in a turn) or lagging (a problem).
+      'bearingRequested': r(userBearing, 1),
+      'bearingApplied': r(smoothedBearing, 1),
+      'zoom': r(_currentZoom, 2),
+      'zoomTarget': r(targetZoom, 2),
+      'pitch': r(_currentPitch, 1),
+      'speedKmh': r(speedKmh, 1),
+      'courseUp': _isCourseUp,
+      'easeMs': animate ? _navEaseDurationMs : 0,
+      'distToManeuver': r(distanceToManeuverAlongRouteMeters, 1),
+    });
 
     // The ease must span the whole gap until the next GPS fix, or the
     // camera glides then freezes (animation done, no new target yet).
