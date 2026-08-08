@@ -87,6 +87,9 @@ class _MainDashboardState extends State<MainDashboard>
   /// Last known map height, so padding can be recomputed when the card
   /// resizes without waiting for the next layout pass.
   double _lastMapHeightLogical = 0;
+
+  /// Latches the arrival sheet to one showing per trip.
+  bool _arrivalShown = false;
   MapboxRoute?
       _lastDrawnRoute; // Track last drawn route for reroute/refresh redraw
   StreamSubscription<WsMessage>? _groupLocationSub;
@@ -697,6 +700,10 @@ class _MainDashboardState extends State<MainDashboard>
     setState(() {
       _isMapSheetVisible = true;
       _lastDrawnRoute = null;
+      // Re-arm for the next trip, or arrival would only ever fire once
+      // per app launch.
+      _arrivalShown = false;
+      _navCardHeight = 0;
     });
   }
 
@@ -779,7 +786,11 @@ class _MainDashboardState extends State<MainDashboard>
                     drawMapboxPolyline(state.route, fitCamera: false);
                     setState(() => _lastDrawnRoute = state.route);
                   }
-                  if (state.isNavigationComplete) {
+                  // isNavigationComplete stays true on every subsequent
+                  // position fix, so without this latch the arrival sheet
+                  // was pushed once per second, stacking duplicates.
+                  if (state.isNavigationComplete && !_arrivalShown) {
+                    _arrivalShown = true;
                     _showNavigationCompleteDialog();
                   }
                 } else if (state is NavigationInitial) {
@@ -1192,6 +1203,12 @@ class _MainDashboardState extends State<MainDashboard>
       _endNavigation();
       return;
     }
+
+    // What Waze and Google do on arrival: stop driving the camera and level
+    // the map out. Course-up 3D framing exists to show the road ahead — once
+    // you've stopped there is no road ahead, and staying tilted and rotated
+    // makes it hard to see where you actually are relative to the building.
+    settleCameraOnArrival();
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1200,9 +1217,17 @@ class _MainDashboardState extends State<MainDashboard>
       ),
       builder: (ctx) => ArrivalSummarySheet(
         state: s,
-        onDone: _endNavigation,
+        // Only dismiss the sheet here; the teardown runs below so that
+        // swiping it away tears down too.
+        onDone: () {},
       ),
-    );
+    ).whenComplete(() {
+      // The sheet can also be dismissed by swiping or tapping the scrim,
+      // which skips the Done button entirely. Ending navigation here covers
+      // every path — otherwise a swipe left the route line, snap service and
+      // nav state running with no UI to stop them.
+      if (mounted) _endNavigation();
+    });
   }
 }
 

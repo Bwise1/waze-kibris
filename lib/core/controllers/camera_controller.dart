@@ -539,6 +539,42 @@ class CameraController {
     _isNavigationMode = false;
   }
 
+  /// Ease to arrival framing: north-up, flat, zoomed in on where you stopped.
+  ///
+  /// Deliberately slower than a normal camera move (1.2s) — this is the end
+  /// of the trip, not a correction mid-drive, and a gentle settle reads as
+  /// "you're here" rather than a glitch.
+  Future<void> settleOnArrival() async {
+    final map = _mapboxMap;
+    final position = _lastCameraPosition;
+    if (map == null || position == null) return;
+
+    _currentBearing = 0;
+    _currentPitch = 0;
+    _currentZoom = kArrivalZoom;
+
+    final options = mp.CameraOptions(
+      center: mp.Point(
+        coordinates: mp.Position(position.longitude, position.latitude),
+      ),
+      // Clear the nav padding: with the puck pushed to the lower third the
+      // destination would sit off-centre under the arrival sheet.
+      padding: _zeroPadding,
+      zoom: kArrivalZoom,
+      bearing: 0,
+      pitch: 0,
+    );
+
+    try {
+      _markProgrammaticMove(1200);
+      await map.easeTo(options, mp.MapAnimationOptions(duration: 1200));
+    } catch (_) {
+      try {
+        await map.setCamera(options);
+      } catch (_) {}
+    }
+  }
+
   void enableFollowUser() {
     _isFollowingUser = true;
   }
