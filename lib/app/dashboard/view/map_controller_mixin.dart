@@ -318,7 +318,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       });
       return;
     }
-    if (_cameraController.isAnimatingProgrammatically) {
+    // Only fall back to the timing window when there's no context to judge
+    // by. With context, touchPosition already answered the question — and
+    // the trace showed this guard swallowing ~50 real touch callbacks in the
+    // second before a genuine pan, because a camera animation was running.
+    if (context == null && _cameraController.isAnimatingProgrammatically) {
       NavTraceRecorder.instance.log('gestureIgnored', {'reason': 'animating'});
       return;
     }
@@ -1897,10 +1901,25 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   /// every one makes the map creep and the puck appear to drift. Once
   /// actually moving we follow every fix, so responsiveness is unaffected.
   bool _shouldMoveCameraFor(Position position) {
-    // Never throttle during navigation: the position here is snapped to the
-    // route, so it isn't jittering, and skipping updates makes the camera
-    // fall behind the driver.
+    // During navigation the position is snapped to the route, so it doesn't
+    // jitter and the camera should follow every fix — but only once the
+    // vehicle is actually moving. Parked, the snapped point is identical
+    // every fix while zoom/pitch keep re-animating, which reads as the map
+    // drifting on its own. Waze holds still until you pull away.
     if (navigationBloc.state is NavigationInProgress) {
+      if (!_bearingFusion.isMoving(position)) {
+        final last = _lastCameraPosition;
+        if (last != null &&
+            Geolocator.distanceBetween(
+                  last.latitude,
+                  last.longitude,
+                  position.latitude,
+                  position.longitude,
+                ) <
+                _stationaryJitterMeters) {
+          return false;
+        }
+      }
       _lastCameraPosition = position;
       return true;
     }
@@ -2021,16 +2040,27 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   /// Waze/Google framing. Mapbox expects physical pixels on Android and
   /// logical points on iOS.
   void updateNavigationViewportPadding(
-      double mapHeightLogical, double devicePixelRatio) {
+    double mapHeightLogical,
+    double devicePixelRatio, {
+    double bottomObstructionLogical = 0,
+  }) {
     final scale = Platform.isAndroid ? devicePixelRatio : 1.0;
+
+    // The bottom sheet covers the lower part of the map. Padding has to
+    // describe the *visible* area or the camera centres the puck behind it
+    // — which is exactly what happened: recentring left the puck hidden
+    // under the sheet.
+    final bottom = bottomObstructionLogical.clamp(0.0, mapHeightLogical * 0.5);
+    final visibleHeight = mapHeightLogical - bottom;
+
+    // Put the puck low in the *visible* band, Waze-style, so most of what
+    // you can actually see is road ahead. Measured against visibleHeight,
+    // not the full map, so it can't push the centre off-screen.
     _cameraController.setNavigationPadding(
       mp.MbxEdgeInsets(
-        // 0.4 put the puck around mid-screen; Waze rides it much lower so
-        // most of the viewport is the road ahead, which is what you actually
-        // need to see. 0.62 lands the puck at roughly three-quarters height.
-        top: mapHeightLogical * 0.62 * scale,
+        top: visibleHeight * 0.55 * scale,
         left: 0,
-        bottom: 0,
+        bottom: bottom * scale,
         right: 0,
       ),
     );

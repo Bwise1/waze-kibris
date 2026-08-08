@@ -78,6 +78,15 @@ class _MainDashboardState extends State<MainDashboard>
 
   /// Live map bearing in degrees, driving our own compass button.
   final ValueNotifier<double> _mapBearing = ValueNotifier(0);
+
+  /// Height of the navigation bottom card in logical pixels, measured from
+  /// the laid-out widget. The camera needs this so it can frame the puck in
+  /// the *visible* map area instead of centring it behind the card.
+  double _navCardHeight = 0;
+
+  /// Last known map height, so padding can be recomputed when the card
+  /// resizes without waiting for the next layout pass.
+  double _lastMapHeightLogical = 0;
   MapboxRoute?
       _lastDrawnRoute; // Track last drawn route for reroute/refresh redraw
   StreamSubscription<WsMessage>? _groupLocationSub;
@@ -817,9 +826,11 @@ class _MainDashboardState extends State<MainDashboard>
 
                         // Keep the nav camera's lower-third puck framing in
                         // sync with the actual map size (rotation, resize).
+                        _lastMapHeightLogical = constraints.maxHeight;
                         updateNavigationViewportPadding(
                           constraints.maxHeight,
                           MediaQuery.of(context).devicePixelRatio,
+                          bottomObstructionLogical: _navCardHeight,
                         );
 
                         return mp.MapWidget(
@@ -1077,7 +1088,19 @@ class _MainDashboardState extends State<MainDashboard>
                         },
                       )
                     else
-                      NavigationOverlay(
+                      // Measure the nav card so the camera can keep the puck
+                      // above it rather than centring it underneath.
+                      _MeasureHeight(
+                        onHeight: (h) {
+                          if ((h - _navCardHeight).abs() < 1) return;
+                          _navCardHeight = h;
+                          updateNavigationViewportPadding(
+                            _lastMapHeightLogical,
+                            MediaQuery.of(context).devicePixelRatio,
+                            bottomObstructionLogical: h,
+                          );
+                        },
+                        child: NavigationOverlay(
                         navigationState: state,
                         isCourseUp: cameraController.isCourseUp,
                         isFollowingUser: isFollowingUser,
@@ -1107,6 +1130,7 @@ class _MainDashboardState extends State<MainDashboard>
                           await recenterOnUser();
                           setState(() {});
                         },
+                        ),
                       ),
                   ],
 
@@ -1258,6 +1282,36 @@ class _MapCompassButton extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Reports its child's laid-out height. Used to measure the navigation card
+/// so the camera can frame the puck above it — hardcoding a height would
+/// drift the moment the card's content changes (lane guidance, exit numbers).
+class _MeasureHeight extends StatefulWidget {
+  const _MeasureHeight({required this.child, required this.onHeight});
+  final Widget child;
+  final ValueChanged<double> onHeight;
+
+  @override
+  State<_MeasureHeight> createState() => _MeasureHeightState();
+}
+
+class _MeasureHeightState extends State<_MeasureHeight> {
+  final GlobalKey _key = GlobalKey();
+
+  void _report(Duration _) {
+    final box = _key.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    widget.onHeight(box.size.height);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Measure after layout; the callback fires each build so the padding
+    // follows the card as its content grows and shrinks.
+    WidgetsBinding.instance.addPostFrameCallback(_report);
+    return KeyedSubtree(key: _key, child: widget.child);
   }
 }
 
