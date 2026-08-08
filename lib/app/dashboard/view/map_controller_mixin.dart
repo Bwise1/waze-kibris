@@ -888,10 +888,24 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         'navPadding': _cameraController.navigationPadding?.top,
       });
     } else {
-      _cameraController.disableNavigationMode();
       NavTraceRecorder.instance.stop();
-      // Return camera control to Dart (free-drive follow / idle).
+      // Return camera control to Dart (free-drive follow / idle) first, or
+      // the native viewport keeps driving and fights the exit animation.
       exitNativeViewport();
+      if (_arrivalCameraSettled) {
+        // Arrival already framed the destination; animating again would
+        // pull the map off the place the driver was just shown.
+        _arrivalCameraSettled = false;
+        _cameraController.disableNavigationMode();
+      } else {
+        // Glide from nav framing to free-drive framing *before* flipping the
+        // mode flag. Flipping first made the next GPS fix render free-drive
+        // framing with no transition — the split-second jump at the end of a
+        // trip. Not awaited: teardown continues while the camera eases.
+        unawaited(_cameraController
+            .easeOutOfNavigation()
+            .then((_) => _cameraController.disableNavigationMode()));
+      }
     }
 
     final locationPuckBytes = await _loadLocationPuckImage();
@@ -2095,9 +2109,15 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     exitNativeViewport();
     _cameraController.disableNavigationMode();
     NavTraceRecorder.instance.log('arrival', {});
+    _arrivalCameraSettled = true;
     await _cameraController.settleOnArrival();
     if (mounted) setState(() {});
   }
+
+  /// True once arrival framing has run, so the generic exit animation in
+  /// [updateMapForNavigationMode] doesn't immediately animate away from the
+  /// destination view the driver was just shown.
+  bool _arrivalCameraSettled = false;
 
   /// Initialize snap-to-road service with route data
   void initializeSnapToRoad(

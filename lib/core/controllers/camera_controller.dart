@@ -539,6 +539,47 @@ class CameraController {
     _isNavigationMode = false;
   }
 
+  /// Ease from navigation framing back to free-drive framing.
+  ///
+  /// Leaving navigation used to be a hard cut: the moment [_isNavigationMode]
+  /// went false the next GPS fix rendered with free-drive framing — north-up,
+  /// flat, no viewport padding — with no transition, which reads as the map
+  /// jumping. Animating the same values the follow camera would settle on
+  /// turns that snap into a glide.
+  ///
+  /// Call this *before* [disableNavigationMode] so the ease starts from the
+  /// navigation camera rather than from an already-reset one.
+  Future<void> easeOutOfNavigation() async {
+    final map = _mapboxMap;
+    final position = _lastCameraPosition;
+    if (map == null || position == null) return;
+
+    _currentBearing = 0;
+    _currentPitch = _overviewPitch;
+    _currentZoom = _defaultZoom;
+
+    final options = mp.CameraOptions(
+      center: mp.Point(
+        coordinates: mp.Position(position.longitude, position.latitude),
+      ),
+      // Nav padding pushed the puck low; free-drive centres it, so clear
+      // the insets as part of the same animation instead of after it.
+      padding: _zeroPadding,
+      zoom: _defaultZoom,
+      bearing: 0,
+      pitch: _overviewPitch,
+    );
+
+    try {
+      _markProgrammaticMove(600);
+      await map.easeTo(options, mp.MapAnimationOptions(duration: 600));
+    } catch (_) {
+      try {
+        await map.setCamera(options);
+      } catch (_) {}
+    }
+  }
+
   /// Ease to arrival framing: north-up, flat, zoomed in on where you stopped.
   ///
   /// Deliberately slower than a normal camera move (1.2s) — this is the end
