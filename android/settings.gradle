@@ -24,7 +24,10 @@ plugins {
     // START: FlutterFire Configuration
     id "com.google.gms.google-services" version "4.3.15" apply false
     // END: FlutterFire Configuration
-    id "org.jetbrains.kotlin.android" version "1.9.0" apply false
+    // 2.x is required by share_plus (its own build pins kotlin 2.2.0);
+    // AGP 8.7.1 and Gradle 8.9 both support it, and the app already
+    // targets Java 17, which Kotlin 2.x expects.
+    id "org.jetbrains.kotlin.android" version "2.2.0" apply false
 }
 
 include ":app"
