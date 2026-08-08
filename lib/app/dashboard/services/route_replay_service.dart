@@ -63,7 +63,7 @@ class RouteReplayService {
 
   /// Build the drive and start emitting. Safe to call again to restart.
   void start(MapboxRoute route, {double speedMultiplier = 1}) {
-    if (!kDebugMode) return; // never runs in release
+    if (kReleaseMode) return; // never runs in release
     stop();
     _speedMultiplier = speedMultiplier.clamp(0.5, 8.0);
     _frames = _buildFrames(route);

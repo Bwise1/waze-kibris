@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:geolocator/geolocator.dart';
@@ -1046,7 +1046,7 @@ class _MainDashboardState extends State<MainDashboard>
                   // Debug-only drive simulator. Compiled out of release
                   // builds; lets the emulator/simulator produce a realistic
                   // drive with bearing and speed.
-                  if (kDebugMode && state is NavigationInProgress)
+                  if (!kReleaseMode && state is NavigationInProgress)
                     Positioned(
                       top: MediaQuery.of(context).padding.top + 124,
                       right: 16,
@@ -1056,8 +1056,11 @@ class _MainDashboardState extends State<MainDashboard>
                     ),
 
                   // Exports the nav trace so a whole drive can be debugged
-                  // after the fact, without a laptop attached.
-                  if (kDebugMode && state is NavigationInProgress)
+                  // after the fact, without a laptop attached. Present in
+                  // profile builds too — that's the mode you actually drive
+                  // with (VS Code "Run Without Debugging").
+                  if (NavTraceRecorder.isAvailable &&
+                      state is NavigationInProgress)
                     Positioned(
                       top: MediaQuery.of(context).padding.top + 216,
                       right: 16,
@@ -1260,8 +1263,31 @@ class _MapCompassButton extends StatelessWidget {
 
 /// Debug-only: flush the nav trace and hand it to the share sheet, so a
 /// drive recorded on a real phone can be pulled off and analysed.
-class _TraceShareButton extends StatelessWidget {
+class _TraceShareButton extends StatefulWidget {
   const _TraceShareButton();
+
+  @override
+  State<_TraceShareButton> createState() => _TraceShareButtonState();
+}
+
+class _TraceShareButtonState extends State<_TraceShareButton> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    // Refresh the event counter so it's visibly climbing — proof the
+    // recorder is alive without needing a console.
+    _tick = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
 
   Future<void> _share(BuildContext context) async {
     final recorder = NavTraceRecorder.instance;
@@ -1281,19 +1307,37 @@ class _TraceShareButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final recorder = NavTraceRecorder.instance;
+    // Phone-only feedback: with no console on a real drive, a silent
+    // failure to record would waste the whole trip. Green + a live event
+    // count means it's writing; red means it isn't.
+    final recording = recorder.isRecording;
     return GestureDetector(
-      onTap: () => _share(context),
+      onTap: recording ? () => _share(context) : null,
       child: Container(
-        width: 42,
-        height: 42,
-        decoration: const BoxDecoration(
-          color: Colors.black87,
-          shape: BoxShape.circle,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: recording ? Colors.black87 : Colors.red.shade700,
+          borderRadius: BorderRadius.circular(21),
         ),
-        child: const Icon(
-          Icons.ios_share,
-          color: Colors.white,
-          size: 20,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              recording ? Icons.ios_share : Icons.error_outline,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              recording ? '${recorder.lineCount}' : 'off',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );

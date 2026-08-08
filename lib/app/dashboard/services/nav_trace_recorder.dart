@@ -41,9 +41,18 @@ class NavTraceRecorder {
     return DateTime.now().difference(start).inMilliseconds / 1000.0;
   }
 
+  /// True in debug *and* profile builds, false only in release.
+  ///
+  /// VS Code's "Run Without Debugging" builds profile mode, where
+  /// [kDebugMode] is false — gating on that alone would silently record
+  /// nothing exactly when you most want a trace (a real drive, phone
+  /// unplugged, no debugger slowing the app down). Release stays excluded
+  /// so this can never reach users.
+  static bool get isAvailable => !kReleaseMode;
+
   /// Begin a new trace. Any previous one is closed first.
   Future<void> start({Map<String, Object?> context = const {}}) async {
-    if (!kDebugMode) return;
+    if (!isAvailable) return;
     await stop();
     try {
       final dir = await getApplicationDocumentsDirectory();
