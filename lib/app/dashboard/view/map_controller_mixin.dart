@@ -15,6 +15,7 @@ import 'package:waze_kibris/gen/assets.gen.dart';
 import 'package:waze_kibris/app/dashboard/services/bearing_fusion_service.dart';
 import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
 import 'package:waze_kibris/app/dashboard/services/nearby_users_layer.dart';
+import 'package:waze_kibris/app/dashboard/services/puck_manager.dart';
 import 'package:waze_kibris/app/dashboard/services/route_replay_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
@@ -24,9 +25,7 @@ import 'package:waze_kibris/app/dashboard/services/viewport_glue.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/core/constants/navigation_camera_constants.dart';
 import 'package:waze_kibris/core/controllers/camera_controller.dart';
-import 'package:waze_kibris/core/services/nav_puck_preference.dart';
 import 'package:waze_kibris/core/services/nav_settings.dart';
-import 'package:waze_kibris/core/services/puck_icon_factory.dart';
 import 'package:waze_kibris/core/services/route_visualization_service.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
@@ -426,7 +425,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       await _setupAnnotationManagers();
 
       // Setup location component with custom CurrentPosition.png
-      await _setupLocationPuck();
+      await applyLocationPuck(_mapboxMapController, isMounted: () => mounted);
 
       // Hide UI elements
       _mapboxMapController?.logo
@@ -488,7 +487,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       await _routeVisualizationService.initialize(map);
       await _addReportIconsToStyle();
       await _setupAnnotationManagers();
-      await _setupLocationPuck();
+      await applyLocationPuck(_mapboxMapController, isMounted: () => mounted);
 
       // Let the host screen restore route drawing etc.
       onMapStyleReloaded();
@@ -916,7 +915,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       }
     }
 
-    final locationPuckBytes = await _loadLocationPuckImage();
+    final locationPuckBytes = await loadLocationPuckImage();
 
     await _mapboxMapController?.location.updateSettings(
       mp.LocationComponentSettings(
@@ -1637,7 +1636,7 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     // Refresh location puck now that we have permissions (fixes iOS startup issue)
     if (_mapboxMapController != null) {
-      await _setupLocationPuck();
+      await applyLocationPuck(_mapboxMapController, isMounted: () => mounted);
     }
 
     // Get current position immediately and move camera to user location
@@ -2225,32 +2224,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   /// Load location puck image from assets with proper resolution handling
-  Future<Uint8List> _loadLocationPuckImage() async {
-    // Travel mode wins over the vehicle preference: showing a car while
-    // the user is walking is simply wrong, whatever they picked in
-    // settings. Matches Google/Apple Maps.
-    final mode = NavPuckPreference.mode.value;
-    if (mode != NavPuckMode.vehicle) {
-      final bytes = await PuckIconFactory.renderMode(mode);
-      if (bytes != null) return bytes;
-    }
-
-    // Vehicle pucks (car/bus/truck) are rendered at runtime — the native
-    // SDKs only ship the chevron, so these are ours (PuckIconFactory).
-    final style = NavPuckPreference.style.value;
-    if (style != NavPuckStyle.arrow) {
-      final bytes = await PuckIconFactory.render(style);
-      if (bytes != null) return bytes;
-    }
-    // Default arrow: force the 4.0x resolution for maximum sharpness.
-    final ByteData byteData =
-        await rootBundle.load('assets/icons/4.0x/CurrentPosition.png');
-    return byteData.buffer.asUint8List();
-  }
-
   /// Re-apply the location puck (e.g. after the user picks a different
-  /// vehicle icon in settings).
-  Future<void> refreshLocationPuck() => _setupLocationPuck();
+  /// vehicle icon in settings). Delegates to [applyLocationPuck].
+  Future<void> refreshLocationPuck() => applyLocationPuck(
+        _mapboxMapController,
+        isMounted: () => mounted,
+      );
 
   // /// Load destination marker image from assets with proper resolution handling
   // Future<Uint8List> _loadDestinationImage() async {
@@ -2462,77 +2441,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     } catch (e) {
       debugPrint('Error generating report icon: $e');
       return null;
-    }
-  }
-
-  /// Refresh location puck to ensure it stays on top of route layers
-  void _refreshLocationPuckOnTop() {
-    if (_mapboxMapController == null || !mounted) return;
-    try {
-      // Re-enable the location component which brings it to the top layer
-      _mapboxMapController?.location.updateSettings(
-        mp.LocationComponentSettings(
-          enabled: true,
-          puckBearingEnabled: true,
-          puckBearing: mp.PuckBearing.COURSE,
-          pulsingEnabled: true,
-          showAccuracyRing: false,
-          pulsingColor: 0xFF4285F4, // Blue pulsing color
-        ),
-      );
-
-      debugPrint('🎯 Location puck refreshed to stay on top of route layers');
-    } catch (e) {
-      debugPrint('Error refreshing location puck: $e');
-    }
-  }
-
-  /// Setup location puck with custom image
-  Future<void> _setupLocationPuck() async {
-    if (_mapboxMapController == null || !mounted) return;
-    try {
-      final locationPuckBytes = await _loadLocationPuckImage();
-
-      if (!mounted || _mapboxMapController == null) return;
-
-      await _mapboxMapController?.location.updateSettings(
-        mp.LocationComponentSettings(
-          enabled: true,
-          puckBearingEnabled: true,
-          puckBearing: mp.PuckBearing.COURSE,
-          locationPuck: mp.LocationPuck(
-            locationPuck2D: mp.LocationPuck2D(
-              topImage: locationPuckBytes,
-              scaleExpression: json.encode([
-                'interpolate',
-                ['linear'],
-                ['zoom'],
-                10.0,
-                1.0,
-                16.0,
-                1.2,
-                20.0,
-                1.3
-              ]),
-            ),
-          ),
-          pulsingColor: 0xFF4285F4, // Blue for default mode
-          pulsingEnabled: true,
-          showAccuracyRing: false,
-        ),
-      );
-    } catch (e) {
-      debugPrint('Error setting up location puck: $e');
-      // Fallback to default location puck
-      if (mounted && _mapboxMapController != null) {
-        await _mapboxMapController?.location.updateSettings(
-          mp.LocationComponentSettings(
-            enabled: true,
-            puckBearingEnabled: true,
-            puckBearing: mp.PuckBearing.COURSE,
-          ),
-        );
-      }
     }
   }
 
