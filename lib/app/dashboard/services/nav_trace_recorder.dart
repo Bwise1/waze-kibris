@@ -38,14 +38,22 @@ class NavTraceRecorder {
   String? get filePath => _file?.path;
   int get lineCount => _lines;
 
-  /// True in debug *and* profile builds, false only in release.
+  /// True in debug *and* profile builds, false in release — unless the
+  /// build explicitly opts in with --dart-define=FORCE_NAV_TRACE=true.
   ///
   /// VS Code's "Run Without Debugging" builds profile mode, where
   /// [kDebugMode] is false — gating on that alone would silently record
   /// nothing exactly when you most want a trace (a real drive, phone
-  /// unplugged, no debugger slowing the app down). Release stays excluded
-  /// so this can never reach users.
-  static bool get isAvailable => !kReleaseMode;
+  /// unplugged, no debugger slowing the app down).
+  ///
+  /// The FORCE flag exists for field-tester builds: a release APK is the
+  /// right thing to hand an external tester (small, full performance), but
+  /// plain release strips tracing — someone building with
+  /// `--release` would get an app that tests fine and reports nothing.
+  /// The flag must be set at build time, so store builds (built without
+  /// it) can never record.
+  static const bool _forced = bool.fromEnvironment('FORCE_NAV_TRACE');
+  static bool get isAvailable => !kReleaseMode || _forced;
 
   /// Seconds since recording began — the x-axis for everything.
   double get _elapsed {

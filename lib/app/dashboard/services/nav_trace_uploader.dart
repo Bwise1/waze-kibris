@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
 
 /// Ships finished nav traces to Cloudinary so a remote tester's drives can
@@ -56,7 +56,7 @@ class NavTraceUploader {
   /// re-entry is a no-op while a sweep runs. Never touches the file a
   /// recording is actively writing.
   Future<void> uploadPending() async {
-    if (kReleaseMode || _sweeping) return;
+    if (!NavTraceRecorder.isAvailable || _sweeping) return;
     _sweeping = true;
     try {
       final recorder = NavTraceRecorder.instance;
