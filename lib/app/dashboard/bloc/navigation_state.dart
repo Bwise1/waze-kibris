@@ -176,6 +176,9 @@ class NavTelemetry extends Equatable {
     required this.currentStepIndex,
     required this.isRerouting,
     required this.hasCongestionData,
+    this.currentStep,
+    this.nextStep,
+    this.rerouteError,
   });
 
   final double distanceToNextManeuver;
@@ -190,6 +193,20 @@ class NavTelemetry extends Equatable {
   // (which would deep-compare a 350+ element list per fix).
   final bool hasCongestionData;
 
+  // The step objects the banner renders. These MUST come through telemetry,
+  // not the outer builder's captured state: the phase-gated builder stops
+  // re-running per fix, so a captured NavigationInProgress freezes at
+  // phase-change time — which froze the instruction banner on the first
+  // turn. MapboxStep has no ==, and copyWith reuses the instance between
+  // advances, so identity equality here means "rebuild exactly when the
+  // step actually changes".
+  final MapboxStep? currentStep;
+  final MapboxStep? nextStep;
+
+  // Same stale-capture trap: a FAILED reroute sets this without swapping
+  // the route object, so nothing phase-gated ever re-renders it.
+  final String? rerouteError;
+
   factory NavTelemetry.from(NavigationInProgress s) => NavTelemetry(
         distanceToNextManeuver: s.distanceToNextManeuver,
         remainingDistance: s.remainingDistance,
@@ -199,6 +216,9 @@ class NavTelemetry extends Equatable {
         currentStepIndex: s.currentStepIndex,
         isRerouting: s.isRerouting,
         hasCongestionData: s.congestionNumericData?.isNotEmpty ?? false,
+        currentStep: s.currentStep,
+        nextStep: s.nextStep,
+        rerouteError: s.rerouteError,
       );
 
   @override
@@ -211,5 +231,8 @@ class NavTelemetry extends Equatable {
         currentStepIndex,
         isRerouting,
         hasCongestionData,
+        currentStep,
+        nextStep,
+        rerouteError,
       ];
 }

@@ -90,16 +90,19 @@ class _NavigationOverlayState extends State<NavigationOverlay>
       });
     }
 
-    // Show snackbar when reroute error occurs
-    if (widget.navigationState.rerouteError != null &&
-        widget.navigationState.rerouteError!.isNotEmpty &&
-        oldWidget.navigationState.rerouteError !=
-            widget.navigationState.rerouteError) {
+    // Show snackbar when reroute error occurs. Compared on telemetry, not
+    // navigationState: a FAILED reroute keeps the same route object, so the
+    // phase-gated outer builder never re-runs and the captured state never
+    // carries the error — the snackbar simply never fired.
+    final rerouteError = widget.telemetry.rerouteError;
+    if (rerouteError != null &&
+        rerouteError.isNotEmpty &&
+        oldWidget.telemetry.rerouteError != rerouteError) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(widget.navigationState.rerouteError!),
+              content: Text(rerouteError),
               backgroundColor: Colors.red.shade700,
               action: SnackBarAction(
                 label: 'Dismiss',
@@ -130,12 +133,19 @@ class _NavigationOverlayState extends State<NavigationOverlay>
           left: 0,
           right: 0,
           child: ManeuverBanner(
-            step: navigationState.currentStep,
+            // Steps come from telemetry, NOT navigationState: the outer
+            // builder is phase-gated, so its captured state froze the banner
+            // on the first instruction for the whole trip. Telemetry updates
+            // per fix; the captured state is only the phase-time fallback.
+            step: telemetry.currentStep ?? navigationState.currentStep,
             distanceRemaining: telemetry.distanceToNextManeuver > 0
                 ? telemetry.distanceToNextManeuver
-                : navigationState.currentStep.distance,
+                : (telemetry.currentStep ?? navigationState.currentStep)
+                    .distance,
             navigationBloc: context.read<NavigationBloc>(),
-            nextStep: navigationState.nextStep,
+            nextStep: telemetry.currentStep != null
+                ? telemetry.nextStep
+                : navigationState.nextStep,
             mode: navigationState.mode,
             currentSpeedMps: telemetry.currentSpeed,
           ),
@@ -463,8 +473,14 @@ class _NavigationOverlayState extends State<NavigationOverlay>
   }
 
   void _showReportModal(BuildContext context) async {
-    // Get current position from navigation state or fetch it
-    Position? currentPosition = widget.navigationState.userPosition;
+    // Read the position at TAP time from the live bloc state — the widget's
+    // navigationState is captured by the phase-gated builder and can be
+    // minutes old, which would file the report at wherever the last phase
+    // change happened rather than where the driver actually is.
+    final liveState = context.read<NavigationBloc>().state;
+    Position? currentPosition = liveState is NavigationInProgress
+        ? liveState.userPosition
+        : widget.navigationState.userPosition;
 
     // If position not available, fetch it
     if (currentPosition == null) {
