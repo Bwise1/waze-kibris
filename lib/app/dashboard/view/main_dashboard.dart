@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:waze_kibris/app/dashboard/services/dashboard_side_effects.dart';
 import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
+import 'package:waze_kibris/app/dashboard/services/route_replay_service.dart';
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/view/map_controller_mixin.dart';
 import 'package:waze_kibris/app/dashboard/view/map_sheet.dart';
@@ -505,11 +506,19 @@ class _MainDashboardState extends State<MainDashboard>
     _routeRefreshTimer?.cancel();
     _routeRefreshTimer = null;
 
+    // The debug simulator keeps emitting fixes after the trip ends — into
+    // free-drive, where they fight the real GPS for the camera.
+    RouteReplayService.instance.stop();
+
     _navigationBloc.add(NavigationStopped());
     updateMapForNavigationMode(false);
     clearRoutePolyline();
     clearSnapToRoad();
     _clearRouteBar();
+    // Hand the camera back to the user. If follow was off (they panned
+    // during the trip), ending navigation otherwise leaves the map parked
+    // on the destination with the puck somewhere off-screen.
+    setIsFollowingUser(true);
     // Restore MapSheet visibility when navigation ends
     setState(() {
       _isMapSheetVisible = true;
@@ -589,7 +598,13 @@ class _MainDashboardState extends State<MainDashboard>
                   // new route (e.g. after reroute). fitCamera: false — swap
                   // the line silently like Waze; never yank the nav camera
                   // out to a route overview mid-drive.
-                  if (state.route != _lastDrawnRoute) {
+                  // Never redraw once the trip is complete: position events
+                  // queued behind NavigationStopped still emit InProgress
+                  // states, and each was re-drawing the route line right
+                  // after _endNavigation cleared it — the "route line stays
+                  // after OK" bug.
+                  if (!state.isNavigationComplete &&
+                      state.route != _lastDrawnRoute) {
                     drawMapboxPolyline(state.route, fitCamera: false);
                     setState(() => _lastDrawnRoute = state.route);
                   }
@@ -601,8 +616,15 @@ class _MainDashboardState extends State<MainDashboard>
                     _showNavigationCompleteDialog();
                   }
                 } else if (state is NavigationInitial) {
-                  // Self-healing failsafe: whenever navigation returns to initial/idle,
-                  // ensure MapSheet is restored regardless of how it was hidden.
+                  // Self-healing failsafe: whenever navigation returns to
+                  // initial/idle, ensure MapSheet is restored regardless of
+                  // how it was hidden — and clear the route line again.
+                  // Position events queued behind NavigationStopped can
+                  // redraw it after _endNavigation's clear (mid-trip End has
+                  // this race too, where isNavigationComplete is false), so
+                  // the state that means "no trip" must also mean "no line".
+                  clearRoutePolyline();
+                  _lastDrawnRoute = null;
                   if (!_isMapSheetVisible) {
                     setState(() {
                       _isMapSheetVisible = true;
