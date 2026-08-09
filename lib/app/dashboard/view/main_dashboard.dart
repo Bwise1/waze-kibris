@@ -1363,9 +1363,21 @@ class _TraceShareButtonState extends State<_TraceShareButton> {
     super.initState();
     _refresh();
     // Refresh the event counter so it's visibly climbing — proof the
-    // recorder is alive without needing a console.
-    _tick = Timer.periodic(const Duration(seconds: 2), (_) => _refresh());
+    // recorder is alive without needing a console. While recording, the
+    // count comes from memory, so skip the directory listing and only pay
+    // for a cheap setState; when idle, list the batch on a slow cadence.
+    // (The first version listed the directory every 2s forever — needless
+    // filesystem churn on a phone that's already running GPS + map.)
+    _tick = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (NavTraceRecorder.instance.isRecording) {
+        if (mounted) setState(() {});
+      } else if (_tickCount++ % 5 == 0) {
+        _refresh();
+      }
+    });
   }
+
+  int _tickCount = 0;
 
   Future<void> _refresh() async {
     final traces = await NavTraceRecorder.instance.listTraces();
