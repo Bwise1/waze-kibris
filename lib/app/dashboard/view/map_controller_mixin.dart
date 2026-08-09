@@ -19,6 +19,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/app/dashboard/services/snap_to_road_service.dart';
+import 'package:waze_kibris/app/dashboard/services/viewport_glue.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/core/constants/navigation_camera_constants.dart';
 import 'package:waze_kibris/core/controllers/camera_controller.dart';
@@ -2179,51 +2180,18 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   }
 
   /// Compute and apply the nav-mode viewport padding from the map's laid-out
-  /// size. Top padding pushes the camera center down so the puck sits at
-  /// ~70% of screen height and the viewport shows road ahead, matching
-  /// Waze/Google framing. Mapbox expects physical pixels on Android and
-  /// logical points on iOS.
+  /// size. Delegates to [applyNavigationViewportPadding] — see there for
+  /// the math and the "no DPR scaling on either platform" reasoning.
   void updateNavigationViewportPadding(
     double mapHeightLogical,
     double devicePixelRatio, {
     double bottomObstructionLogical = 0,
   }) {
-    // NO devicePixelRatio scaling. MbxEdgeInsets is documented as "All
-    // fields' values are in `logical pixel` units", and the plugin's
-    // changelog records the change that made every screen-related unit
-    // logical pixels on both platforms, matching Flutter.
-    //
-    // The old `Platform.isAndroid ? devicePixelRatio : 1.0` multiplier was
-    // inflating Android padding ~2.75x — that's why the trace logged
-    // navPadding 1488 and the puck ended up first behind the sheet and then
-    // far too high. Verified against the plugin source, not inferred.
-
-    // The bottom sheet covers the lower part of the map, so padding must
-    // describe the visible area — otherwise the camera centres the puck
-    // behind the sheet.
-    final bottom = bottomObstructionLogical.clamp(0.0, mapHeightLogical * 0.5);
-
-    // Mapbox centres the camera in the box left *between* the paddings, so
-    // the puck's screen position is (top + bottom_edge) / 2 — not `top`.
-    // Solve for the top inset that lands the puck where we want it, instead
-    // of picking a fraction and hoping: with a bottom inset, a "55%" top
-    // padding actually put the puck at ~41% (too high), which is what went
-    // wrong.
-    //
-    // 0.72 keeps the puck low enough that the viewport is mostly road ahead,
-    // while staying clear of the nav card.
-    const puckScreenFraction = 0.72;
-    final target = mapHeightLogical * puckScreenFraction;
-    final top = (2 * target - mapHeightLogical + bottom)
-        .clamp(0.0, mapHeightLogical * 0.8);
-
-    _cameraController.setNavigationPadding(
-      mp.MbxEdgeInsets(
-        top: top,
-        left: 0,
-        bottom: bottom,
-        right: 0,
-      ),
+    applyNavigationViewportPadding(
+      cameraController: _cameraController,
+      mapHeightLogical: mapHeightLogical,
+      devicePixelRatio: devicePixelRatio,
+      bottomObstructionLogical: bottomObstructionLogical,
     );
   }
 
