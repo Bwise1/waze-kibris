@@ -13,8 +13,8 @@ import 'package:waze_kibris/app/dashboard/view/widgets/debug_controls.dart';
 import 'package:waze_kibris/app/dashboard/view/widgets/map_buttons.dart';
 import 'package:waze_kibris/app/dashboard/view/widgets/map_layer.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
-import 'package:waze_kibris/app/dashboard/view/arrival_summary_sheet.dart';
 import 'package:waze_kibris/app/dashboard/view/route_bar.dart';
+import 'package:waze_kibris/app/dashboard/view/widgets/arrival_flow.dart';
 import 'package:waze_kibris/app/dashboard/view/route_overview.dart';
 import 'package:waze_kibris/app/dashboard/view/search_widget.dart';
 import 'package:waze_kibris/common.dart';
@@ -1200,31 +1200,13 @@ class _MainDashboardState extends State<MainDashboard>
       _endNavigation();
       return;
     }
-
-    // What Waze and Google do on arrival: stop driving the camera and level
-    // the map out. Course-up 3D framing exists to show the road ahead — once
-    // you've stopped there is no road ahead, and staying tilted and rotated
-    // makes it hard to see where you actually are relative to the building.
-    settleCameraOnArrival();
-    showModalBottomSheet<void>(
+    showArrivalFlow(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => ArrivalSummarySheet(
-        state: s,
-        // Only dismiss the sheet here; the teardown runs below so that
-        // swiping it away tears down too.
-        onDone: () {},
-      ),
-    ).whenComplete(() {
-      // The sheet can also be dismissed by swiping or tapping the scrim,
-      // which skips the Done button entirely. Ending navigation here covers
-      // every path — otherwise a swipe left the route line, snap service and
-      // nav state running with no UI to stop them.
-      if (mounted) _endNavigation();
-    });
+      state: s,
+      onSettleCamera: settleCameraOnArrival,
+      onEnd: _endNavigation,
+      isMounted: () => mounted,
+    );
   }
 }
 
