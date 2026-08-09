@@ -83,7 +83,10 @@ class NavigationInProgress extends NavigationState {
         routeStartTime,
         actualAverageSpeed,
         expectedAverageSpeed,
-        congestionNumericData,
+        // congestionNumericData intentionally omitted from props: it's a
+        // 350+ element list that Equatable would deep-compare on every fix.
+        // Congestion only changes on (re)route, and `route` above already
+        // covers that identity — a new list arrives only with a new route.
         rerouteError,
       ];
 
