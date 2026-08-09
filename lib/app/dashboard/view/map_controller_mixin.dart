@@ -882,10 +882,30 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
     if (isNavigating) {
       _cameraController.enableNavigationMode();
-      // Start the flight recorder with the trip. Debug builds only.
+      // Start the flight recorder with the trip. Debug/profile builds only.
+      // Stamp the header with where this trip goes, so a batch of trace
+      // files from a day of testing stays tellable-apart.
+      final navState = navigationBloc.state;
+      Map<String, Object?> tripContext = const {};
+      if (navState is NavigationInProgress) {
+        final coords = navState.route.geometry.coordinates;
+        if (coords.isNotEmpty &&
+            coords.first.length >= 2 &&
+            coords.last.length >= 2) {
+          tripContext = {
+            'mode': navState.mode.name,
+            'startLat': r(coords.first[1]),
+            'startLng': r(coords.first[0]),
+            'destLat': r(coords.last[1]),
+            'destLng': r(coords.last[0]),
+            'routeDistanceM': r(navState.remainingDistance, 0),
+          };
+        }
+      }
       NavTraceRecorder.instance.start(context: {
         'useNativeNavViewport': useNativeNavViewport,
         'navPadding': _cameraController.navigationPadding?.top,
+        ...tripContext,
       });
     } else {
       NavTraceRecorder.instance.stop();

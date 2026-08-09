@@ -1077,16 +1077,17 @@ class _MainDashboardState extends State<MainDashboard>
                       ),
                     ),
 
-                  // Exports the nav trace so a whole drive can be debugged
-                  // after the fact, without a laptop attached. Present in
-                  // profile builds too — that's the mode you actually drive
-                  // with (VS Code "Run Without Debugging").
-                  if (NavTraceRecorder.isAvailable &&
-                      state is NavigationInProgress)
+                  // Exports saved nav traces so a whole day of test drives
+                  // can be pulled off the phone in one go. Visible outside
+                  // navigation too — that's when you're back at the desk
+                  // wanting to send the batch. Debug/profile builds only.
+                  if (NavTraceRecorder.isAvailable)
                     Positioned(
                       top: MediaQuery.of(context).padding.top + 216,
                       right: 16,
-                      child: const _TraceShareButton(),
+                      child: _TraceShareButton(
+                        isNavigating: state is NavigationInProgress,
+                      ),
                     ),
 
                   if (state is NavigationInProgress) ...[
@@ -1343,7 +1344,11 @@ class _MeasureHeightState extends State<_MeasureHeight> {
 /// Debug-only: flush the nav trace and hand it to the share sheet, so a
 /// drive recorded on a real phone can be pulled off and analysed.
 class _TraceShareButton extends StatefulWidget {
-  const _TraceShareButton();
+  const _TraceShareButton({this.isNavigating = false});
+
+  /// Whether a trip is in progress — decides if a stopped recorder is a
+  /// failure (red 'off') or just the idle state between trips.
+  final bool isNavigating;
 
   @override
   State<_TraceShareButton> createState() => _TraceShareButtonState();
@@ -1351,15 +1356,20 @@ class _TraceShareButton extends StatefulWidget {
 
 class _TraceShareButtonState extends State<_TraceShareButton> {
   Timer? _tick;
+  int _savedTrips = 0;
 
   @override
   void initState() {
     super.initState();
+    _refresh();
     // Refresh the event counter so it's visibly climbing — proof the
     // recorder is alive without needing a console.
-    _tick = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (mounted) setState(() {});
-    });
+    _tick = Timer.periodic(const Duration(seconds: 2), (_) => _refresh());
+  }
+
+  Future<void> _refresh() async {
+    final traces = await NavTraceRecorder.instance.listTraces();
+    if (mounted) setState(() => _savedTrips = traces.length);
   }
 
   @override
@@ -1368,18 +1378,33 @@ class _TraceShareButtonState extends State<_TraceShareButton> {
     super.dispose();
   }
 
+  /// Share every saved trip in one go. Recording keeps running — the
+  /// active file is flushed first so it exports as a valid snapshot.
   Future<void> _share(BuildContext context) async {
     final recorder = NavTraceRecorder.instance;
-    final path = recorder.filePath;
-    if (path == null) return;
-    final lines = recorder.lineCount;
-    // Flush without ending the recording — the drive continues, and the
-    // exported file is a valid snapshot up to this moment.
-    await recorder.stop();
+    await recorder.flushNow();
+    final traces = await recorder.listTraces();
+    if (traces.isEmpty) return;
     await SharePlus.instance.share(
       ShareParams(
-        files: [XFile(path)],
-        text: 'Nav trace — $lines events',
+        files: [for (final f in traces) XFile(f.path)],
+        text: 'Nav traces — ${traces.length} trip(s)',
+      ),
+    );
+  }
+
+  /// Long-press: clear the batch after it's been sent. Refused while a
+  /// trip is recording so the active file isn't deleted under the sink.
+  Future<void> _deleteAll(BuildContext context) async {
+    final deleted = await NavTraceRecorder.instance.deleteAll();
+    await _refresh();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(deleted > 0
+            ? 'Deleted $deleted trace(s)'
+            : 'Nothing deleted (recording in progress?)'),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -1387,29 +1412,45 @@ class _TraceShareButtonState extends State<_TraceShareButton> {
   @override
   Widget build(BuildContext context) {
     final recorder = NavTraceRecorder.instance;
-    // Phone-only feedback: with no console on a real drive, a silent
-    // failure to record would waste the whole trip. Green + a live event
-    // count means it's writing; red means it isn't.
     final recording = recorder.isRecording;
+    final navigating = widget.isNavigating;
+
+    // Nothing recorded and nothing recording: stay out of the way.
+    if (!recording && !navigating && _savedTrips == 0) {
+      return const SizedBox.shrink();
+    }
+
+    // Phone-only feedback: with no console on a real drive, a silent
+    // failure to record would waste the whole trip. A climbing count means
+    // it's writing; red 'off' during navigation means it isn't. Between
+    // trips the badge shows how many traces are banked for export.
+    final failed = navigating && !recording;
+    final label = recording
+        ? '${recorder.lineCount}'
+        : failed
+            ? 'off'
+            : '$_savedTrips 🚗';
+
     return GestureDetector(
-      onTap: recording ? () => _share(context) : null,
+      onTap: () => _share(context),
+      onLongPress: recording ? null : () => _deleteAll(context),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: recording ? Colors.black87 : Colors.red.shade700,
+          color: failed ? Colors.red.shade700 : Colors.black87,
           borderRadius: BorderRadius.circular(21),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              recording ? Icons.ios_share : Icons.error_outline,
+              failed ? Icons.error_outline : Icons.ios_share,
               color: Colors.white,
               size: 18,
             ),
             const SizedBox(width: 6),
             Text(
-              recording ? '${recorder.lineCount}' : 'off',
+              label,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 12,

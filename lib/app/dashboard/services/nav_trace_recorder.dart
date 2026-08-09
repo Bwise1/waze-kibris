@@ -5,11 +5,15 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Debug-only flight recorder for a navigation session.
+/// Debug/profile-only flight recorder for navigation sessions.
 ///
 /// Writes one JSON object per line (JSONL) so a drive can be replayed and
 /// analysed after the fact — no debugger attached, no scrolling console.
 /// Each line is self-contained, so a truncated file is still readable.
+///
+/// Every trip gets its **own timestamped file** under `nav_traces/`, and
+/// nothing is overwritten — the point is to go out, drive several test
+/// routes, and bring the whole batch back for analysis in one export.
 ///
 /// The point is to capture the *inputs and outputs of the camera together*:
 /// what the GPS said, what snap-to-road made of it, what bearing the compass
@@ -34,13 +38,6 @@ class NavTraceRecorder {
   String? get filePath => _file?.path;
   int get lineCount => _lines;
 
-  /// Seconds since recording began — the x-axis for everything.
-  double get _elapsed {
-    final start = _startedAt;
-    if (start == null) return 0;
-    return DateTime.now().difference(start).inMilliseconds / 1000.0;
-  }
-
   /// True in debug *and* profile builds, false only in release.
   ///
   /// VS Code's "Run Without Debugging" builds profile mode, where
@@ -50,20 +47,82 @@ class NavTraceRecorder {
   /// so this can never reach users.
   static bool get isAvailable => !kReleaseMode;
 
-  /// Begin a new trace. Any previous one is closed first.
+  /// Seconds since recording began — the x-axis for everything.
+  double get _elapsed {
+    final start = _startedAt;
+    if (start == null) return 0;
+    return DateTime.now().difference(start).inMilliseconds / 1000.0;
+  }
+
+  Future<Directory> _tracesDir() async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory('${docs.path}/nav_traces');
+    await dir.create(recursive: true);
+    return dir;
+  }
+
+  /// All saved trip traces, oldest first. Includes the file currently being
+  /// written, if a trip is in progress.
+  Future<List<File>> listTraces() async {
+    if (!isAvailable) return const [];
+    try {
+      final dir = await _tracesDir();
+      final files = dir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.jsonl'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+      return files;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Delete every saved trace. Refuses while a trip is recording so the
+  /// active file can't be yanked out from under the sink.
+  Future<int> deleteAll() async {
+    if (isRecording) return 0;
+    final files = await listTraces();
+    var deleted = 0;
+    for (final f in files) {
+      try {
+        await f.delete();
+        deleted++;
+      } catch (_) {}
+    }
+    return deleted;
+  }
+
+  /// Flush buffered lines to disk without ending the recording. Lets the
+  /// share flow export a valid snapshot mid-trip.
+  Future<void> flushNow() async {
+    try {
+      await _sink?.flush();
+    } catch (_) {}
+  }
+
+  /// Begin a new trace file for this trip. Any previous one is closed first.
   Future<void> start({Map<String, Object?> context = const {}}) async {
     if (!isAvailable) return;
     await stop();
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      // Stable name so it's easy to find; each run overwrites the last.
-      _file = File('${dir.path}/nav_trace.jsonl');
+      final dir = await _tracesDir();
+      final now = DateTime.now();
+      // Sortable per-trip name; seconds make same-minute restarts distinct.
+      final stamp = now
+          .toIso8601String()
+          .substring(0, 19)
+          .replaceAll(':', '')
+          .replaceAll('-', '')
+          .replaceAll('T', '_');
+      _file = File('${dir.path}/trip_$stamp.jsonl');
       _sink = _file!.openWrite(mode: FileMode.write);
-      _startedAt = DateTime.now();
+      _startedAt = now;
       _lines = 0;
       // Header line: everything needed to interpret the rest.
       log('session', {
-        'startedAt': _startedAt!.toIso8601String(),
+        'startedAt': now.toIso8601String(),
         'platform': Platform.operatingSystem,
         'osVersion': Platform.operatingSystemVersion,
         ...context,
@@ -93,10 +152,14 @@ class NavTraceRecorder {
     }
   }
 
+  /// Close the current trip's file. The file stays on disk for later export.
   Future<void> stop() async {
     final sink = _sink;
-    _sink = null;
     if (sink == null) return;
+    // Footer marks a clean end — its absence in a file means the app died
+    // or was killed mid-trip, which is itself useful to know.
+    log('sessionEnd', {'events': _lines});
+    _sink = null;
     try {
       await sink.flush();
       await sink.close();
