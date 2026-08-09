@@ -819,6 +819,20 @@ class _MainDashboardState extends State<MainDashboard>
             ),
           ],
           child: BlocBuilder<NavigationBloc, NavigationState>(
+            // The whole Stack under this builder — MapWidget shell,
+            // LayoutBuilder, Positioned subtrees — used to rebuild on every
+            // GPS fix because NavigationInProgress emits a fresh state per
+            // fix (userPosition, distances, speed all change). Gate on the
+            // things that actually toggle UI: entering/leaving nav, the
+            // overview flip, and route swaps (reroute). identical() on
+            // route is deliberate: reroute swaps the object, position fixes
+            // do not. Per-fix numbers live in the leaf BlocSelectors below.
+            buildWhen: (prev, next) =>
+                prev.runtimeType != next.runtimeType ||
+                (prev is NavigationInProgress &&
+                    next is NavigationInProgress &&
+                    (prev.isOverviewVisible != next.isOverviewVisible ||
+                        !identical(prev.route, next.route))),
             builder: (context, state) {
               return Stack(
                 children: [
