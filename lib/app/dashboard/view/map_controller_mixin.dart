@@ -1770,6 +1770,23 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
 
   void _startFixWatchdog() {
     _fixWatchdog?.cancel();
+
+    // Don't wait out the first watchdog cycle if the stream is already
+    // quiet. Field trip 11:22 started with the stream dead for hours (it
+    // died in the background gap after the 07:11 trip) — the freshest fix
+    // on record predated the trip, so guidance was blind from second one.
+    // A known-stale stream at nav start gets restarted immediately; only
+    // when there's no history at all (fresh launch) do we give the young
+    // stream its 20s grace.
+    final last = _lastFixAt;
+    if (last != null &&
+        DateTime.now().difference(last) > const Duration(seconds: 10)) {
+      NavTraceRecorder.instance.log('staleAtNavStart', {
+        'lastFixAgeS': DateTime.now().difference(last).inSeconds,
+      });
+      _startPositionStream();
+    }
+
     _lastFixAt = null;
     final navStartedAt = DateTime.now();
     _fixWatchdog = Timer.periodic(const Duration(seconds: 10), (_) {
