@@ -851,12 +851,24 @@ class _MainDashboardState extends State<MainDashboard>
 
                         // Keep the nav camera's lower-third puck framing in
                         // sync with the actual map size (rotation, resize).
-                        _lastMapHeightLogical = constraints.maxHeight;
-                        updateNavigationViewportPadding(
-                          constraints.maxHeight,
-                          MediaQuery.of(context).devicePixelRatio,
-                          bottomObstructionLogical: _navCardHeight,
-                        );
+                        // The padding call used to run inline every build
+                        // (which the per-fix top-level rebuild did every
+                        // second). Now: only fire on a real height change,
+                        // and defer to post-frame so build stays pure.
+                        final newHeight = constraints.maxHeight;
+                        if ((newHeight - _lastMapHeightLogical).abs() > 1) {
+                          _lastMapHeightLogical = newHeight;
+                          final dpr = MediaQuery.of(context).devicePixelRatio;
+                          final navCardHeight = _navCardHeight;
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (!mounted) return;
+                            updateNavigationViewportPadding(
+                              newHeight,
+                              dpr,
+                              bottomObstructionLogical: navCardHeight,
+                            );
+                          });
+                        }
 
                         return mp.MapWidget(
                           key: _mapWidgetKey,
