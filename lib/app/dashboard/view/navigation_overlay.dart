@@ -14,7 +14,15 @@ import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
 import 'package:waze_kibris/core/services/nav_settings.dart';
 
 class NavigationOverlay extends StatefulWidget {
+  /// Phase-scoped nav state: changes on step advance / reroute / overview
+  /// toggle, not per GPS fix. Per-fix numbers come from [telemetry].
   final NavigationInProgress navigationState;
+
+  /// Per-fix telemetry (distances, speed, rerouting flag). Delivered via a
+  /// `BlocSelector` in the caller so this widget only rebuilds when a
+  /// displayed number actually changes.
+  final NavTelemetry telemetry;
+
   final VoidCallback onEndNavigation;
   final VoidCallback onToggleOverview;
   final VoidCallback onToggleCourseUp;
@@ -25,6 +33,7 @@ class NavigationOverlay extends StatefulWidget {
   const NavigationOverlay({
     Key? key,
     required this.navigationState,
+    required this.telemetry,
     required this.onEndNavigation,
     required this.onToggleOverview,
     required this.onToggleCourseUp,
@@ -71,9 +80,11 @@ class _NavigationOverlayState extends State<NavigationOverlay>
   void didUpdateWidget(NavigationOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // Animate when step advances
-    if (oldWidget.navigationState.currentStepIndex !=
-        widget.navigationState.currentStepIndex) {
+    // Animate when step advances. Read from telemetry so this still triggers
+    // even though currentStep also lives on the outer navigationState — the
+    // step index is what the BlocSelector notices per fix.
+    if (oldWidget.telemetry.currentStepIndex !=
+        widget.telemetry.currentStepIndex) {
       _slideController.forward().then((_) {
         _slideController.reverse();
       });
@@ -109,6 +120,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
   @override
   Widget build(BuildContext context) {
     final navigationState = widget.navigationState;
+    final telemetry = widget.telemetry;
 
     return Stack(
       children: [
@@ -119,13 +131,13 @@ class _NavigationOverlayState extends State<NavigationOverlay>
           right: 0,
           child: ManeuverBanner(
             step: navigationState.currentStep,
-            distanceRemaining: navigationState.distanceToNextManeuver > 0
-                ? navigationState.distanceToNextManeuver
+            distanceRemaining: telemetry.distanceToNextManeuver > 0
+                ? telemetry.distanceToNextManeuver
                 : navigationState.currentStep.distance,
             navigationBloc: context.read<NavigationBloc>(),
             nextStep: navigationState.nextStep,
             mode: navigationState.mode,
-            currentSpeedMps: navigationState.currentSpeed,
+            currentSpeedMps: telemetry.currentSpeed,
           ),
         ),
 
@@ -147,10 +159,10 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                       valueListenable: NavSettings.showSpeedometer,
                       builder: (context, show, _) => show
                           ? SpeedometerWidget(
-                              currentSpeed: navigationState.currentSpeed ?? 0,
+                              currentSpeed: telemetry.currentSpeed ?? 0,
                               // Only enforce TTS / red border when Mapbox
                               // provides a limit
-                              speedLimit: navigationState.speedLimit,
+                              speedLimit: telemetry.speedLimit,
                             )
                           : const SizedBox.shrink(),
                     )
@@ -229,7 +241,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                       double progress = 0.0;
                       if (navigationState.route.distance > 0) {
                         progress = (navigationState.route.distance -
-                                navigationState.remainingDistance) /
+                                telemetry.remainingDistance) /
                             navigationState.route.distance;
                         // Ensure valid range [0.0, 1.0]
                         progress = progress.clamp(0.0, 1.0);
@@ -260,7 +272,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                         children: [
                           Text(
                             MapboxNavigationUtils.formatDuration(
-                                navigationState.remainingDuration),
+                                telemetry.remainingDuration),
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -271,17 +283,14 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                'ETA ${MapboxNavigationUtils.formatETA(navigationState.remainingDuration)}',
+                                'ETA ${MapboxNavigationUtils.formatETA(telemetry.remainingDuration)}',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey[600],
                                 ),
                               ),
                               // Show indicator if congestion data is available (real-time traffic)
-                              if (navigationState.congestionNumericData !=
-                                      null &&
-                                  navigationState
-                                      .congestionNumericData!.isNotEmpty)
+                              if (telemetry.hasCongestionData)
                                 Padding(
                                   padding: const EdgeInsets.only(left: 4),
                                   child: Icon(
@@ -291,7 +300,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                                   ),
                                 ),
                               // Show "Rerouting..." and spinner when route is being recalculated
-                              if (navigationState.isRerouting)
+                              if (telemetry.isRerouting)
                                 Padding(
                                   padding: const EdgeInsets.only(left: 4),
                                   child: Row(
@@ -333,7 +342,7 @@ class _NavigationOverlayState extends State<NavigationOverlay>
                         children: [
                           Text(
                             MapboxNavigationUtils.formatDistance(
-                                navigationState.remainingDistance),
+                                telemetry.remainingDistance),
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,

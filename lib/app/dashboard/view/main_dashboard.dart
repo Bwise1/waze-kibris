@@ -1126,36 +1126,58 @@ class _MainDashboardState extends State<MainDashboard>
                             bottomObstructionLogical: h,
                           );
                         },
-                        child: NavigationOverlay(
-                        navigationState: state,
-                        isCourseUp: cameraController.isCourseUp,
-                        isFollowingUser: isFollowingUser,
-                        onEndNavigation: _endNavigation,
-                        onToggleCourseUp: () {
-                          setState(() {
-                            cameraController.toggleCourseUp();
-                          });
-                        },
-                        onToggleOverview: () {
-                          _navigationBloc.add(NavigationOverviewToggled());
-                          if (!state.isOverviewVisible) {
-                            // Entering overview: take the camera back from
-                            // the native follow state so the Dart overview
-                            // framing can drive.
-                            exitNativeViewport();
-                            setIsFollowingUser(false);
-                          } else {
-                            setIsFollowingUser(true);
-                            if (useNativeNavViewport) {
-                              enterNativeFollowViewport(maxDurationMs: 1500);
-                            }
-                          }
-                        },
-                        onRecenter: () async {
-                          setIsFollowingUser(true);
-                          await recenterOnUser();
-                          setState(() {});
-                        },
+                        // BlocSelector so per-fix rebuilds only touch the
+                        // overlay subtree, not the whole Stack above. The
+                        // outer `state` is phase-scoped (see buildWhen) so
+                        // this closure captures a stable NavigationInProgress
+                        // reference for the trip.
+                        child: BlocSelector<NavigationBloc, NavigationState,
+                            NavTelemetry>(
+                          selector: (s) => s is NavigationInProgress
+                              ? NavTelemetry.from(s)
+                              : const NavTelemetry(
+                                  distanceToNextManeuver: 0,
+                                  remainingDistance: 0,
+                                  remainingDuration: 0,
+                                  currentSpeed: null,
+                                  speedLimit: null,
+                                  currentStepIndex: 0,
+                                  isRerouting: false,
+                                  hasCongestionData: false,
+                                ),
+                          builder: (context, telemetry) => NavigationOverlay(
+                            navigationState: state,
+                            telemetry: telemetry,
+                            isCourseUp: cameraController.isCourseUp,
+                            isFollowingUser: isFollowingUser,
+                            onEndNavigation: _endNavigation,
+                            onToggleCourseUp: () {
+                              setState(() {
+                                cameraController.toggleCourseUp();
+                              });
+                            },
+                            onToggleOverview: () {
+                              _navigationBloc.add(NavigationOverviewToggled());
+                              if (!state.isOverviewVisible) {
+                                // Entering overview: take the camera back
+                                // from the native follow state so the Dart
+                                // overview framing can drive.
+                                exitNativeViewport();
+                                setIsFollowingUser(false);
+                              } else {
+                                setIsFollowingUser(true);
+                                if (useNativeNavViewport) {
+                                  enterNativeFollowViewport(
+                                      maxDurationMs: 1500);
+                                }
+                              }
+                            },
+                            onRecenter: () async {
+                              setIsFollowingUser(true);
+                              await recenterOnUser();
+                              setState(() {});
+                            },
+                          ),
                         ),
                       ),
                   ],

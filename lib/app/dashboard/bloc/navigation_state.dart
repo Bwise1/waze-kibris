@@ -157,3 +157,56 @@ class NavigationInProgress extends NavigationState {
   String? get roadName =>
       MapboxNavigationUtils.extractRoadName(currentStep.name);
 }
+
+/// Per-fix subset of [NavigationInProgress] that drives banner/speedometer/
+/// progress. Extracted so leaf widgets subscribe to a small equatable value
+/// via `BlocSelector`, and only rebuild when a displayed number actually
+/// changes — instead of re-running on every GPS fix because e.g. `userPosition`
+/// churned.
+class NavTelemetry extends Equatable {
+  const NavTelemetry({
+    required this.distanceToNextManeuver,
+    required this.remainingDistance,
+    required this.remainingDuration,
+    required this.currentSpeed,
+    required this.speedLimit,
+    required this.currentStepIndex,
+    required this.isRerouting,
+    required this.hasCongestionData,
+  });
+
+  final double distanceToNextManeuver;
+  final double remainingDistance;
+  final double remainingDuration;
+  final double? currentSpeed;
+  final double? speedLimit;
+  final int currentStepIndex;
+  final bool isRerouting;
+  // Presence-only: the overlay just shows a traffic icon if any congestion
+  // data exists. Reading the flag here keeps the full list out of `props`
+  // (which would deep-compare a 350+ element list per fix).
+  final bool hasCongestionData;
+
+  factory NavTelemetry.from(NavigationInProgress s) => NavTelemetry(
+        distanceToNextManeuver: s.distanceToNextManeuver,
+        remainingDistance: s.remainingDistance,
+        remainingDuration: s.remainingDuration,
+        currentSpeed: s.currentSpeed,
+        speedLimit: s.speedLimit,
+        currentStepIndex: s.currentStepIndex,
+        isRerouting: s.isRerouting,
+        hasCongestionData: s.congestionNumericData?.isNotEmpty ?? false,
+      );
+
+  @override
+  List<Object?> get props => [
+        distanceToNextManeuver,
+        remainingDistance,
+        remainingDuration,
+        currentSpeed,
+        speedLimit,
+        currentStepIndex,
+        isRerouting,
+        hasCongestionData,
+      ];
+}
