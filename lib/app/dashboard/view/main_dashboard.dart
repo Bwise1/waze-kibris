@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:waze_kibris/app/dashboard/services/dashboard_side_effects.dart';
 import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/view/map_controller_mixin.dart';
@@ -25,7 +26,6 @@ import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/services/websocket_service.dart';
 import 'package:waze_kibris/core/bloc/reports/report_state.dart';
 import 'package:waze_kibris/core/bloc/reports/reports_bloc.dart';
-import 'package:waze_kibris/core/bloc/reports/reports_event.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
 import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 import 'package:waze_kibris/core/models/reports/report_response.dart';
@@ -55,13 +55,9 @@ class _MainDashboardState extends State<MainDashboard>
   bool _mapReadyToBuild = false;
   bool _servicesStarted = false;
   late NavigationBloc _navigationBloc;
+  late DashboardSideEffects _sideEffects;
   SearchSuggestion? _activeRouteSuggestion;
-  Position? _lastReportFetchPosition;
-  bool _initialReportsFetched = false;
   bool _initialReportFetchScheduled = false;
-  Timer? _initialReportFetchFallbackTimer;
-  bool _lastReportsWereEmpty = false;
-  bool _retriedEmptyReportsFetch = false;
   bool _isMapSheetVisible = true; // Control MapSheet visibility
   bool _wsConnectAttempted =
       false; // So we only connect once when auth is ready
@@ -96,158 +92,13 @@ class _MainDashboardState extends State<MainDashboard>
 
   /// Lets a saved-place pin tap reuse the sheet's existing route flow.
   final GlobalKey<MapSheetState> _mapSheetKey = GlobalKey<MapSheetState>();
-  DateTime? _lastNearbyUsersFetch;
-  static const Duration _nearbyUsersFetchInterval = Duration(seconds: 30);
-
-  // WebSocket position push: keeps the server's per-client lat/lng fresh so
-  // report_update broadcasts filter against where the user actually is now,
-  // not where they connected from.
-  DateTime? _lastWsPositionPush;
-  double? _lastWsRadiusPushed;
-  static const Duration _wsPositionPushInterval = Duration(seconds: 15);
-  static const double _wsRadiusIdleM = 5000; // matches server default floor
-  static const double _wsRadiusNavigatingM = 15000; // ~10-15 min ahead on highway
 
   @override
   NavigationBloc get navigationBloc => _navigationBloc;
 
-  Future<void> _fetchNearbyUsersIfDue(Position position) async {
-    final now = DateTime.now();
-    if (_lastNearbyUsersFetch != null &&
-        now.difference(_lastNearbyUsersFetch!) < _nearbyUsersFetchInterval) {
-      return;
-    }
-    _lastNearbyUsersFetch = now;
-
-    try {
-      final repo = context.read<AuthRepository>();
-      final users = await repo.getNearbyUsers(
-        position.latitude,
-        position.longitude,
-        radiusM: 2000,
-      );
-      if (!mounted) return;
-      displayNearbyUsersOnMap(users);
-    } catch (e) {
-      debugPrint('Nearby users fetch error: $e');
-    }
-  }
-
-  /// Push the current GPS position + preferred report broadcast radius to the
-  /// backend so it can fan out new reports to us. Called on every position
-  /// tick but throttled to [_wsPositionPushInterval] to avoid spam.
-  ///
-  /// Radius bumps up to [_wsRadiusNavigatingM] while a route is active so
-  /// reports several minutes ahead on the route still push in real time. If
-  /// the radius changed (nav started/stopped) we push immediately regardless
-  /// of throttle.
-  void _pushWsPositionIfDue(Position position) {
-    final authState = context.read<AuthBloc>().state;
-    if (authState is! AuthSuccess) return;
-    final userId = authState.user?.id;
-    if (userId == null) return;
-
-    final isNavigating = _navigationBloc.state is NavigationInProgress;
-    final radius = isNavigating ? _wsRadiusNavigatingM : _wsRadiusIdleM;
-
-    final radiusChanged = _lastWsRadiusPushed != radius;
-    final now = DateTime.now();
-    final due = _lastWsPositionPush == null ||
-        now.difference(_lastWsPositionPush!) >= _wsPositionPushInterval;
-    if (!radiusChanged && !due) return;
-
-    context.read<WebSocketService>().updateSubscription(
-          userId: userId,
-          latitude: position.latitude,
-          longitude: position.longitude,
-          subscribeRadiusM: radius,
-        );
-    _lastWsPositionPush = now;
-    _lastWsRadiusPushed = radius;
-  }
-
-  void _fetchNearbyReports(Position position, {bool force = false}) {
-    bool shouldFetch = force;
-
-    if (!shouldFetch) {
-      if (_lastReportFetchPosition == null) {
-        shouldFetch = true;
-      } else {
-        final distance = Geolocator.distanceBetween(
-          _lastReportFetchPosition!.latitude,
-          _lastReportFetchPosition!.longitude,
-          position.latitude,
-          position.longitude,
-        );
-        if (distance > 1000) {
-          shouldFetch = true;
-        }
-      }
-    }
-
-    if (shouldFetch) {
-      _lastReportFetchPosition = position;
-
-      debugPrint(
-          '🚨 Fetching reports near: ${position.latitude}, ${position.longitude}');
-
-      context.read<ReportsBloc>().add(
-            ReportsEvent.getNearByReports(
-              radius:
-                  5000, // meters: same area so multiple users see same reports
-              lat: position.latitude.toString(),
-              long: position.longitude.toString(),
-            ),
-          );
-    }
-  }
-
-  void _fetchNearbyReportsAfterDelay() async {
-    await Future.delayed(const Duration(seconds: 3));
-
-    try {
-      final currentPosition = await Geolocator.getCurrentPosition();
-      if (mounted) {
-        _fetchNearbyReports(currentPosition, force: true);
-      }
-    } catch (e) {
-      debugPrint('Error getting position for report fetching: $e');
-    }
-  }
-
   @override
   void onPositionUpdate(Position position) {
-    bool isFirstFetch = false;
-    // First report fetch: wait for location from stream instead of timer
-    if (!_initialReportsFetched) {
-      _initialReportFetchFallbackTimer?.cancel();
-      _initialReportFetchFallbackTimer = null;
-      _initialReportsFetched = true;
-      isFirstFetch = true;
-      debugPrint(
-          '🚨 First report fetch triggered by position: ${position.latitude}, ${position.longitude}');
-    }
-    // Retry once when we had empty reports and position has moved significantly
-    if (_lastReportsWereEmpty &&
-        !_retriedEmptyReportsFetch &&
-        _lastReportFetchPosition != null) {
-      final distance = Geolocator.distanceBetween(
-        _lastReportFetchPosition!.latitude,
-        _lastReportFetchPosition!.longitude,
-        position.latitude,
-        position.longitude,
-      );
-      if (distance > 500) {
-        _retriedEmptyReportsFetch = true;
-        isFirstFetch = true;
-        _lastReportFetchPosition = null; // force next fetch to run
-      }
-    }
-    _fetchNearbyReports(position, force: isFirstFetch);
-
-    _fetchNearbyUsersIfDue(position);
-
-    _pushWsPositionIfDue(position);
+    _sideEffects.onPositionFix(position);
 
     final currentState = _navigationBloc.state;
     if (currentState is NavigationInProgress) {
@@ -265,6 +116,16 @@ class _MainDashboardState extends State<MainDashboard>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _navigationBloc = NavigationBloc();
+    _sideEffects = DashboardSideEffects(
+      authBloc: context.read<AuthBloc>(),
+      reportsBloc: context.read<ReportsBloc>(),
+      navigationBloc: _navigationBloc,
+      authRepository: context.read<AuthRepository>(),
+      webSocketService: context.read<WebSocketService>(),
+      displayNearbyUsers: (users) {
+        if (mounted) displayNearbyUsersOnMap(users);
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() => _mapReadyToBuild = true);
@@ -317,7 +178,7 @@ class _MainDashboardState extends State<MainDashboard>
             !_wsConnectAttempted) {
           debugPrint('🔌 WebSocket: connecting from postFrameCallback');
           _wsConnectAttempted = true;
-          _connectWebSocketIfPossible();
+          _sideEffects.connectWebSocket(isMounted: () => mounted);
         }
       }
     });
@@ -391,9 +252,9 @@ class _MainDashboardState extends State<MainDashboard>
     if (!mounted) return;
     // Re-fetch so types that were muted (and dropped from the cache) come
     // back when re-enabled.
-    final position = _lastReportFetchPosition;
+    final position = _sideEffects.lastReportFetchPosition;
     if (position != null) {
-      _fetchNearbyReports(position, force: true);
+      _sideEffects.fetchNearbyReports(position, force: true);
     }
   }
 
@@ -401,9 +262,10 @@ class _MainDashboardState extends State<MainDashboard>
   /// differs from what the map is showing.
   void _evaluateMapStyle() {
     if (!mounted) return;
+    final position = _sideEffects.lastReportFetchPosition;
     final uri = MapStylePreference.resolveStyleUri(
-      latitude: _lastReportFetchPosition?.latitude,
-      longitude: _lastReportFetchPosition?.longitude,
+      latitude: position?.latitude,
+      longitude: position?.longitude,
     );
     applyMapStyleUri(uri);
   }
@@ -417,49 +279,6 @@ class _MainDashboardState extends State<MainDashboard>
     }
     // Saved-place pins live in runtime layers, which the reload also wiped.
     refreshSavedPlaces();
-  }
-
-  Future<void> _connectWebSocketIfPossible() async {
-    debugPrint('🔌 WebSocket: _connectWebSocketIfPossible called');
-    final authState = context.read<AuthBloc>().state;
-    String? userId;
-
-    if (authState is AuthSuccess && authState.user != null) {
-      userId = authState.user!.id;
-    } else {
-      // If we are still loading profile but have a token, we can try to extract userId or bypass
-      // but without JWT decoding we need the user ID. So we log and return, relying on BlocListener.
-      debugPrint(
-          '🔌 WebSocket: skip connect (not AuthSuccess or no user: ${authState.runtimeType})');
-      return;
-    }
-
-    try {
-      debugPrint('🔌 WebSocket: fetching position...');
-      final position = await Geolocator.getLastKnownPosition() ??
-          await Geolocator.getCurrentPosition();
-
-      if (!mounted || position == null) {
-        debugPrint(
-            '🔌 WebSocket: skip connect (no position or not mounted). mounted: $mounted, position: $position');
-        return;
-      }
-
-      debugPrint(
-          '🔌 WebSocket: connecting (userId: $userId, lat: ${position.latitude}, lng: ${position.longitude})');
-      final ws = context.read<WebSocketService>();
-      await ws.connect(
-        userId: userId,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        subscribeRadiusM: _wsRadiusIdleM,
-      );
-      _lastWsRadiusPushed = _wsRadiusIdleM;
-      _lastWsPositionPush = DateTime.now();
-    } catch (e, st) {
-      debugPrint('🔌 WebSocket: connect failed: $e');
-      debugPrint('🔌 WebSocket: $st');
-    }
   }
 
   @override
@@ -495,7 +314,7 @@ class _MainDashboardState extends State<MainDashboard>
 
       if (mounted) {
         setState(() {
-          _lastReportFetchPosition = position;
+          _sideEffects.lastReportFetchPosition = position;
         });
         // Do not fetch here; first fetch happens after delay with getCurrentPosition()
       }
@@ -517,7 +336,7 @@ class _MainDashboardState extends State<MainDashboard>
     _groupLocationSub?.cancel();
     _sheetHeightPx.dispose();
     _mapBearing.dispose();
-    _initialReportFetchFallbackTimer?.cancel();
+    _sideEffects.dispose();
     _routeRefreshTimer?.cancel();
     _navigationBloc.close();
     super.dispose();
@@ -715,20 +534,13 @@ class _MainDashboardState extends State<MainDashboard>
 
   @override
   Widget build(BuildContext context) {
-    // Schedule fallback: if we don't get a position from the stream within 8s, fetch with getCurrentPosition()
+    // Schedule fallback: if we don't get a position from the stream within
+    // 8s, fetch with getCurrentPosition(). Scheduled once, on the first build.
     if (!_initialReportFetchScheduled) {
       _initialReportFetchScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _initialReportFetchFallbackTimer = Timer(
-          const Duration(seconds: 8),
-          () {
-            if (mounted && !_initialReportsFetched) {
-              debugPrint(
-                  '🚨 Report fetch fallback: no position yet, using getCurrentPosition()');
-              _initialReportsFetched = true;
-              _fetchNearbyReportsAfterDelay();
-            }
-          },
+        _sideEffects.scheduleInitialReportFetchFallback(
+          isMounted: () => mounted,
         );
       });
     }
@@ -770,7 +582,7 @@ class _MainDashboardState extends State<MainDashboard>
                   debugPrint(
                       '🔌 WebSocket: BlocListener initiating connection.');
                   _wsConnectAttempted = true;
-                  _connectWebSocketIfPossible();
+                  _sideEffects.connectWebSocket(isMounted: () => mounted);
                 }
               },
             ),
@@ -806,7 +618,7 @@ class _MainDashboardState extends State<MainDashboard>
             BlocListener<ReportsBloc, ReportState>(
               listener: (context, state) {
                 if (state is GetReportSuccess) {
-                  _lastReportsWereEmpty = state.data.isEmpty;
+                  _sideEffects.lastReportsWereEmpty = state.data.isEmpty;
                   _onReportsReceived(state.data);
                 } else if (state is GetSavedLocationsSuccess) {
                   // Home/Work/etc. as pins on the map, tappable to navigate.
@@ -840,7 +652,7 @@ class _MainDashboardState extends State<MainDashboard>
                     child: MapLayer(
                       mapWidgetKey: _mapWidgetKey,
                       readyToBuild: _mapReadyToBuild,
-                      lastReportFetchPosition: _lastReportFetchPosition,
+                      lastReportFetchPosition: _sideEffects.lastReportFetchPosition,
                       initialStyleUri: _initialStyleUri,
                       onInitialStyleResolved: (uri) {
                         _initialStyleUri ??= uri;
