@@ -5,13 +5,13 @@ import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/view/map_controller_mixin.dart';
 import 'package:waze_kibris/app/dashboard/view/map_sheet.dart';
 import 'package:waze_kibris/app/dashboard/view/navigation_overlay.dart';
 import 'package:waze_kibris/app/dashboard/view/widgets/debug_controls.dart';
 import 'package:waze_kibris/app/dashboard/view/widgets/map_buttons.dart';
+import 'package:waze_kibris/app/dashboard/view/widgets/map_layer.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/app/dashboard/view/arrival_summary_sheet.dart';
 import 'package:waze_kibris/app/dashboard/view/route_bar.dart';
@@ -837,87 +837,36 @@ class _MainDashboardState extends State<MainDashboard>
                 children: [
                   // Map widget (full screen)
                   Positioned.fill(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        if (!_mapReadyToBuild) {
-                          return const SizedBox.shrink();
+                    child: MapLayer(
+                      mapWidgetKey: _mapWidgetKey,
+                      readyToBuild: _mapReadyToBuild,
+                      lastReportFetchPosition: _lastReportFetchPosition,
+                      initialStyleUri: _initialStyleUri,
+                      onInitialStyleResolved: (uri) {
+                        _initialStyleUri ??= uri;
+                      },
+                      onMapCreated: (controller) {
+                        markInitialStyleApplied(_initialStyleUri!);
+                        onMapCreated(controller);
+                      },
+                      onMapTap: onMapTap,
+                      viewport: navViewport,
+                      onUserMapGesture: onUserMapGesture,
+                      onCameraChange: (data) {
+                        _mapBearing.value = data.cameraState.bearing;
+                      },
+                      // Recompute nav-camera padding when the map actually
+                      // resizes (>1px). The plan A3 pattern.
+                      onMapResize: (newHeight) {
+                        if ((newHeight - _lastMapHeightLogical).abs() <= 1) {
+                          return;
                         }
-                        // Avoid initializing Mapbox while the widget has not been laid out yet.
-                        if (constraints.maxWidth < 2 ||
-                            constraints.maxHeight < 2) {
-                          return const SizedBox.shrink();
-                        }
-
-                        // Keep the nav camera's lower-third puck framing in
-                        // sync with the actual map size (rotation, resize).
-                        // The padding call used to run inline every build
-                        // (which the per-fix top-level rebuild did every
-                        // second). Now: only fire on a real height change,
-                        // and defer to post-frame so build stays pure.
-                        final newHeight = constraints.maxHeight;
-                        if ((newHeight - _lastMapHeightLogical).abs() > 1) {
-                          _lastMapHeightLogical = newHeight;
-                          final dpr = MediaQuery.of(context).devicePixelRatio;
-                          final navCardHeight = _navCardHeight;
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (!mounted) return;
-                            updateNavigationViewportPadding(
-                              newHeight,
-                              dpr,
-                              bottomObstructionLogical: navCardHeight,
-                            );
-                          });
-                        }
-
-                        return mp.MapWidget(
-                          key: _mapWidgetKey,
-                          // Mapbox's dedicated navigation style (what the
-                          // native turn-by-turn SDK ships). Resolved once at
-                          // creation from the Auto/Day/Night preference;
-                          // later switches go through applyMapStyleUri.
-                          styleUri: _initialStyleUri ??=
-                              MapStylePreference.resolveStyleUri(
-                            latitude: _lastReportFetchPosition?.latitude,
-                            longitude: _lastReportFetchPosition?.longitude,
-                          ),
-                          onMapCreated: (controller) {
-                            markInitialStyleApplied(_initialStyleUri!);
-                            onMapCreated(controller);
-                          },
-                          onTapListener: onMapTap,
-                          // Native camera control during navigation (iOS):
-                          // FollowPuckViewportState keeps camera and puck
-                          // in 60fps lockstep on the render thread.
-                          viewport: navViewport,
-                          // Any user pan / pinch-zoom exits follow mode so
-                          // the recenter pill swaps in for the speedometer.
-                          // Rotate / tilt gestures aren't exposed by the
-                          // Flutter plugin as separate listeners — they
-                          // only surface through onCameraChangeListener,
-                          // which also fires for our own programmatic
-                          // easeTo calls and would create a feedback loop.
-                          // These fire for programmatic camera moves too, so
-                          // check for a real finger: a genuine gesture always
-                          // reports a touch position inside the map view.
-                          onScrollListener: (ctx) => onUserMapGesture(ctx),
-                          onZoomListener: (ctx) => onUserMapGesture(ctx),
-                          // Drives our own compass. Only the notifier
-                          // updates, so this doesn't rebuild the screen.
-                          onCameraChangeListener: (data) {
-                            _mapBearing.value =
-                                data.cameraState.bearing;
-                          },
-                          cameraOptions: _lastReportFetchPosition != null
-                              ? mp.CameraOptions(
-                                  center: mp.Point(
-                                    coordinates: mp.Position(
-                                      _lastReportFetchPosition!.longitude,
-                                      _lastReportFetchPosition!.latitude,
-                                    ),
-                                  ),
-                                  zoom: 15.0,
-                                )
-                              : null,
+                        _lastMapHeightLogical = newHeight;
+                        if (!mounted) return;
+                        updateNavigationViewportPadding(
+                          newHeight,
+                          MediaQuery.of(context).devicePixelRatio,
+                          bottomObstructionLogical: _navCardHeight,
                         );
                       },
                     ),
