@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
@@ -13,6 +12,7 @@ import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/app/dashboard/view/map_controller_mixin.dart';
 import 'package:waze_kibris/app/dashboard/view/map_sheet.dart';
 import 'package:waze_kibris/app/dashboard/view/navigation_overlay.dart';
+import 'package:waze_kibris/app/dashboard/view/widgets/map_buttons.dart';
 import 'package:waze_kibris/app/dashboard/view/places_service.dart';
 import 'package:waze_kibris/app/dashboard/view/arrival_summary_sheet.dart';
 import 'package:waze_kibris/app/dashboard/view/route_bar.dart';
@@ -944,7 +944,7 @@ class _MainDashboardState extends State<MainDashboard>
                   Positioned(
                     top: MediaQuery.of(context).padding.top + 12,
                     left: 16,
-                    child: _MapCircleButton(
+                    child: MapCircleButton(
                       icon: Icons.menu,
                       onTap: () {
                         final authState = context.read<AuthBloc>().state;
@@ -974,7 +974,7 @@ class _MainDashboardState extends State<MainDashboard>
                       right: 16,
                       child: ValueListenableBuilder<double>(
                         valueListenable: _mapBearing,
-                        builder: (context, bearing, _) => _MapCompassButton(
+                        builder: (context, bearing, _) => MapCompassButton(
                           bearing: bearing,
                           onTap: resetMapBearingToNorth,
                         ),
@@ -997,7 +997,7 @@ class _MainDashboardState extends State<MainDashboard>
                           return Stack(
                             clipBehavior: Clip.none,
                             children: [
-                              _MapCircleButton(
+                              MapCircleButton(
                                 icon: Icons.forum_outlined,
                                 onTap: () => Navigator.push(
                                   context,
@@ -1066,13 +1066,13 @@ class _MainDashboardState extends State<MainDashboard>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _MapCircleButton(
+                          MapCircleButton(
                             icon: Icons.gps_fixed,
                             iconColor: Colors.blueAccent,
                             onTap: recenterOnUser,
                           ),
                           const SizedBox(height: 12),
-                          _MapCircleButton(
+                          MapCircleButton(
                             icon: Icons.report_problem,
                             iconColor: Colors.white,
                             backgroundColor: Colors.orange,
@@ -1280,85 +1280,6 @@ class _MainDashboardState extends State<MainDashboard>
   }
 }
 
-/// Circular floating control on the map — menu, chat, recenter, report.
-///
-/// All four share one size and shape so they read as a single family; the
-/// default FloatingActionButton is 56pt with a squircle shape, which made
-/// the recenter/report pair noticeably larger than the menu and chat
-/// buttons opposite them.
-class _MapCircleButton extends StatelessWidget {
-  const _MapCircleButton({
-    required this.icon,
-    required this.onTap,
-    this.iconColor = Colors.black87,
-    this.backgroundColor = Colors.white,
-  });
-
-  /// Matches the menu button: 22pt icon + 10pt padding = 42pt.
-  static const double diameter = 42;
-  static const double iconSize = 22;
-
-  final IconData icon;
-  final VoidCallback onTap;
-  final Color iconColor;
-  final Color backgroundColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: backgroundColor,
-      shape: const CircleBorder(),
-      elevation: 4,
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all((diameter - iconSize) / 2),
-          child: Icon(icon, color: iconColor, size: iconSize),
-        ),
-      ),
-    );
-  }
-}
-
-/// Compass matching the other floating map controls. Rotates with the map
-/// and snaps the map back to north when tapped, like Google Maps.
-class _MapCompassButton extends StatelessWidget {
-  const _MapCompassButton({required this.bearing, required this.onTap});
-
-  final double bearing;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      shape: const CircleBorder(),
-      elevation: 4,
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          width: _MapCircleButton.diameter,
-          height: _MapCircleButton.diameter,
-          child: Center(
-            child: Transform.rotate(
-              // Map bearing is clockwise; the needle turns the other way to
-              // keep pointing at true north.
-              angle: -bearing * math.pi / 180,
-              child: Icon(
-                Icons.navigation,
-                size: _MapCircleButton.iconSize,
-                color: styles.theme.primary,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Reports its child's laid-out height. Used to measure the navigation card
 /// so the camera can frame the puck above it — hardcoding a height would
 /// drift the moment the card's content changes (lane guidance, exit numbers).
@@ -1544,7 +1465,7 @@ class _ReplayControlState extends State<_ReplayControl> {
     final running = replay.isRunning;
     return Column(
       children: [
-        _MapCircleButton(
+        MapCircleButton(
           icon: running ? Icons.stop_rounded : Icons.play_arrow_rounded,
           backgroundColor: running ? Colors.red : Colors.black87,
           iconColor: Colors.white,
