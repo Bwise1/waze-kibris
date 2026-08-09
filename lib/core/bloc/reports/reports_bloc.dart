@@ -287,6 +287,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
 
         return;
       }
+      _savedRetryAttempt = 0;
       emit(
         GetSavedLocationsSuccess(
           message: response.message,
@@ -304,8 +305,25 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
           ),
         );
       }
+      // A dead network at launch (field log: 'Failed host lookup') left the
+      // Saved section empty for the whole session — the sheet only asks
+      // once, in initState. Retry with backoff; groups recovered seconds
+      // later in the same log, so the network usually comes right back.
+      if (e.toString().contains('Network error occurred') &&
+          _savedRetryAttempt < _savedRetryDelays.length) {
+        final delay = _savedRetryDelays[_savedRetryAttempt++];
+        _savedRetryTimer?.cancel();
+        _savedRetryTimer = Timer(
+          Duration(seconds: delay),
+          () => add(ReportsEvent.getSavedLocations()),
+        );
+      }
     }
   }
+
+  Timer? _savedRetryTimer;
+  int _savedRetryAttempt = 0;
+  static const _savedRetryDelays = [3, 8, 20, 45]; // seconds
 
   Future<void> _onSaveLocationRequest(
     SaveLocation event,

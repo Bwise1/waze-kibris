@@ -1,9 +1,12 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:developer';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:waze_kibris/common.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_event.dart';
+import 'package:waze_kibris/core/models/auth/auth_response.dart' as models;
 import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
 import 'package:waze_kibris/core/res/store_keys.dart';
@@ -165,29 +168,90 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
+  /// The repositories normalise every no-response failure (dead DNS,
+  /// timeout, refused connection) to exactly this message; server-responded
+  /// failures (401 etc.) carry other messages. That makes it a reliable
+  /// "offline vs actually rejected" classifier.
+  static bool _isNetworkError(Object e) =>
+      e.toString().contains('Network error occurred');
+
+  Timer? _profileRetryTimer;
+  int _profileRetryAttempt = 0;
+  static const _profileRetryDelays = [3, 8, 20, 45, 90]; // seconds
+
+  void _scheduleProfileRetry() {
+    if (_profileRetryAttempt >= _profileRetryDelays.length) return;
+    final delay = _profileRetryDelays[_profileRetryAttempt++];
+    _profileRetryTimer?.cancel();
+    _profileRetryTimer = Timer(
+      Duration(seconds: delay),
+      () => add(const GetProfileRequested()),
+    );
+  }
+
+  @override
+  Future<void> close() {
+    _profileRetryTimer?.cancel();
+    return super.close();
+  }
+
   Future<void> _onGetProfileRequested(
     GetProfileRequested event,
     Emitter<AuthState> emit,
   ) async {
+    final token = _localStorage.get<String>(StoreKeys.wazeToken);
     try {
-      if (isEmptyOrNull(
-        _localStorage.get<String>(StoreKeys.wazeToken),
-      )) {
+      if (isEmptyOrNull(token)) {
         // don't call the get profile function if theres no token in the local
         // store
         return;
       }
 
-      emit(const AuthLoading());
+      // Don't knock an already-signed-in UI back to a loading state on a
+      // background retry.
+      if (state is! AuthSuccess) emit(const AuthLoading());
       final response = await _authRepository.getProfile();
+      _profileRetryAttempt = 0;
+      final user = response.data?.user;
+      if (user != null) {
+        await _localStorage.save(
+          StoreKeys.cachedUser,
+          jsonEncode(user.toJson()),
+        );
+      }
       emit(
         AuthSuccess(
           message: response.message,
-          user: response.data?.user,
+          user: user,
           token: response.data?.token,
         ),
       );
     } catch (e) {
+      // A launch with no network used to emit AuthError here, which the UI
+      // renders as "Guest" with no logout — for the whole session, even
+      // though the token was never even validated (the request never left
+      // the phone; field log: 'Failed host lookup: waze-api.benjys.me').
+      // Offline with a stored token is NOT logged out: show the cached
+      // profile and retry with backoff until the network returns.
+      if (_isNetworkError(e)) {
+        final cached =
+            _localStorage.get<Map<String, dynamic>>(StoreKeys.cachedUser);
+        if (cached != null) {
+          try {
+            emit(
+              AuthSuccess(
+                message: 'offline',
+                user: models.User.fromJson(cached),
+                token: token,
+              ),
+            );
+          } catch (_) {
+            // Corrupt cache: fall through, retry will refresh it.
+          }
+        }
+        _scheduleProfileRetry();
+        return;
+      }
       emit(AuthError(message: e.toString()));
     }
   }
