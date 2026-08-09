@@ -14,6 +14,7 @@ import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
 import 'package:waze_kibris/app/dashboard/services/bearing_fusion_service.dart';
 import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
+import 'package:waze_kibris/app/dashboard/services/nav_trace_uploader.dart';
 import 'package:waze_kibris/app/dashboard/services/nearby_users_layer.dart';
 import 'package:waze_kibris/app/dashboard/services/puck_manager.dart';
 import 'package:waze_kibris/app/dashboard/services/route_replay_service.dart';
@@ -895,7 +896,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       _startFixWatchdog();
     } else {
       _stopFixWatchdog();
-      NavTraceRecorder.instance.stop();
+      // Close the trip's trace, then ship it (and any stragglers from
+      // offline trips) to Cloudinary so remote testers' drives arrive
+      // without them doing anything.
+      NavTraceRecorder.instance
+          .stop()
+          .then((_) => NavTraceUploader.instance.uploadPending());
       // Return camera control to Dart (free-drive follow / idle) first, or
       // the native viewport keeps driving and fights the exit animation.
       exitNativeViewport();

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
+import 'package:waze_kibris/app/dashboard/services/nav_trace_uploader.dart';
 import 'package:waze_kibris/app/dashboard/services/route_replay_service.dart';
 import 'package:waze_kibris/app/dashboard/view/widgets/map_buttons.dart';
 import 'package:waze_kibris/core/models/directions/mapbox_directions_response.dart';
@@ -58,6 +59,8 @@ class _TraceShareButtonState extends State<TraceShareButton> {
   void initState() {
     super.initState();
     _refresh();
+    // Launch sweep: ship any traces whose upload failed while offline.
+    NavTraceUploader.instance.uploadPending();
     // Refresh the event counter so it's visibly climbing — proof the
     // recorder is alive without needing a console. While recording, the
     // count comes from memory, so skip the directory listing and only pay

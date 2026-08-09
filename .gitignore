@@ -146,3 +146,4 @@ ios/Flutter/Flutter.podspec
 /ios/Runner/GoogleService-Info.plist
 /lib/firebase_options.dart
 /firebase.json
+.nav_traces/
