@@ -907,7 +907,10 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
         'navPadding': _cameraController.navigationPadding?.top,
         ...tripContext,
       });
+      // Guidance is worthless without fixes; watch for them going quiet.
+      _startFixWatchdog();
     } else {
+      _stopFixWatchdog();
       NavTraceRecorder.instance.stop();
       // Return camera control to Dart (free-drive follow / idle) first, or
       // the native viewport keeps driving and fights the exit animation.
@@ -1645,34 +1648,6 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           'Location permissions are permanently denied, we cannot request permissions.');
     }
 
-    // On Android, use foreground notification so location updates continue when app is backgrounded
-    // distanceFilter: 0 → get every GPS event (typically ~1Hz on iOS/Android).
-    // With filter=10 you only get an update every 10m, which at 30km/h is
-    // 1.2s between events — long enough for the camera to visibly stall
-    // between updates. The SDK / our camera easeTo handles interpolation.
-    final LocationSettings locationSettings = Platform.isAndroid
-        ? AndroidSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 0,
-            foregroundNotificationConfig: const ForegroundNotificationConfig(
-              notificationTitle: 'Waze Kibris',
-              notificationText: 'Using your location for navigation',
-              notificationChannelName: 'Navigation',
-              setOngoing: true,
-            ),
-          )
-        : AppleSettings(
-            accuracy: LocationAccuracy.bestForNavigation,
-            // CoreLocation's own driving model (road-aware filtering) only
-            // kicks in with the automotive activity type.
-            activityType: ActivityType.automotiveNavigation,
-            distanceFilter: 0,
-            // iOS defaults to auto-pausing updates when it thinks you've
-            // stopped — which freezes navigation at a long red light.
-            pauseLocationUpdatesAutomatically: false,
-            showBackgroundLocationIndicator: true,
-          );
-
     _userPositionStream?.cancel();
 
     // Refresh location puck now that we have permissions (fixes iOS startup issue)
@@ -1718,11 +1693,119 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
           RouteReplayService.instance.positions.listen(_handlePositionUpdate);
     }
 
+    _startPositionStream();
+  }
+
+  /// Create (or re-create) the continuous position subscription.
+  ///
+  /// Extracted from [setupPositionTracking] because the stream must be
+  /// restartable on its own: a 6.6-minute field trace showed an entire trip
+  /// with ZERO position events reaching this pipeline — the one-shot
+  /// getCurrentPosition worked (recenter did), but the continuous stream was
+  /// dead, and a dead subscription is neither null nor paused, so nothing
+  /// ever repaired it. Every downstream symptom (progress bar frozen, no
+  /// auto-arrival, map not turning, no reroute) was this one failure.
+  void _startPositionStream() {
+    // distanceFilter: 0 → get every GPS event (typically ~1Hz on iOS/Android).
+    // With filter=10 you only get an update every 10m, which at 30km/h is
+    // 1.2s between events — long enough for the camera to visibly stall.
+    final LocationSettings locationSettings = Platform.isAndroid
+        ? AndroidSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 0,
+            foregroundNotificationConfig: const ForegroundNotificationConfig(
+              notificationTitle: 'Waze Kibris',
+              notificationText: 'Using your location for navigation',
+              notificationChannelName: 'Navigation',
+              setOngoing: true,
+            ),
+          )
+        : AppleSettings(
+            accuracy: LocationAccuracy.bestForNavigation,
+            // CoreLocation's own driving model (road-aware filtering) only
+            // kicks in with the automotive activity type.
+            activityType: ActivityType.automotiveNavigation,
+            distanceFilter: 0,
+            // iOS defaults to auto-pausing updates when it thinks you've
+            // stopped — which freezes navigation at a long red light.
+            pauseLocationUpdatesAutomatically: false,
+            showBackgroundLocationIndicator: true,
+          );
+
+    _userPositionStream?.cancel();
+    _positionStreamAlive = true;
+    NavTraceRecorder.instance.log('streamStart', {});
     _userPositionStream =
         Geolocator.getPositionStream(locationSettings: locationSettings)
-            .listen(_handlePositionUpdate,
-                onError: (Object error) {
+            .listen(_handlePositionUpdate, onError: (Object error) {
       debugPrint('Position stream error: $error');
+      NavTraceRecorder.instance
+          .log('streamError', {'error': error.toString()});
+      _positionStreamAlive = false;
+      _schedulePositionStreamRestart('error');
+    }, onDone: () {
+      // The platform closed the stream. Without a restart this is permanent
+      // — the subscription object survives, so null/paused checks pass.
+      NavTraceRecorder.instance.log('streamDone', {});
+      _positionStreamAlive = false;
+      _schedulePositionStreamRestart('done');
+    }, cancelOnError: false);
+  }
+
+  /// Whether the continuous stream is believed to be delivering. Set false
+  /// on error/done, true on (re)subscribe; used by the resume path to
+  /// detect a dead-but-non-null subscription.
+  bool _positionStreamAlive = false;
+
+  /// When the last fix reached the pipeline — the watchdog's evidence.
+  DateTime? _lastFixAt;
+
+  /// During navigation, checks that fixes keep flowing and restarts the
+  /// stream if they stop. Errors and onDone are handled directly, but the
+  /// field trace showed silence can also be *silent* — no error, no done,
+  /// just nothing — and only a watchdog catches that.
+  Timer? _fixWatchdog;
+
+  static const Duration _fixSilenceLimit = Duration(seconds: 20);
+
+  void _startFixWatchdog() {
+    _fixWatchdog?.cancel();
+    _lastFixAt = null;
+    final navStartedAt = DateTime.now();
+    _fixWatchdog = Timer.periodic(const Duration(seconds: 10), (_) {
+      final last = _lastFixAt;
+      final silence = DateTime.now().difference(last ?? navStartedAt);
+      if (silence < _fixSilenceLimit) return;
+      NavTraceRecorder.instance.log('fixGap', {
+        'silenceS': silence.inSeconds,
+        'streamAlive': _positionStreamAlive,
+      });
+      _startPositionStream();
+    });
+  }
+
+  void _stopFixWatchdog() {
+    _fixWatchdog?.cancel();
+    _fixWatchdog = null;
+  }
+
+  Timer? _streamRestartTimer;
+  int _streamRestartAttempts = 0;
+
+  void _schedulePositionStreamRestart(String reason) {
+    if (_streamRestartTimer?.isActive ?? false) return;
+    // Linear backoff, capped: transient GPS hiccups recover in seconds,
+    // and a persistent failure shouldn't spin.
+    _streamRestartAttempts++;
+    final delay = Duration(seconds: (2 * _streamRestartAttempts).clamp(2, 20));
+    NavTraceRecorder.instance.log('streamRestartScheduled', {
+      'reason': reason,
+      'attempt': _streamRestartAttempts,
+      'delayS': delay.inSeconds,
+    });
+    _streamRestartTimer = Timer(delay, () {
+      if (!mounted) return;
+      _startPositionStream();
     });
   }
 
@@ -1736,6 +1819,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
             !RouteReplayService.instance.isSimulated(rawPosition)) {
           return;
         }
+        // A delivered fix is proof the stream is healthy.
+        _lastFixAt = DateTime.now();
+        _positionStreamAlive = true;
+        _streamRestartAttempts = 0;
+
         // Fuse GPS course with compass so the puck stays stable at low speed.
         // Snap-to-road (below) can still override with the route bearing.
         final fusedBearing = _bearingFusion.fuse(rawPosition);
@@ -1900,6 +1988,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
       await setupPositionTracking();
     } else if (_userPositionStream!.isPaused) {
       _userPositionStream!.resume();
+    } else if (!_positionStreamAlive) {
+      // Non-null, not paused, but dead (errored or closed while away).
+      // This case used to fall through and stay broken for the rest of the
+      // session — the exact state the 11:39 field trace recorded.
+      _startPositionStream();
     }
 
     // Use the last known position if we have it; otherwise, query it.
@@ -2477,6 +2570,8 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
   @override
   void dispose() {
     _userPositionStream?.cancel();
+    _streamRestartTimer?.cancel();
+    _stopFixWatchdog();
     _replayPositionSub?.cancel();
     RouteReplayService.instance.stop();
     _bearingFusion.dispose();
