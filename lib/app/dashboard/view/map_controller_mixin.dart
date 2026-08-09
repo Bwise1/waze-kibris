@@ -14,6 +14,7 @@ import 'package:waze_kibris/app/dashboard/bloc/navigation_bloc.dart';
 import 'package:waze_kibris/gen/assets.gen.dart';
 import 'package:waze_kibris/app/dashboard/services/bearing_fusion_service.dart';
 import 'package:waze_kibris/app/dashboard/services/nav_trace_recorder.dart';
+import 'package:waze_kibris/app/dashboard/services/nearby_users_layer.dart';
 import 'package:waze_kibris/app/dashboard/services/route_replay_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:waze_kibris/core/bloc/auth/auth_bloc.dart';
@@ -614,28 +615,11 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  /// Display nearby connected users on the map (driver/user pins). Does not include the current user.
+  /// Display nearby connected users on the map (driver/user pins). Does not
+  /// include the current user. Delegates to [renderNearbyUsers].
   Future<void> displayNearbyUsersOnMap(List<NearbyUser> users) async {
-    if (nearbyUsersAnnotationManager == null || !mounted) return;
-
-    try {
-      await nearbyUsersAnnotationManager!.deleteAll();
-
-      for (final user in users) {
-        await nearbyUsersAnnotationManager!.create(
-          mp.PointAnnotationOptions(
-            geometry: mp.Point(
-              coordinates: mp.Position(user.longitude, user.latitude),
-            ),
-            iconImage: 'group-member-icon',
-            iconSize: 0.8,
-            iconAnchor: mp.IconAnchor.BOTTOM,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ Error displaying nearby users on map: $e');
-    }
+    if (!mounted) return;
+    await renderNearbyUsers(nearbyUsersAnnotationManager, users);
   }
 
   /// Cluster nearby reports to prevent overlap (Waze-style). If [userPosition] is set, clusters very close to the user are radially offset so they don't cover the puck.
@@ -2569,35 +2553,12 @@ mixin MapControllerMixin<T extends StatefulWidget> on State<T> {
     super.dispose();
   }
 
-  /// Display other users in the group on the map
+  /// Display other users in the group on the map. Delegates to
+  /// [renderGroupLocations].
   Future<void> displayGroupLocationsOnMap(
       Map<String, dynamic> groupLocations) async {
-    if (groupAnnotationManager == null || !mounted) return;
-
-    try {
-      await groupAnnotationManager!.deleteAll();
-
-      for (final entry in groupLocations.entries) {
-        final loc = entry.value as Map<String, dynamic>;
-        final lat = loc['lat'] as double?;
-        final lng = loc['lng'] as double?;
-
-        if (lat != null && lng != null) {
-          await groupAnnotationManager!.create(
-            mp.PointAnnotationOptions(
-              geometry: mp.Point(
-                coordinates: mp.Position(lng, lat),
-              ),
-              iconImage: 'group-member-icon',
-              iconSize: 0.8,
-              iconAnchor: mp.IconAnchor.BOTTOM,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Error displaying group locations: $e');
-    }
+    if (!mounted) return;
+    await renderGroupLocations(groupAnnotationManager, groupLocations);
   }
 }
 
