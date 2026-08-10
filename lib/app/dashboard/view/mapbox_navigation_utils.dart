@@ -62,12 +62,14 @@ class MapboxNavigationUtils {
 
   /// Format duration in user-friendly format
   static String formatDuration(double seconds) {
-    // Normalize negatives / already-arrived cases
-    if (seconds <= 0) return '0m';
+    // Normalize negatives / already-arrived cases. Never '0m': next to the
+    // '100 m' distance stat it reads as zero METERS (field screenshot:
+    // '0m' beside '100 m Distance' looked like a contradiction). 'min'
+    // unambiguously means time, and Google shows '1 min' at this point too.
+    if (seconds <= 0) return '1 min';
 
-    // For anything under 1 minute, show at least "1m"
-    // This avoids ever displaying "0m" while there is still remaining time.
-    if (seconds < 60) return '1m';
+    // For anything under 1 minute, show at least "1 min".
+    if (seconds < 60) return '1 min';
 
     // Round up to the next full minute
     final totalMinutes = (seconds / 60).ceil();
@@ -75,9 +77,9 @@ class MapboxNavigationUtils {
     final minutes = totalMinutes % 60;
 
     if (hours > 0) {
-      return '${hours}h ${minutes}m';
+      return '${hours}h ${minutes} min';
     } else {
-      return '${totalMinutes}m';
+      return '$totalMinutes min';
     }
   }
 

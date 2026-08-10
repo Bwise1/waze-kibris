@@ -54,4 +54,17 @@ const double kFreeDriveZoom = 15.0;
 const double kActiveGuidanceZoom = 17.0;
 
 // Destination reached — trip complete when remaining along route or straight-line to destination below this (meters)
-const double kDestinationReachedThresholdMeters = 15.0;
+/// Straight-line arrival radius. 15m was too tight for the real world:
+/// a driver stopping in the destination's compound/parking (field
+/// screenshot: ~100m from the pin, banner already saying 'you have
+/// arrived') never triggered arrival and the trip hung until manually
+/// ended. 30m covers pulling up outside; the parked-at-destination rule
+/// in the bloc covers compounds.
+const double kDestinationReachedThresholdMeters = 30.0;
+
+/// Parked-at-destination arrival: within this radius of the arrive point,
+/// moving slower than the speed floor for a few consecutive fixes counts
+/// as arrived — you've parked in the compound, the trip is over.
+const double kArrivalParkedRadiusMeters = 90.0;
+const double kArrivalParkedSpeedFloorMps = 1.5;
+const int kArrivalParkedFixCount = 3;

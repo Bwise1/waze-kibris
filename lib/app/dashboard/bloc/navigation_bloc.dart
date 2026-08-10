@@ -137,6 +137,7 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       congestionNumericData: congestionNumericData,
     ));
 
+    _parkedNearDestinationFixes = 0;
     if (NavSettings.keepScreenAwake.value) {
       WakelockPlus.enable();
     }
@@ -679,6 +680,10 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     emit(current.copyWith(remainingDuration: event.refreshedDurationSeconds));
   }
 
+  /// Consecutive slow fixes near the arrive point; see the parked rule in
+  /// [_isDestinationReached]. Reset on movement and on new navigation.
+  int _parkedNearDestinationFixes = 0;
+
   bool _isDestinationReached(
     Position position,
     MapboxStep currentStep,
@@ -704,6 +709,22 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     // Straight-line fallback: always allow arrival when physically at destination (e.g. user took another route but reached it)
     if (straightLineToDestination < kDestinationReachedThresholdMeters) {
       return true;
+    }
+
+    // Parked at the destination: inside the compound/parking, off the road
+    // network, the along-route and tight straight-line checks both miss —
+    // the field trace showed the trip hanging at 'you have arrived' ~100m
+    // from the pin. Stopped near the pin for a few consecutive fixes IS
+    // arrival.
+    if (straightLineToDestination <= kArrivalParkedRadiusMeters &&
+        position.speed >= 0 &&
+        position.speed < kArrivalParkedSpeedFloorMps) {
+      _parkedNearDestinationFixes++;
+      if (_parkedNearDestinationFixes >= kArrivalParkedFixCount) {
+        return true;
+      }
+    } else {
+      _parkedNearDestinationFixes = 0;
     }
 
     // Along-route (native-style): use remaining distance from snap when
