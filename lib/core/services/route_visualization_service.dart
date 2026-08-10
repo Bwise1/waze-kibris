@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -157,6 +158,7 @@ class RouteVisualizationService {
       if (isNewRoute) {
         _precomputeCumulativeDistances(route);
         _lastTrimFraction = 0;
+        _resetTrimAnimation();
         await _showFullRoute(route);
         await _setTrimOffset(0);
       }
@@ -331,7 +333,7 @@ class RouteVisualizationService {
       _lastTrimSegmentIndex = closestSegmentIndex;
       _lastTrimFraction = fraction;
 
-      await _setTrimOffset(fraction);
+      _animateTrimTo(fraction);
 
       _lastStepIndex = currentStepIndex;
       _lastUpdatePosition = currentPosition;
@@ -339,6 +341,54 @@ class RouteVisualizationService {
     } catch (e) {
       print('❌ Failed to update route trim: $e');
     }
+  }
+
+  // --- Trim animation -------------------------------------------------
+  // Fixes arrive every ~1-5s, but the camera glides continuously between
+  // them — so a trim that only moves per fix eats several seconds of road
+  // in one visible bite (tester note: "road disappearing is not smooth
+  // like Google maps"). Native SDKs advance the vanishing point every
+  // frame; we approximate by lerping the trim to each new target over the
+  // measured fix cadence, in small steps.
+  Timer? _trimAnimTimer;
+  double _shownTrimFraction = 0;
+  DateTime? _lastTrimTargetAt;
+  int _trimEaseMs = 1000;
+
+  void _animateTrimTo(double target) {
+    final now = DateTime.now();
+    if (_lastTrimTargetAt != null) {
+      final gap = now.difference(_lastTrimTargetAt!).inMilliseconds;
+      // Span the whole gap to the next fix, like the camera ease does.
+      if (gap > 0) _trimEaseMs = (gap * 1.15).round().clamp(300, 6000);
+    }
+    _lastTrimTargetAt = now;
+
+    _trimAnimTimer?.cancel();
+    final from = _shownTrimFraction;
+    final delta = target - from;
+    if (delta <= 0.0005) {
+      _shownTrimFraction = target;
+      _setTrimOffset(target);
+      return;
+    }
+    const stepMs = 66; // ~15fps: smooth to the eye, cheap on the channel
+    final steps = (_trimEaseMs / stepMs).ceil().clamp(1, 120);
+    var i = 0;
+    _trimAnimTimer = Timer.periodic(const Duration(milliseconds: stepMs), (t) {
+      i++;
+      final f = from + delta * (i / steps).clamp(0.0, 1.0);
+      _shownTrimFraction = f;
+      _setTrimOffset(f);
+      if (i >= steps) t.cancel();
+    });
+  }
+
+  void _resetTrimAnimation() {
+    _trimAnimTimer?.cancel();
+    _trimAnimTimer = null;
+    _shownTrimFraction = 0;
+    _lastTrimTargetAt = null;
   }
 
   Future<void> _setTrimOffset(double fraction) async {
@@ -512,6 +562,7 @@ class RouteVisualizationService {
           .setStyleSourceProperty(_routeSourceId, 'data', jsonEncode(emptyGeoJson));
       await _setTrimOffset(0);
       _lastTrimFraction = 0;
+      _resetTrimAnimation();
       _lastTrimSegmentIndex = 0;
       // The source is now empty — invalidate the hash so the next drawRoute
       // re-uploads geometry even for the "same" route. Without this, a

@@ -264,14 +264,17 @@ class CameraController {
     } else if (!_travelMode.isVehicle) {
       targetZoom = _activeGuidanceZoom;
     } else {
-      // Speed-based: slow -> 17.5, fast -> 14.0
+      // Speed-based: slow -> 17.0, fast -> 14.0. The slow end was 17.5,
+      // which testers read as "too zoomed compared to Google" — Google's
+      // city guidance sits nearer 16.5-17. 17.0 keeps side streets legible
+      // without filling the screen with three buildings.
       if (speedKmh < 30) {
-        targetZoom = 17.5;
+        targetZoom = 17.0;
       } else if (speedKmh > 100) {
         targetZoom = 14.0;
       } else {
         final t = (speedKmh - 30) / (100 - 30);
-        targetZoom = 17.5 - (t * (17.5 - 14.0));
+        targetZoom = 17.0 - (t * (17.0 - 14.0));
       }
       targetZoom = targetZoom.clamp(kFollowingMinZoom, kFollowingMaxZoom);
     }

@@ -6,12 +6,12 @@ import 'package:waze_kibris/core/models/navigation/travel_mode.dart';
 double driveTargetZoom(double speedKmh) {
   double z;
   if (speedKmh < 30) {
-    z = 17.5;
+    z = 17.0;
   } else if (speedKmh > 100) {
     z = 14.0;
   } else {
     final t = (speedKmh - 30) / (100 - 30);
-    z = 17.5 - (t * (17.5 - 14.0));
+    z = 17.0 - (t * (17.0 - 14.0));
   }
   return z.clamp(kFollowingMinZoom, kFollowingMaxZoom);
 }
@@ -21,13 +21,13 @@ void main() {
     // The bug: kFollowingMaxZoom was 16.35, below the curve's slow end of
     // 17.5, so crawling traffic was clipped and the camera converged to
     // 16.35 on every trip instead of the zoom the curve asked for.
-    expect(driveTargetZoom(0), 17.5);
-    expect(driveTargetZoom(20), 17.5);
+    expect(driveTargetZoom(0), 17.0);
+    expect(driveTargetZoom(20), 17.0);
   });
 
   test('fast driving still zooms out', () {
     expect(driveTargetZoom(120), 14.0);
-    expect(driveTargetZoom(65), closeTo(15.75, 0.01));
+    expect(driveTargetZoom(65), closeTo(15.5, 0.01));
   });
 
   test('drive mode can reach its own activeGuidanceZoom', () {
