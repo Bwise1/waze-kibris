@@ -45,6 +45,22 @@ class NavigationPositionUpdated extends NavigationEvent {
 
 class NavigationStopped extends NavigationEvent {}
 
+/// Periodic traffic refresh: update the ETA from a freshly fetched route
+/// WITHOUT replacing the route the driver is on. Re-dispatching
+/// NavigationStarted for refreshes reset step progress, replayed the
+/// departure voice line, blinked the polyline — and, worst, adopted
+/// whatever route the fetch returned mid-drive: one bad response put the
+/// bloc on a ~1km route whose last step then satisfied the arrival check
+/// 7km before the real destination (field trace, trip 20260810_091441).
+class NavigationEtaRefreshed extends NavigationEvent {
+  final double refreshedDurationSeconds;
+
+  const NavigationEtaRefreshed({required this.refreshedDurationSeconds});
+
+  @override
+  List<Object> get props => [refreshedDurationSeconds];
+}
+
 class NavigationOverviewToggled extends NavigationEvent {}
 
 class NavigationStepCompleted extends NavigationEvent {}

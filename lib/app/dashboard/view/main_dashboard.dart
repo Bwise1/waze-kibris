@@ -482,11 +482,15 @@ class _MainDashboardState extends State<MainDashboard>
             debugPrint(
                 '✅ Route refreshed! New distance: ${refreshedRoute.distance}m, duration: ${refreshedRoute.duration}s');
 
-            // Update navigation with refreshed route. The NavigationBloc
-            // listener redraws the polyline (fitCamera: false) — no direct
-            // draw here, or the route gets cleared and redrawn twice.
-            _navigationBloc.add(
-                NavigationStarted(route: refreshedRoute, mode: currentState.mode));
+            // ETA only. Re-dispatching NavigationStarted here reset step
+            // progress, replayed the departure voice prompt, blinked the
+            // polyline — and adopted whatever route came back mid-drive,
+            // which once ended a trip 7km early when a bad response was
+            // ~1km long (see field trace trip_20260810_091441). The route
+            // the driver is following never changes on a timer; only a
+            // genuine off-route reroute may replace it.
+            _navigationBloc.add(NavigationEtaRefreshed(
+                refreshedDurationSeconds: refreshedRoute.duration));
           } else {
             debugPrint('⚠️ Route refresh failed: No routes found');
           }

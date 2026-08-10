@@ -40,6 +40,7 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
         super(NavigationInitial()) {
     on<NavigationStarted>(_onNavigationStarted);
     on<NavigationStopped>(_onNavigationStopped);
+    on<NavigationEtaRefreshed>(_onEtaRefreshed);
     on<NavigationPositionUpdated>(_onPositionUpdated);
     on<NavigationOverviewToggled>(_onOverviewToggled);
     on<NavigationStepCompleted>(_onStepCompleted);
@@ -666,6 +667,18 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
     return true; // Last step, use simple threshold
   }
 
+  void _onEtaRefreshed(
+    NavigationEtaRefreshed event,
+    Emitter<NavigationState> emit,
+  ) {
+    final current = state;
+    if (current is! NavigationInProgress) return;
+    // The refreshed route was fetched from the current position to the same
+    // destination, so its duration IS the up-to-date remaining time. The
+    // route object, steps and progress stay untouched.
+    emit(current.copyWith(remainingDuration: event.refreshedDurationSeconds));
+  }
+
   bool _isDestinationReached(
     Position position,
     MapboxStep currentStep,
@@ -693,10 +706,16 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationState> {
       return true;
     }
 
-    // Along-route (native-style): use remaining distance from snap when available; guard against arrival during reroute
+    // Along-route (native-style): use remaining distance from snap when
+    // available; guard against arrival during reroute. ALSO require being
+    // physically near the destination: along-route distance is relative to
+    // whatever route the bloc currently holds, and a corrupted/short route
+    // once ended a trip 7km early — straight-line distance to the real
+    // arrive point can't be fooled by that.
     if (remainingDistanceAlongRouteMeters != null &&
         !isRerouting &&
-        remainingDistanceAlongRouteMeters <= kDestinationReachedThresholdMeters) {
+        remainingDistanceAlongRouteMeters <= kDestinationReachedThresholdMeters &&
+        straightLineToDestination <= 250) {
       return true;
     }
 
