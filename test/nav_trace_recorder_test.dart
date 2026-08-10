@@ -79,12 +79,24 @@ void main() {
     expect(headers.map((h) => h['trip']), [0, 1, 2]);
   });
 
-  test('deleteAll clears the batch but refuses during a recording', () async {
+  test('deleteAll only removes uploaded traces, and never during recording',
+      () async {
     final rec = NavTraceRecorder.instance;
     await rec.start();
     expect(await rec.deleteAll(), 0,
         reason: 'must not delete the file the sink is writing');
     await rec.stop();
+
+    // Not uploaded yet: the only copy of the drive. A long-press once
+    // permanently destroyed a field trace this way — never again.
+    expect(await rec.deleteAll(), 0,
+        reason: 'an un-uploaded trace is the only copy and must be kept');
+    var traces = await rec.listTraces();
+    expect(traces.length, 1);
+
+    // Mark it uploaded (as the uploader does) — now it is deletable.
+    final f = traces.first;
+    await f.rename(f.path.replaceAll('.jsonl', '.uploaded.jsonl'));
     expect(await rec.deleteAll(), 1);
     expect(await rec.listTraces(), isEmpty);
   });

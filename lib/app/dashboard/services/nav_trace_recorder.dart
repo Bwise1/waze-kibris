@@ -87,13 +87,20 @@ class NavTraceRecorder {
     }
   }
 
-  /// Delete every saved trace. Refuses while a trip is recording so the
-  /// active file can't be yanked out from under the sink.
+  /// Delete saved traces that have been uploaded. Refuses while a trip is
+  /// recording so the active file can't be yanked out from under the sink.
+  ///
+  /// Only `*.uploaded.jsonl` files are deleted. A trace that never made it
+  /// to the server is the ONLY copy of that drive — a field tester's
+  /// accidental long-press permanently destroyed one before this guard
+  /// existed. Un-uploaded files stay until the upload sweep ships them,
+  /// after which they become deletable.
   Future<int> deleteAll() async {
     if (isRecording) return 0;
     final files = await listTraces();
     var deleted = 0;
     for (final f in files) {
+      if (!f.path.endsWith('.uploaded.jsonl')) continue;
       try {
         await f.delete();
         deleted++;

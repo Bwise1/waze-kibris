@@ -107,15 +107,24 @@ class _TraceShareButtonState extends State<TraceShareButton> {
   /// Long-press: clear the batch after it's been sent. Refused while a
   /// trip is recording so the active file isn't deleted under the sink.
   Future<void> _deleteAll(BuildContext context) async {
+    // Ship first, then clear: converts un-uploaded traces into deletable
+    // ones when there's network, and when there isn't, deleteAll's
+    // uploaded-only rule keeps them safe — a long-press must never destroy
+    // the only copy of a drive.
+    await NavTraceUploader.instance.uploadPending();
     final deleted = await NavTraceRecorder.instance.deleteAll();
+    final remaining = (await NavTraceRecorder.instance.listTraces()).length;
     await _refresh();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(deleted > 0
-            ? 'Deleted $deleted trace(s)'
-            : 'Nothing deleted (recording in progress?)'),
-        duration: const Duration(seconds: 2),
+        content: Text(remaining > 0
+            ? 'Deleted $deleted uploaded trace(s); kept $remaining not yet '
+                'uploaded'
+            : deleted > 0
+                ? 'Deleted $deleted trace(s)'
+                : 'Nothing deleted (recording in progress?)'),
+        duration: const Duration(seconds: 3),
       ),
     );
   }
