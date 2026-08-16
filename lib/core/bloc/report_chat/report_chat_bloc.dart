@@ -159,6 +159,8 @@ class ReportChatBloc extends Bloc<ReportChatEvent, ReportChatState> {
     emit(state.copyWith(loading: true, clearError: true));
     try {
       final messages = await _repository.getReportChatMessages(state.reportId);
+      // Back-out during the fetch closes the bloc; emitting then throws.
+      if (isClosed) return;
       // Server returns newest-first; keep that order for the reversed list.
       final fetched = messages
           .map((m) => ReportChatEntry(localId: 'srv-${m.id}', message: m))
@@ -224,6 +226,7 @@ class ReportChatBloc extends Bloc<ReportChatEvent, ReportChatState> {
     try {
       final confirmed =
           await _repository.postReportChatMessage(state.reportId, text);
+      if (isClosed) return;
       // The socket echo may have landed first.
       final already = state.entries
           .any((e) => e.localId != localId && e.message.id == confirmed.id);
@@ -243,6 +246,7 @@ class ReportChatBloc extends Bloc<ReportChatEvent, ReportChatState> {
       }
     } catch (e) {
       log('ReportChatBloc: send failed: $e');
+      if (isClosed) return;
       final entry = _byLocalId(localId);
       if (entry != null) {
         _replace(localId, entry.copyWith(status: ChatSendStatus.failed), emit);

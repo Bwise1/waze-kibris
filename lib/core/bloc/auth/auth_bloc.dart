@@ -11,6 +11,7 @@ import 'package:waze_kibris/core/bloc/auth/auth_state.dart';
 import 'package:waze_kibris/core/repositories/auth_repository.dart';
 import 'package:waze_kibris/core/res/store_keys.dart';
 import 'package:waze_kibris/core/services/push_notification_service.dart';
+import 'package:waze_kibris/core/services/websocket_service.dart';
 import 'package:waze_kibris/core/utils/user_coordinates.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
@@ -327,8 +328,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     await getIt<PushNotificationService>().unregisterAllOnLogout();
+    // Close the authenticated socket. It is a process-lifetime singleton:
+    // left open, the next user to sign in on this device inherits the
+    // previous user's live chat/report/location frames, and their own
+    // connect() is refused because a channel already exists.
+    await getIt<WebSocketService>().disconnect();
     await _localStorage.delete(StoreKeys.wazeToken);
     await _localStorage.delete(StoreKeys.wazeRefreshToken);
+    // The offline-launch cache must not outlive the account it belongs to.
+    await _localStorage.delete(StoreKeys.cachedUser);
     try {
       await FirebaseAuth.instance.signOut();
     } catch (_) {

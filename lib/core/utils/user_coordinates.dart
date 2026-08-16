@@ -21,7 +21,9 @@ class UserCoordinates {
 
   static Future<bool> handleLocationPermission(
     BuildContext context, {
-    VoidCallbackAction? onTurnOnGPS,
+    // Was VoidCallbackAction (a Flutter Actions class, not a callback) —
+    // impossible to invoke, which is why the old call site crashed.
+    VoidCallback? onTurnOnGPS,
   }) async {
     bool serviceEnabled;
     LocationPermission permission;
@@ -40,12 +42,9 @@ class UserCoordinates {
         ),
       );
 
-      onTurnOnGPS!;
-      //
-      // if (onTurnOnGPS != null) {
-      //   ///call this function out side this function caller to turn on GPS
-      //   onTurnOnGPS;
-      // }
+      // Was `onTurnOnGPS!;` — a bare null-assert that CALLED nothing and
+      // crashed with a null-check error whenever no callback was passed.
+      onTurnOnGPS?.call();
 
       return serviceEnabled;
     }

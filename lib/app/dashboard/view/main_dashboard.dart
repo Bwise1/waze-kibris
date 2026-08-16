@@ -175,7 +175,11 @@ class _MainDashboardState extends State<MainDashboard>
             !_wsConnectAttempted) {
           debugPrint('🔌 WebSocket: connecting from postFrameCallback');
           _wsConnectAttempted = true;
-          _sideEffects.connectWebSocket(isMounted: () => mounted);
+          _sideEffects.connectWebSocket(isMounted: () => mounted).then((ok) {
+            // A bailed attempt (no GPS fix yet) must not latch the guard —
+            // that left the socket silently dead for the whole session.
+            if (!ok && mounted) _wsConnectAttempted = false;
+          });
         }
       }
     });
@@ -574,7 +578,48 @@ class _MainDashboardState extends State<MainDashboard>
                     authState is AuthSuccess &&
                     authState.user != null) {
                   _servicesStarted = true;
-                  setupPositionTracking();
+                  // Denied permission used to vanish into an unhandled async
+                  // error: map with no puck, no reports, no explanation, and
+                  // deniedForever unrecoverable in-app. Surface it with the
+                  // action that actually fixes each case. (Resume from
+                  // Settings auto-retries via didChangeAppLifecycleState.)
+                  setupPositionTracking().catchError((Object e) {
+                    if (!mounted) return;
+                    final msg = e.toString();
+                    final permanent = msg.contains('permanently');
+                    final servicesOff = msg.contains('services are disabled');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          permanent
+                              ? 'Location permission is off. Enable it in '
+                                  'Settings to see yourself on the map.'
+                              : servicesOff
+                                  ? 'Turn on device location to see yourself '
+                                      'on the map.'
+                                  : 'Location permission is needed to show '
+                                      'you on the map.',
+                        ),
+                        duration: const Duration(seconds: 8),
+                        action: SnackBarAction(
+                          label: permanent
+                              ? 'Settings'
+                              : servicesOff
+                                  ? 'Turn on'
+                                  : 'Retry',
+                          onPressed: () {
+                            if (permanent) {
+                              Geolocator.openAppSettings();
+                            } else if (servicesOff) {
+                              Geolocator.openLocationSettings();
+                            } else {
+                              setupPositionTracking().ignore();
+                            }
+                          },
+                        ),
+                      ),
+                    );
+                  });
                   _preloadUserLocation();
                 }
 
@@ -591,7 +636,13 @@ class _MainDashboardState extends State<MainDashboard>
                   debugPrint(
                       '🔌 WebSocket: BlocListener initiating connection.');
                   _wsConnectAttempted = true;
-                  _sideEffects.connectWebSocket(isMounted: () => mounted);
+                  _sideEffects.connectWebSocket(isMounted: () => mounted).then((ok) {
+                    if (!ok && mounted) _wsConnectAttempted = false;
+                  });
+                } else if (authState is LoggedOut) {
+                  // Next sign-in (possibly a different account) must get a
+                  // fresh socket.
+                  _wsConnectAttempted = false;
                 }
               },
             ),

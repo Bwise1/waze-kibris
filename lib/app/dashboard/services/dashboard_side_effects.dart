@@ -225,7 +225,11 @@ class DashboardSideEffects {
   /// One-shot WS connect on auth-ready. Grabs current or last-known
   /// position and opens the socket with the idle radius. The screen calls
   /// this once when it first sees an authenticated user.
-  Future<void> connectWebSocket({required bool Function() isMounted}) async {
+  /// Returns true only if a connection attempt was actually made, so the
+  /// caller can re-arm its once-only guard when we bailed early (no
+  /// position yet, not mounted). Latching the guard on a bailed attempt
+  /// left the socket silently dead for the whole session.
+  Future<bool> connectWebSocket({required bool Function() isMounted}) async {
     debugPrint('🔌 WebSocket: connectWebSocket called');
     final authState = authBloc.state;
     String? userId;
@@ -236,7 +240,7 @@ class DashboardSideEffects {
       debugPrint(
           '🔌 WebSocket: skip connect (not AuthSuccess or no user: '
           '${authState.runtimeType})');
-      return;
+      return false;
     }
 
     try {
@@ -248,7 +252,7 @@ class DashboardSideEffects {
         debugPrint(
             '🔌 WebSocket: skip connect (no position or not mounted). '
             'mounted: ${isMounted()}, position: $position');
-        return;
+        return false;
       }
 
       debugPrint(
@@ -262,9 +266,13 @@ class DashboardSideEffects {
       );
       _lastWsRadiusPushed = _wsRadiusIdleM;
       _lastWsPositionPush = DateTime.now();
+      return true;
     } catch (e, st) {
       debugPrint('🔌 WebSocket: connect failed: $e');
       debugPrint('🔌 WebSocket: $st');
+      // The service's own reconnect loop takes over once a channel existed;
+      // if we never got that far, let the caller re-arm and retry.
+      return false;
     }
   }
 

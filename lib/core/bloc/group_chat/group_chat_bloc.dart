@@ -319,6 +319,8 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
     try {
       final response = await _groupRepository
           .getGroupMessages(state.groupId, limit: _pageSize);
+      // Back-out during the fetch closes the bloc; emitting then throws.
+      if (isClosed) return;
       final fetched = response.data
           .map((m) => ChatEntry(localId: m.id, message: m))
           .toList();
@@ -364,6 +366,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         before: oldest,
         limit: _pageSize,
       );
+      if (isClosed) return;
       final existingIds = state.entries.map((e) => e.message.id).toSet();
       final older = response.data
           .where((m) => !existingIds.contains(m.id))
@@ -426,6 +429,8 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
         text,
         'text',
       );
+      // Send-and-immediately-back is common; the reply lands after close.
+      if (isClosed) return;
       final confirmed = response.data;
       if (confirmed == null) {
         // Server accepted but returned no body — keep the optimistic bubble.
@@ -457,6 +462,7 @@ class GroupChatBloc extends Bloc<GroupChatEvent, GroupChatState> {
       }
     } catch (e) {
       log('GroupChatBloc: send failed: $e');
+      if (isClosed) return;
       final entry = _entryByLocalId(localId);
       if (entry != null) {
         _replace(localId, entry.copyWith(status: ChatSendStatus.failed), emit);

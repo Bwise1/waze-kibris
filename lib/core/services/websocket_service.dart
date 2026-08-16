@@ -71,6 +71,15 @@ class WebSocketService {
   static const int _maxReconnectDelaySeconds = 30;
   static const int _initialReconnectDelaySeconds = 2;
 
+  /// After this many consecutive failures, back off to [_idleRetryDelaySeconds]
+  /// instead of hammering every 30s forever. The classic cause is an expired
+  /// token: the stored token only rotates when some HTTP call trips the
+  /// auth interceptor, so tight WS retries can't fix it — they just burn
+  /// battery. The slow cadence keeps self-healing (the next successful HTTP
+  /// refresh makes a retry succeed) without the radio cost.
+  static const int _fastRetryAttempts = 6;
+  static const int _idleRetryDelaySeconds = 300;
+
   /// Send heartbeat every 25s so proxies/load balancers don't close the connection as idle.
   static const int _heartbeatIntervalSeconds = 25;
 
@@ -195,8 +204,10 @@ class WebSocketService {
 
     status.value = WsStatus.reconnecting;
     _reconnectAttempts++;
-    final delaySeconds =
-        (_initialReconnectDelaySeconds * (1 << _reconnectAttempts.clamp(0, 4)))
+    final delaySeconds = _reconnectAttempts > _fastRetryAttempts
+        ? _idleRetryDelaySeconds
+        : (_initialReconnectDelaySeconds *
+                (1 << _reconnectAttempts.clamp(0, 4)))
             .clamp(_initialReconnectDelaySeconds, _maxReconnectDelaySeconds);
     debugPrint(
         '🔌 WebSocket reconnecting in ${delaySeconds}s (attempt $_reconnectAttempts)');
@@ -230,6 +241,15 @@ class WebSocketService {
     _lastLatitude = latitude;
     _lastLongitude = longitude;
     if (subscribeRadiusM != null) _lastSubscribeRadiusM = subscribeRadiusM;
+
+    // Position pushes only happen while the app is live and authed — if the
+    // socket is down, that's the signal to try again promptly rather than
+    // waiting out the idle backoff.
+    if (_channel == null && !_intentionalDisconnect) {
+      _reconnectAttempts = 0;
+      if (_reconnectTimer == null) _scheduleReconnect();
+      return;
+    }
 
     send({
       'type': 'subscribe',

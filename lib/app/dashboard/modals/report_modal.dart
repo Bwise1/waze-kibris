@@ -558,7 +558,21 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                       builder: (reportContext, state) {
                         return SubmitReportBTN(
                           onPressed: () {
-                            // print(userCoordinate);
+                            // No silent default: `?? 0` used to file a
+                            // POLICE report whenever the user hit submit
+                            // without picking a type — wrong data straight
+                            // into the reports feed.
+                            final selected = _selectedIndex;
+                            if (selected == null) {
+                              ScaffoldMessenger.of(reportContext).showSnackBar(
+                                const SnackBar(
+                                  content:
+                                      Text('Select a report type first'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                              return;
+                            }
 
                             if (authState is UserCoordinate) {
                               debugPrint(
@@ -567,7 +581,7 @@ class _ReportPoliceEventModalState extends State<ReportPoliceEventModal> {
                                     ReportsEvent.submitReportRequested(
                                       longitude: authState.longitude,
                                       latitude: authState.latitude,
-                                      type: reports[_selectedIndex ?? 0]['type']
+                                      type: reports[selected]['type']
                                           .toString(),
                                     ),
                                   );

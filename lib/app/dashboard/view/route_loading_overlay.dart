@@ -9,22 +9,39 @@ class RouteLoadingOverlay extends StatelessWidget {
 
   final String message;
 
-  /// Shows the loading overlay and returns a function to dismiss it
-  /// Use the returned function instead of hide() to ensure proper dismissal
+  /// Shows the loading overlay and returns a function to dismiss it.
+  ///
+  /// The dismiss closure removes exactly the dialog's own route. The old
+  /// version stored the navigator and called a bare pop(): if the user
+  /// backed out (or anything else changed the stack) while routes were
+  /// still fetching, the deferred dismiss popped the map sheet or the
+  /// place-details screen instead of the already-gone spinner — throwing
+  /// the user out of the flow. It's also idempotent, since one error path
+  /// calls it twice.
   static VoidCallback show(BuildContext context, {String? message}) {
-    final navigator = Navigator.of(context, rootNavigator: true);
+    BuildContext? dialogContext;
+    var dismissed = false;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black54,
-      builder: (context) => RouteLoadingOverlay(message: message ?? 'Finding routes...'),
+      useRootNavigator: true,
+      builder: (ctx) {
+        dialogContext = ctx;
+        return RouteLoadingOverlay(message: message ?? 'Finding routes...');
+      },
     );
-    
-    // Return a dismiss function that uses the stored navigator
+
     return () {
-      if (navigator.canPop()) {
-        navigator.pop();
-      }
+      if (dismissed) return;
+      dismissed = true;
+      final ctx = dialogContext;
+      // If the dialog is already gone (or never built), there is nothing
+      // to remove — crucially, nothing ELSE gets popped in its place.
+      if (ctx == null || !ctx.mounted) return;
+      final route = ModalRoute.of(ctx);
+      if (route == null) return;
+      Navigator.of(ctx, rootNavigator: true).removeRoute(route);
     };
   }
 

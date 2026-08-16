@@ -45,7 +45,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
       if (!isClosed) add(const PruneExpiredReports());
     });
 
-    _webSocketService.messages.listen((msg) {
+    _wsSub = _webSocketService.messages.listen((msg) {
       if (msg.type == 'report_update' && msg.content != null) {
         try {
           final json = jsonDecode(msg.content!) as Map<String, dynamic>;
@@ -63,6 +63,7 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
   final AuthBloc authBloc;
   final WebSocketService _webSocketService;
   Timer? _pruneExpiredTimer;
+  StreamSubscription<WsMessage>? _wsSub;
   // final ILocalStorage _localStorage;
   Future<void> _onRequestReportByID(
     GetReportByID event,
@@ -526,6 +527,12 @@ class ReportsBloc extends Bloc<ReportsEvent, ReportState> {
   @override
   Future<void> close() {
     _pruneExpiredTimer?.cancel();
+    // Both of these outlive close() otherwise: the WS subscription keeps
+    // calling add() on a closed bloc (StateError on the next report frame
+    // after a hot-restart/provider rebuild), and the saved-locations retry
+    // timer fires into the dead bloc up to 45s later.
+    _wsSub?.cancel();
+    _savedRetryTimer?.cancel();
     return super.close();
   }
 }

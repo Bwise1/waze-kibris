@@ -24,6 +24,16 @@ class AuthInterceptor extends Interceptor {
   // Queue to hold failed requests while refreshing
   final List<_RequestOptions> _requestQueue = [];
 
+  /// One retry client for post-refresh replays. requestOptions carry
+  /// absolute URLs, so no baseUrl is needed — but timeouts are, or a stalled
+  /// replay hangs its caller's Future forever.
+  static final Dio _retryDio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 20),
+    ),
+  );
+
   @override
   void onRequest(
     RequestOptions options,
@@ -120,11 +130,14 @@ class AuthInterceptor extends Interceptor {
           err.requestOptions.headers['Authorization'] = 'Bearer $newToken';
 
           try {
-            final retryResponse = await Dio().fetch<dynamic>(err.requestOptions);
-            _isRefreshing = false;
+            final retryResponse =
+                await _retryDio.fetch<dynamic>(err.requestOptions);
 
-            // Process queued requests with new token
-            _processQueue(newToken);
+            // Drain the queue BEFORE dropping the refreshing flag: requests
+            // 401-ing while we replay must keep queueing rather than start
+            // a second refresh against the token we just rotated.
+            await _processQueue(newToken);
+            _isRefreshing = false;
 
             handler.resolve(retryResponse);
             return;
@@ -182,15 +195,23 @@ class AuthInterceptor extends Interceptor {
     }
   }
 
-  /// Process all queued requests with the new token
-  void _processQueue(String newToken) async {
-    log('🔄 Processing ${_requestQueue.length} queued requests...');
+  /// Process all queued requests with the new token.
+  ///
+  /// Snapshot-and-clear FIRST, synchronously: the old version iterated the
+  /// live list across awaits and cleared it at the end, so a request queued
+  /// mid-replay was wiped without ever being resolved or rejected — its
+  /// screen's Future hung forever — and a 401 arriving during the loop
+  /// mutated the list being iterated.
+  Future<void> _processQueue(String newToken) async {
+    final queued = List<_RequestOptions>.of(_requestQueue);
+    _requestQueue.clear();
+    log('🔄 Processing ${queued.length} queued requests...');
 
-    for (final queuedRequest in _requestQueue) {
+    for (final queuedRequest in queued) {
       queuedRequest.options.headers['Authorization'] = 'Bearer $newToken';
 
       try {
-        final response = await Dio().fetch<dynamic>(queuedRequest.options);
+        final response = await _retryDio.fetch<dynamic>(queuedRequest.options);
         queuedRequest.handler.resolve(response);
       } catch (e) {
         queuedRequest.handler.reject(
@@ -201,8 +222,6 @@ class AuthInterceptor extends Interceptor {
         );
       }
     }
-
-    _requestQueue.clear();
   }
 
   /// Clear all queued requests on failure

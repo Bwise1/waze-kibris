@@ -110,8 +110,21 @@ class RouteOverviewWidget extends StatelessWidget {
               itemBuilder: (context, index) {
                 final allSteps = _getAllSteps(navigationState.route);
                 final step = allSteps[index];
-                final isCurrentStep = index == navigationState.currentStepIndex;
-                final isPastStep = index < navigationState.currentStepIndex;
+                // currentStepIndex is PER-LEG (it resets to 0 at each
+                // waypoint), while this list is flattened across all legs —
+                // comparing them directly marked leg 2's step 0 as
+                // "current" and showed all of leg 1 as still upcoming after
+                // the first waypoint. Offset by the completed legs' steps.
+                var flattenedCurrent = navigationState.currentStepIndex;
+                for (var leg = 0;
+                    leg < navigationState.currentLegIndex &&
+                        leg < navigationState.route.legs.length;
+                    leg++) {
+                  flattenedCurrent +=
+                      navigationState.route.legs[leg].steps.length;
+                }
+                final isCurrentStep = index == flattenedCurrent;
+                final isPastStep = index < flattenedCurrent;
                 final isLastStep = index == allSteps.length - 1;
 
                 return Container(

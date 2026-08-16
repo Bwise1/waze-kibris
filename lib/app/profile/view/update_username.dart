@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:waze_kibris/common.dart';
@@ -18,21 +19,27 @@ class _UpdateUsernameScreenState extends State<UpdateUsernameScreen> {
   final _lastNameController = TextEditingController();
   bool _saving = false;
   bool _hasPrefilled = false;
+  StreamSubscription<AuthState>? _authSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _fillFromUser();
-      // Subscribe to bloc so we catch AuthSuccess if it arrives after the screen opens
-      context.read<AuthBloc>().stream.listen((state) {
-        if (!_hasPrefilled && state is AuthSuccess) _fillFromUser();
+      // Subscribe to bloc so we catch AuthSuccess if it arrives after the
+      // screen opens. Stored + cancelled in dispose: the old unstored
+      // listener outlived the screen and wrote into disposed
+      // TextEditingControllers on the next AuthSuccess ("used after being
+      // disposed" crash), accumulating one leaked listener per visit.
+      _authSub = context.read<AuthBloc>().stream.listen((state) {
+        if (mounted && !_hasPrefilled && state is AuthSuccess) _fillFromUser();
       });
     });
   }
 
   void _fillFromUser() {
-    if (_hasPrefilled) return;
+    if (_hasPrefilled || !mounted) return;
     final authState = context.read<AuthBloc>().state;
     if (authState is! AuthSuccess || authState.user == null) return;
 
@@ -44,6 +51,7 @@ class _UpdateUsernameScreenState extends State<UpdateUsernameScreen> {
 
   @override
   void dispose() {
+    _authSub?.cancel();
     _firstNameController.dispose();
     _lastNameController.dispose();
     super.dispose();
